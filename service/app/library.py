@@ -599,10 +599,6 @@ async def sync_library_deemix_queue(
         optional_text(item.get("trackId") or item.get("deezerTrackId")): item
         for item in queue_items
     }
-    # Build a lookup of tracks that have a pending manual Deezer download
-    review = require_library_review(database, source_id)
-    tracks_by_spotify_id = {t.spotify_track_id: t for t in review.tracks}
-
     changed_to_downloaded = False
     for job in active_jobs:
         item = items_by_id.get(job.download_id) if job.download_id else None
@@ -632,42 +628,76 @@ async def sync_library_deemix_queue(
             payload={**job.payload, **payload_update},
         )
 
-        # When a manual download completes, immediately try to match via the album folder
-        # reported by Deemix — avoids scanning the entire permanent directory.
-        if mapped_status == "downloaded" and job.match_method == "manual":
-            track = tracks_by_spotify_id.get(job.spotify_track_id)
-            album_folder = optional_text(
-                item.get("albumFolder") or item.get("albumRootFolder")
-            )
-            if track and album_folder and track.status in {"new", "missing"}:
-                payload = job.payload if isinstance(job.payload, dict) else {}
-                matched = find_downloaded_file(
-                    Path(album_folder),
-                    isrc=track.pending_deezer_isrc or payload.get("isrc"),
-                    title=str(payload.get("title") or ""),
-                    artist=str(payload.get("artist") or ""),
-                )
-                if matched:
-                    database.update_library_track(
-                        source_id,
-                        job.spotify_track_id,
-                        status="ready",
-                        staging_file_path=matched,
-                        match_method="manual_deezer",
-                        confidence=100,
-                        pending_deezer_track_id=None,
-                        pending_deezer_isrc=None,
-                        reason="Manually selected Deezer track matched in download folder.",
-                    )
-                    database.update_library_acquisition_job(
-                        source_id, job.spotify_track_id, status="ready", error=None
-                    )
-                    continue
-
         changed_to_downloaded = changed_to_downloaded or mapped_status == "downloaded"
 
+    # Link any completed download (manual *or* auto-resolved) to its file using the
+    # album folder reported by Deemix and direct existence checks — this succeeds on
+    # cloud-synced paths (Dropbox/iCloud) where directory listing is blocked. Also
+    # recovers jobs already stuck at "downloaded" that have left the Deemix queue.
+    _link_downloaded_library_jobs(database, adapter, source_id)
+
+    # Final fallback for local, listable folders only.
     if changed_to_downloaded:
         mark_library_ready_after_scan(database, adapter, source_id)
+
+
+def _link_downloaded_library_jobs(
+    database: LocalDatabase,
+    adapter: RekordboxAdapter,
+    source_id: int,
+) -> None:
+    """Flip "downloaded" Deemix jobs to "ready" by locating their file directly.
+
+    Uses the album folder reported by Deemix (falling back to the permanent
+    folder) and ``find_downloaded_file``'s existence-based lookup, so it works
+    for both the manual Deezer flow and the auto-resolve "Download" button, and
+    on cloud paths where ``scan_audio_files`` cannot list the directory.
+    """
+    review = require_library_review(database, source_id)
+    tracks_by_spotify_id = {t.spotify_track_id: t for t in review.tracks}
+    permanent_dir = adapter.storage_layout().permanent
+    for job in database.list_library_acquisition_jobs(source_id, DEEMIX_PROVIDER):
+        if job.status != "downloaded":
+            continue
+        track = tracks_by_spotify_id.get(job.spotify_track_id)
+        if track is None or track.status not in {"new", "missing"}:
+            continue
+        payload = job.payload if isinstance(job.payload, dict) else {}
+        search_folders: list[str] = []
+        album_folder = optional_text(payload.get("albumFolder"))
+        if album_folder:
+            search_folders.append(album_folder)
+        if permanent_dir not in search_folders:
+            search_folders.append(permanent_dir)
+
+        matched = None
+        for folder in search_folders:
+            matched = find_downloaded_file(
+                Path(folder),
+                isrc=track.pending_deezer_isrc or payload.get("isrc"),
+                title=str(payload.get("title") or track.title or ""),
+                artist=str(payload.get("artist") or ""),
+            )
+            if matched:
+                break
+        if not matched:
+            continue
+
+        is_manual = job.match_method == "manual"
+        database.update_library_track(
+            source_id,
+            job.spotify_track_id,
+            status="ready",
+            staging_file_path=matched,
+            match_method="manual_deezer" if is_manual else "deezer",
+            confidence=100,
+            pending_deezer_track_id=None,
+            pending_deezer_isrc=None,
+            reason="Downloaded Deezer track matched in download folder.",
+        )
+        database.update_library_acquisition_job(
+            source_id, job.spotify_track_id, status="ready", error=None
+        )
 
 
 def _staging_path_exists(path: str | None) -> bool:
