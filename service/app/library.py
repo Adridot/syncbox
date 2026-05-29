@@ -9,14 +9,17 @@ from .acquisition import (
     DeezerResolveResult,
     DeezerResolver,
     DeemixClient,
+    acquisition_job_payload,
     acquisition_status_counts,
+    compact_deezer_payload,
     deezer_candidate_from_payload,
     extract_download_ids,
     extract_queue_items,
     map_deemix_queue_status,
+    match_manual_deezer_jobs,
     optional_text,
 )
-from .audio import scan_audio_files
+from .audio import find_downloaded_file, scan_audio_files
 from .db import LocalDatabase
 from .matching import match_spotify_track
 from .models import (
@@ -453,7 +456,7 @@ async def download_library_tracks(
                 created += 1
             database.upsert_library_acquisition_job(
                 request.source_id,
-                library_acquisition_job_payload(
+                acquisition_job_payload(
                     track,
                     status="acquisition_failed",
                     output_dir=adapter.storage_layout().permanent,
@@ -474,7 +477,7 @@ async def download_library_tracks(
             resolved_tracks.append((track, result))
         database.upsert_library_acquisition_job(
             request.source_id,
-            library_acquisition_job_payload(
+            acquisition_job_payload(
                 track,
                 status=result.status,
                 deezer_track_id=result.candidate.id if result.candidate else None,
@@ -542,6 +545,8 @@ async def queue_library_tracks(
 
     download_ids = extract_download_ids(response)
     for index, (track, result) in enumerate(resolved_tracks):
+        existing_job = database.get_library_acquisition_job(review.source.id, track.spotify_track_id)
+        existing_payload = existing_job.payload if existing_job and isinstance(existing_job.payload, dict) else {}
         database.update_library_acquisition_job(
             review.source.id,
             track.spotify_track_id,
@@ -549,6 +554,7 @@ async def queue_library_tracks(
             download_id=download_ids[index] if index < len(download_ids) else None,
             error=None,
             payload={
+                **existing_payload,
                 **compact_deezer_payload(result.payload or {}),
                 "batchCount": len(download_ids),
             },
@@ -593,6 +599,10 @@ async def sync_library_deemix_queue(
         optional_text(item.get("trackId") or item.get("deezerTrackId")): item
         for item in queue_items
     }
+    # Build a lookup of tracks that have a pending manual Deezer download
+    review = require_library_review(database, source_id)
+    tracks_by_spotify_id = {t.spotify_track_id: t for t in review.tracks}
+
     changed_to_downloaded = False
     for job in active_jobs:
         item = items_by_id.get(job.download_id) if job.download_id else None
@@ -604,6 +614,14 @@ async def sync_library_deemix_queue(
         mapped_status = map_deemix_queue_status(item)
         if mapped_status == job.status:
             continue
+        payload_update: dict[str, Any] = {"queueStatus": mapped_status}
+        if mapped_status == "downloaded":
+            album_folder_val = optional_text(
+                item.get("albumFolder") or item.get("albumRootFolder")
+            )
+            if album_folder_val:
+                payload_update["albumFolder"] = album_folder_val
+
         database.update_library_acquisition_job(
             source_id,
             job.spotify_track_id,
@@ -611,12 +629,54 @@ async def sync_library_deemix_queue(
             error=optional_text(item.get("error") or item.get("message"))
             if mapped_status == "acquisition_failed"
             else None,
-            payload={**job.payload, "queueStatus": mapped_status},
+            payload={**job.payload, **payload_update},
         )
+
+        # When a manual download completes, immediately try to match via the album folder
+        # reported by Deemix — avoids scanning the entire permanent directory.
+        if mapped_status == "downloaded" and job.match_method == "manual":
+            track = tracks_by_spotify_id.get(job.spotify_track_id)
+            album_folder = optional_text(
+                item.get("albumFolder") or item.get("albumRootFolder")
+            )
+            if track and album_folder and track.status in {"new", "missing"}:
+                payload = job.payload if isinstance(job.payload, dict) else {}
+                matched = find_downloaded_file(
+                    Path(album_folder),
+                    isrc=track.pending_deezer_isrc or payload.get("isrc"),
+                    title=str(payload.get("title") or ""),
+                    artist=str(payload.get("artist") or ""),
+                )
+                if matched:
+                    database.update_library_track(
+                        source_id,
+                        job.spotify_track_id,
+                        status="ready",
+                        staging_file_path=matched,
+                        match_method="manual_deezer",
+                        confidence=100,
+                        pending_deezer_track_id=None,
+                        pending_deezer_isrc=None,
+                        reason="Manually selected Deezer track matched in download folder.",
+                    )
+                    database.update_library_acquisition_job(
+                        source_id, job.spotify_track_id, status="ready", error=None
+                    )
+                    continue
+
         changed_to_downloaded = changed_to_downloaded or mapped_status == "downloaded"
 
     if changed_to_downloaded:
         mark_library_ready_after_scan(database, adapter, source_id)
+
+
+def _staging_path_exists(path: str | None) -> bool:
+    if not path:
+        return False
+    try:
+        return Path(path).exists()
+    except (PermissionError, OSError):
+        return False
 
 
 def mark_library_ready_after_scan(
@@ -647,7 +707,14 @@ def mark_library_ready_after_scan(
         if track.status != "ready":
             continue
         job = database.get_library_acquisition_job(source_id, track.spotify_track_id)
-        if track.staging_file_path and track.staging_file_path in available_paths:
+        # Validate the staged file still exists. The scan listing can fail on cloud-synced
+        # paths (Dropbox/iCloud), so fall back to a direct existence check before declaring
+        # the file missing — otherwise a freshly matched track would be reverted to "missing".
+        file_present = bool(track.staging_file_path) and (
+            track.staging_file_path in available_paths
+            or _staging_path_exists(track.staging_file_path)
+        )
+        if file_present:
             if job and job.status != "ready":
                 database.update_library_acquisition_job(
                     source_id,
@@ -704,55 +771,59 @@ def mark_library_ready_after_scan(
                     error=None,
                 )
 
-    # Phase 3: Force-assign for manual Deezer downloads via pre/post diff.
-    # No metadata matching — the user's explicit choice is trusted 100%.
+    # Phase 3: Force-assign for manual Deezer downloads (shared logic with events).
     review = require_library_review(database, source_id)
     claimed = {
         track.staging_file_path
         for track in review.tracks
         if track.staging_file_path and track.status in {"ready", "imported"}
     }
+    match_manual_deezer_jobs(
+        review.tracks,
+        audio_files,
+        claimed,
+        get_job_fn=lambda sid: database.get_library_acquisition_job(source_id, sid),
+        update_track_fn=lambda sid, **kw: database.update_library_track(source_id, sid, **kw),
+        update_job_fn=lambda sid, **kw: database.update_library_acquisition_job(source_id, sid, **kw),
+    )
+
+    # Phase 3b: For tracks with a pending_deezer_track_id whose job stored an albumFolder,
+    # try find_downloaded_file directly on that folder (bypasses scan_audio_files entirely).
+    review = require_library_review(database, source_id)
     for track in review.tracks:
         if track.status not in {"new", "missing"}:
             continue
+        if not track.pending_deezer_track_id:
+            continue
         job = database.get_library_acquisition_job(source_id, track.spotify_track_id)
-        if not job or job.match_method != "manual":
+        if not job:
             continue
-        if job.status not in {"downloaded", "resolved", "queued", "downloading", "ready"}:
+        album_folder = str(job.payload.get("albumFolder") or "") if isinstance(job.payload, dict) else ""
+        if not album_folder:
             continue
-
-        pre = set(job.payload.get("pre_download_files", []) if isinstance(job.payload, dict) else [])
-        job_isrc = job.payload.get("isrc") if isinstance(job.payload, dict) else None
-
-        new_files = [
-            f for f in audio_files
-            if f["file_path"] not in pre and f["file_path"] not in claimed
-        ]
-
-        matched_file = None
-        if len(new_files) == 1:
-            matched_file = new_files[0]
-        elif len(new_files) > 1 and job_isrc:
-            matched_file = next((f for f in new_files if f.get("isrc") == job_isrc), None)
-        # If 0 new files: download not yet visible → skip, retry on next refresh cycle
-
-        if matched_file:
-            claimed.add(matched_file["file_path"])
+        payload = job.payload if isinstance(job.payload, dict) else {}
+        matched = find_downloaded_file(
+            Path(album_folder),
+            isrc=track.pending_deezer_isrc or payload.get("isrc"),
+            title=str(payload.get("title") or ""),
+            artist=str(payload.get("artist") or ""),
+        )
+        if matched and matched not in claimed:
+            claimed.add(matched)
             database.update_library_track(
                 source_id,
                 track.spotify_track_id,
                 status="ready",
-                staging_file_path=matched_file["file_path"],
+                staging_file_path=matched,
                 match_method="manual_deezer",
                 confidence=100,
-                reason="Manually selected Deezer track, file assigned by download diff.",
+                pending_deezer_track_id=None,
+                pending_deezer_isrc=None,
+                reason="Manually selected Deezer track matched in download folder.",
             )
             if job.status != "ready":
                 database.update_library_acquisition_job(
-                    source_id,
-                    track.spotify_track_id,
-                    status="ready",
-                    error=None,
+                    source_id, track.spotify_track_id, status="ready", error=None
                 )
 
 
@@ -799,32 +870,6 @@ def build_library_download_response(
     }
 
 
-def library_acquisition_job_payload(
-    track: LibraryTrackReview,
-    *,
-    status: str,
-    deezer_track_id: str | None = None,
-    confidence: int = 0,
-    match_method: str | None = None,
-    download_id: str | None = None,
-    output_dir: str | None = None,
-    error: str | None = None,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        "spotify_track_id": track.spotify_track_id,
-        "provider": DEEMIX_PROVIDER,
-        "deezer_track_id": deezer_track_id,
-        "status": status,
-        "confidence": confidence,
-        "match_method": match_method,
-        "download_id": download_id,
-        "output_dir": output_dir,
-        "error": error,
-        "payload": payload or {},
-    }
-
-
 def deemix_permanent_settings(audio_dir: Path) -> dict[str, Any]:
     return {
         "downloadPath": str(audio_dir),
@@ -838,24 +883,9 @@ def deemix_permanent_settings(audio_dir: Path) -> dict[str, Any]:
         "overwriteFiles": "rename",
         "bitrateFallback": True,
         "trackNameTemplate": "%artist% - %title%",
+        "albumTrackTemplate": "%artist% - %title%",
+        "playlistTrackTemplate": "%artist% - %title%",
     }
-
-
-def compact_deezer_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    candidate = deezer_candidate_from_payload(payload)
-    if candidate:
-        return {
-            "id": candidate.id,
-            "title": candidate.title,
-            "artist": candidate.artist,
-            "album": candidate.album,
-            "durationMs": candidate.duration_ms,
-        }
-    compact = {}
-    for key in ("id", "title", "title_short", "duration", "isrc", "error"):
-        if key in payload:
-            compact[key] = payload[key]
-    return compact
 
 
 def require_library_source(database: LocalDatabase, source_id: int) -> LibrarySource:

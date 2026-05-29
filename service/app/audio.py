@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +53,69 @@ def first_tag(audio: Any, key: str) -> str | None:
     if isinstance(value, list):
         return str(value[0]) if value else None
     return str(value)
+
+
+def find_downloaded_file(
+    folder: Path,
+    isrc: str | None,
+    title: str,
+    artist: str,
+) -> str | None:
+    """Find a just-downloaded audio file in a specific folder.
+
+    Strategy:
+    1. Construct candidate filenames from the Deemix template (%artist% - %title%)
+       and test existence directly — avoids directory listing which fails on
+       cloud-synced paths (Dropbox CloudStorage, iCloud Drive, etc.).
+    2. Fall back to os.scandir + metadata matching if the directory is listable.
+    """
+    from .matching import text_similarity
+
+    def sanitize_filename(s: str) -> str:
+        return re.sub(r'[\\/:*?"<>|]', "", s).strip()
+
+    # Build expected filenames from the Deemix naming template "%artist% - %title%"
+    # and common variants produced by overwriteFiles:"rename" and playlist numbering.
+    if title:
+        base = f"{sanitize_filename(artist)} - {sanitize_filename(title)}" if artist else sanitize_filename(title)
+        candidate_names = []
+        for ext in (".mp3", ".flac", ".m4a", ".ogg"):
+            candidate_names.append(f"{base}{ext}")
+            for n in range(1, 8):
+                candidate_names.append(f"{base} ({n}){ext}")
+            # Playlist batch adds a track number prefix (e.g. "001 - ")
+            for prefix in ("001", "002", "003"):
+                candidate_names.append(f"{prefix} - {base}{ext}")
+                for n in range(1, 5):
+                    candidate_names.append(f"{prefix} - {base} ({n}){ext}")
+
+        for name in candidate_names:
+            path = folder / name
+            try:
+                if path.exists():
+                    return str(path)
+            except (PermissionError, OSError):
+                pass
+
+    # Fallback: scan directory if accessible (works for local paths)
+    try:
+        for entry in os.scandir(str(folder)):
+            if not entry.is_file():
+                continue
+            if Path(entry.name).suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
+                continue
+            meta = read_audio_metadata(Path(entry.path))
+            if isrc and meta.get("isrc") and meta["isrc"] == isrc:
+                return entry.path
+            if title:
+                title_sim = text_similarity(title, meta.get("title") or "")
+                artist_sim = text_similarity(artist, meta.get("artist") or "")
+                if title_sim >= 80 or (title_sim >= 70 and artist_sim >= 70):
+                    return entry.path
+    except (PermissionError, OSError, FileNotFoundError):
+        pass
+
+    return None
 
 
 def scan_audio_files(audio_dir: Path) -> list[dict[str, Any]]:

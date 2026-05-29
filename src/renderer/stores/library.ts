@@ -8,6 +8,7 @@ import type {
   LibraryTrackReview,
   TagPlaylistMapping,
   TagRule,
+  TrackReview,
 } from "../lib/api";
 import type { MappingFormState, TagRuleFormState } from "../types/ui";
 import { useSystemStore } from "./system";
@@ -25,7 +26,7 @@ export const useLibraryStore = defineStore("library", () => {
   const tagRuleTagInput = ref("");
 
   // Deezer search panel state
-  const deezerSearchTrack = ref<LibraryTrackReview | null>(null);
+  const deezerSearchTrack = ref<TrackReview | null>(null);
   const deezerSearchQuery = ref("");
   const deezerSearchResults = ref<DeezerSearchResult[]>([]);
   const deezerSearchLoading = ref(false);
@@ -177,14 +178,14 @@ export const useLibraryStore = defineStore("library", () => {
     });
   }
 
-  function toggleTrack(track: LibraryTrackReview, selected: boolean): void {
+  function toggleTrack(track: { spotifyTrackId: string }, selected: boolean): void {
     const current = new Set(selectedTrackIds.value);
     if (selected) current.add(track.spotifyTrackId);
     else current.delete(track.spotifyTrackId);
     selectedTrackIds.value = [...current];
   }
 
-  function toggleAllTracks(tracks: LibraryTrackReview[], selected: boolean): void {
+  function toggleAllTracks(tracks: { spotifyTrackId: string }[], selected: boolean): void {
     selectedTrackIds.value = selected ? tracks.map((t) => t.spotifyTrackId) : [];
   }
 
@@ -282,7 +283,7 @@ export const useLibraryStore = defineStore("library", () => {
     tagRuleForm.tags = tagRuleForm.tags.filter((t) => t !== tagName);
   }
 
-  function openDeezerSearch(track: LibraryTrackReview): void {
+  function openDeezerSearch(track: TrackReview): void {
     deezerSearchTrack.value = track;
     deezerSearchQuery.value = [track.title, ...track.artists].join(" ");
     deezerSearchResults.value = [];
@@ -324,7 +325,7 @@ export const useLibraryStore = defineStore("library", () => {
     });
   }
 
-  async function ignoreTrack(track: LibraryTrackReview): Promise<void> {
+  async function ignoreTrack(track: TrackReview): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api || !activeReview.value) return;
@@ -336,6 +337,21 @@ export const useLibraryStore = defineStore("library", () => {
       });
       sources.value = await system.api!.listLibrarySources();
       ui.setMessage("success", "Track ignored.");
+    });
+  }
+
+  async function unignoreTrack(track: TrackReview): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || !activeReview.value) return;
+    await ui.withLoading(async () => {
+      activeReview.value = await system.api!.updateLibraryTracks({
+        sourceId: activeReview.value!.source.id,
+        spotifyTrackIds: [track.spotifyTrackId],
+        status: "new",
+      });
+      sources.value = await system.api!.listLibrarySources();
+      ui.setMessage("success", "Track restored.");
     });
   }
 
@@ -380,5 +396,6 @@ export const useLibraryStore = defineStore("library", () => {
     runDeezerSearch,
     queueDeezerTrack,
     ignoreTrack,
+    unignoreTrack,
   };
 });

@@ -2,20 +2,18 @@
 import {
   CheckCircle2,
   Download,
-  EyeOff,
   Library,
-  Loader2,
   Plus,
   RefreshCw,
-  Search,
   Tags,
   UploadCloud,
   X
 } from "@lucide/vue";
 import { computed, ref } from "vue";
-import type { LibraryTrackReview } from "../lib/api";
+import DeezerSearchPanel from "../components/DeezerSearchPanel.vue";
 import PlaylistCard from "../components/PlaylistCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import TrackReviewTable from "../components/TrackReviewTable.vue";
 import { useLibraryStore } from "../stores/library";
 import { useProposalsStore } from "../stores/proposals";
 import { useSpotifyStore } from "../stores/spotify";
@@ -28,22 +26,12 @@ const library = useLibraryStore();
 const spotify = useSpotifyStore();
 const proposals = useProposalsStore();
 
-const reviewFilter = ref("actionable");
 const drawerTagInput = ref("");
 
 const filteredSpotifyPlaylists = computed(() => {
   const query = ui.searchQuery.trim().toLowerCase();
   if (!query) return spotify.playlists;
   return spotify.playlists.filter((p) => p.name.toLowerCase().includes(query));
-});
-
-const filteredTracks = computed(() => {
-  const tracks = library.activeReview?.tracks ?? [];
-  if (reviewFilter.value === "actionable") {
-    return tracks.filter((t) => ["new", "missing", "ready", "matched", "conflict"].includes(t.status));
-  }
-  if (reviewFilter.value === "all") return tracks;
-  return tracks.filter((t) => t.status === reviewFilter.value);
 });
 
 const selectedTagNames = computed(() => {
@@ -54,48 +42,17 @@ const selectedTagNames = computed(() => {
   return [...names].sort((a, b) => a.localeCompare(b));
 });
 
-const allFilteredSelected = computed(() => {
-  if (filteredTracks.value.length === 0) return false;
-  const selected = new Set(library.selectedTrackIds);
-  return filteredTracks.value.every((t) => selected.has(t.spotifyTrackId));
-});
-
 const pendingLibraryProposals = computed(() =>
   proposals.proposals.filter(
     (p) => p.status === "pending" && p.payload?.sourceId === library.activeReview?.source.id
   )
 );
 
-const reviewFilters = [
-  "actionable", "new", "missing", "ready", "matched", "conflict", "imported", "removed_from_source", "all"
-];
-
 function sourceTone(source: { conflictTrackCount: number; newTrackCount: number; readyTrackCount: number; importedTrackCount: number; status: string }): "ok" | "warn" | "active" | "muted" {
   if (source.conflictTrackCount > 0) return "warn";
   if (source.newTrackCount > 0 || source.readyTrackCount > 0) return "active";
   if (source.importedTrackCount > 0) return "ok";
   return "muted";
-}
-
-function statusTone(status: string): "ok" | "warn" | "active" | "muted" | "neutral" {
-  if (["matched", "ready", "imported"].includes(status)) return "ok";
-  if (["new", "missing", "conflict", "removed_from_source"].includes(status)) return "warn";
-  if (status === "downloading") return "active";
-  return "muted";
-}
-
-function rekordboxTrackTitle(track: LibraryTrackReview): string {
-  if (track.rekordboxTitle) return track.rekordboxTitle;
-  if (track.stagingFilePath) return "Downloaded audio file";
-  if (track.rekordboxContentId) return `Rekordbox ${track.rekordboxContentId}`;
-  return "No Rekordbox match";
-}
-
-function rekordboxTrackDetail(track: LibraryTrackReview): string {
-  if (track.rekordboxArtist) return track.rekordboxArtist;
-  if (track.rekordboxFilePath) return track.rekordboxFilePath;
-  if (track.stagingFilePath) return track.stagingFilePath;
-  return track.reason;
 }
 
 function applyDrawerTag(tagName: string): void {
@@ -324,110 +281,16 @@ function removeDrawerTag(tagName: string): void {
             </div>
           </div>
 
-          <div class="mb-4 flex flex-wrap items-center gap-2">
-            <button
-              v-for="filter in reviewFilters"
-              :key="filter"
-              class="rounded border px-3 py-1.5 text-xs font-bold capitalize transition-colors"
-              :class="
-                reviewFilter === filter
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-outline bg-surface-container-high text-on-surface-variant hover:text-on-surface'
-              "
-              type="button"
-              @click="reviewFilter = filter"
-            >
-              {{ filter.replaceAll("_", " ") }}
-            </button>
-          </div>
-
-          <div class="overflow-auto rounded-lg border border-outline-variant">
-            <table class="w-full min-w-[1120px] border-collapse whitespace-nowrap text-left">
-              <thead class="sticky top-0 z-10 border-b border-outline-variant bg-surface-container-high font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
-                <tr>
-                  <th class="px-4 py-3">
-                    <input
-                      class="h-4 w-4 rounded border-outline-variant bg-surface accent-primary"
-                      type="checkbox"
-                      :checked="allFilteredSelected"
-                      @change="library.toggleAllTracks(filteredTracks, ($event.target as HTMLInputElement).checked)"
-                    />
-                  </th>
-                  <th class="px-4 py-3">Requested Track</th>
-                  <th class="px-4 py-3">Rekordbox / File</th>
-                  <th class="px-4 py-3">Status</th>
-                  <th class="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-outline-variant/50 text-sm">
-                <tr
-                  v-for="track in filteredTracks"
-                  :key="track.id"
-                  class="border-l-2 border-transparent bg-surface transition-colors hover:bg-surface-container-high"
-                  :class="{
-                    'border-l-primary bg-primary/5': track.status === 'ready' || track.status === 'matched',
-                    'border-l-tertiary bg-tertiary/5': track.status === 'new' || track.status === 'missing' || track.status === 'conflict'
-                  }"
-                >
-                  <td class="px-4 py-3 align-top">
-                    <input
-                      class="h-4 w-4 rounded border-outline-variant bg-surface accent-primary"
-                      type="checkbox"
-                      :checked="library.selectedTrackIds.includes(track.spotifyTrackId)"
-                      @change="library.toggleTrack(track, ($event.target as HTMLInputElement).checked)"
-                    />
-                  </td>
-                  <td class="px-4 py-3 align-top">
-                    <strong class="block max-w-[300px] truncate text-on-surface">{{ track.title }}</strong>
-                    <span class="block max-w-[300px] truncate text-xs text-on-surface-variant">
-                      {{ track.artists.join(", ") }}
-                    </span>
-                  </td>
-                  <td class="px-4 py-3 align-top">
-                    <strong class="block max-w-[340px] truncate text-on-surface">{{ rekordboxTrackTitle(track) }}</strong>
-                    <span class="block max-w-[340px] truncate text-xs text-on-surface-variant">
-                      {{ rekordboxTrackDetail(track) }}
-                    </span>
-                    <span v-if="track.rekordboxContentId" class="text-xs text-on-surface-variant">
-                      {{ track.matchMethod ?? "match" }} - {{ track.confidence }}%
-                    </span>
-                  </td>
-                  <td class="px-4 py-3 align-top">
-                    <StatusBadge :tone="statusTone(track.status)">
-                      {{ track.status.replaceAll("_", " ") }}
-                    </StatusBadge>
-                  </td>
-                  <td class="px-4 py-3 align-top">
-                    <div v-if="track.status === 'new' || track.status === 'missing'" class="flex gap-1.5">
-                      <button
-                        class="inline-flex items-center gap-1 rounded border border-outline bg-surface-container px-2 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
-                        type="button"
-                        :title="`Search Deezer for: ${track.title}`"
-                        @click="library.openDeezerSearch(track)"
-                      >
-                        <Search :size="12" aria-hidden="true" />
-                        Search
-                      </button>
-                      <button
-                        class="inline-flex items-center gap-1 rounded border border-outline bg-surface-container px-2 py-1 text-[11px] font-bold text-on-surface-variant transition-colors hover:border-outline-variant"
-                        type="button"
-                        title="Ignore this track"
-                        @click="library.ignoreTrack(track)"
-                      >
-                        <EyeOff :size="12" aria-hidden="true" />
-                        Ignore
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="filteredTracks.length === 0">
-                  <td class="px-4 py-6 text-on-surface-variant" colspan="5">
-                    No tracks for this filter.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <TrackReviewTable
+            :tracks="library.activeReview?.tracks ?? []"
+            :selected-ids="library.selectedTrackIds"
+            :show-tag-column="true"
+            @search-deezer="library.openDeezerSearch($event)"
+            @ignore="library.ignoreTrack($event)"
+            @unignore="library.unignoreTrack($event)"
+            @toggle-select="(track, checked) => library.toggleTrack(track, checked)"
+            @toggle-select-all="(tracks, checked) => library.toggleAllTracks(tracks, checked)"
+          />
 
           <div v-if="pendingLibraryProposals.length > 0" class="mt-6 rounded-lg border border-tertiary/30 bg-tertiary/5 p-4">
             <h3 class="mb-2 font-bold text-on-surface">Pending Removal Proposals</h3>
@@ -566,80 +429,16 @@ function removeDrawerTag(tagName: string): void {
     </aside>
 
     <!-- Deezer Search Panel — slides in from right, takes priority over batch tagging -->
-    <aside
+    <DeezerSearchPanel
       v-if="library.deezerSearchTrack"
-      class="flex h-full w-[420px] shrink-0 flex-col border-l border-outline-variant bg-surface-container shadow-2xl"
-    >
-      <div class="flex items-center justify-between border-b border-outline-variant p-4">
-        <div>
-          <h2 class="text-base font-bold text-on-surface">Search Deezer</h2>
-          <p class="mt-0.5 max-w-[280px] truncate text-xs text-on-surface-variant">
-            {{ library.deezerSearchTrack.title }} — {{ library.deezerSearchTrack.artists.join(", ") }}
-          </p>
-        </div>
-        <button
-          class="grid h-8 w-8 place-items-center rounded border border-outline bg-surface text-on-surface-variant hover:border-primary"
-          type="button"
-          @click="library.closeDeezerSearch()"
-        >
-          <X :size="16" aria-hidden="true" />
-        </button>
-      </div>
-
-      <div class="border-b border-outline-variant p-4">
-        <form class="flex gap-2" @submit.prevent="library.runDeezerSearch()">
-          <input
-            class="min-w-0 flex-1 rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
-            v-model="library.deezerSearchQuery"
-            type="text"
-            placeholder="Search query…"
-          />
-          <button
-            class="inline-flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
-            type="submit"
-            :disabled="library.deezerSearchLoading"
-          >
-            <Loader2 v-if="library.deezerSearchLoading" :size="15" class="animate-spin" aria-hidden="true" />
-            <Search v-else :size="15" aria-hidden="true" />
-            Search
-          </button>
-        </form>
-      </div>
-
-      <div class="flex-1 overflow-y-auto p-4">
-        <div v-if="library.deezerSearchResults.length === 0 && !library.deezerSearchLoading" class="py-8 text-center text-sm text-on-surface-variant">
-          <p v-if="library.deezerSearchQuery">No results. Try a different query.</p>
-          <p v-else>Enter a search query and press Search.</p>
-        </div>
-
-        <div class="flex flex-col gap-3">
-          <div
-            v-for="result in library.deezerSearchResults"
-            :key="result.id"
-            class="rounded-lg border border-outline-variant bg-surface p-3"
-          >
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <strong class="block truncate text-sm text-on-surface">{{ result.title }}</strong>
-                <span class="block truncate text-xs text-on-surface-variant">{{ result.artist }}</span>
-                <span v-if="result.album" class="block truncate text-[11px] text-on-surface-variant">{{ result.album }}</span>
-                <span v-if="result.durationMs" class="text-[10px] text-on-surface-variant">
-                  {{ Math.floor(result.durationMs / 60000) }}:{{ String(Math.floor((result.durationMs % 60000) / 1000)).padStart(2, "0") }}
-                </span>
-              </div>
-              <button
-                class="shrink-0 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-[0_2px_8px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02] disabled:opacity-60"
-                type="button"
-                :disabled="ui.loading"
-                @click="library.queueDeezerTrack(result.id)"
-              >
-                <Download :size="13" aria-hidden="true" />
-                Download
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </aside>
+      :track="library.deezerSearchTrack"
+      :query="library.deezerSearchQuery"
+      :loading="library.deezerSearchLoading"
+      :results="library.deezerSearchResults"
+      @update:query="library.deezerSearchQuery = $event"
+      @search="library.runDeezerSearch()"
+      @queue="library.queueDeezerTrack($event)"
+      @close="library.closeDeezerSearch()"
+    />
   </div>
 </template>

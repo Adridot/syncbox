@@ -4,6 +4,8 @@ export type DeezerSearchResult = {
   artist: string;
   album?: string | null;
   durationMs?: number | null;
+  coverUrl?: string | null;
+  previewUrl?: string | null;
 };
 
 export type HealthResponse = {
@@ -67,6 +69,26 @@ export type SyncProposal = {
   reason: string;
   payload: Record<string, unknown>;
   createdAt: string;
+};
+
+export type TrackReview = {
+  id: number;
+  spotifyTrackId: string;
+  spotifyUri: string;
+  title: string;
+  artists: string[];
+  durationMs: number;
+  isrc?: string | null;
+  status: string;
+  rekordboxContentId?: string | null;
+  rekordboxTitle?: string | null;
+  rekordboxArtist?: string | null;
+  rekordboxFilePath?: string | null;
+  matchMethod?: string | null;
+  confidence: number;
+  stagingFilePath?: string | null;
+  tags: string[];
+  reason: string;
 };
 
 export type LibrarySource = {
@@ -557,6 +579,14 @@ export class ApiClient {
 
   async retryAcquisition(eventId: number): Promise<EventAcquisitionResponse> {
     return this.post(`/api/events/${eventId}/acquisition/retry`, {});
+  }
+
+  async searchEventDeezer(eventId: number, query: string): Promise<DeezerSearchResult[]> {
+    return this.get(`/api/events/${eventId}/search-deezer?query=${encodeURIComponent(query)}`);
+  }
+
+  async queueEventDeezerTrack(eventId: number, spotifyTrackId: string, deezerTrackId: string): Promise<{ queued: number; title?: string; artist?: string }> {
+    return this.post(`/api/events/${eventId}/tracks/${spotifyTrackId}/queue-deezer`, { deezerTrackId });
   }
 
   async createLiveImport(input: { eventName: string }): Promise<LiveImportPackage> {

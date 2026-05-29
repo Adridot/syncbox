@@ -330,6 +330,8 @@ class LibraryTrackReview(BaseModel):
     staging_file_path: str | None = Field(default=None, alias="stagingFilePath")
     tags: list[str] = Field(default_factory=list)
     reason: str
+    pending_deezer_track_id: str | None = Field(default=None, alias="pendingDeezerTrackId")
+    pending_deezer_isrc: str | None = Field(default=None, alias="pendingDeezerIsrc")
 
 
 class LibraryReview(BaseModel):
@@ -405,6 +407,8 @@ class DeezerSearchResult(BaseModel):
     artist: str
     album: str | None = None
     duration_ms: int | None = Field(default=None, alias="durationMs")
+    cover_url: str | None = Field(default=None, alias="coverUrl")
+    preview_url: str | None = Field(default=None, alias="previewUrl")
 
 
 class SpotifyTrack(BaseModel):

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
+from .audio import scan_audio_files
 from .db import LocalDatabase
 from .event_import import require_event_review, scan_event_staging
 from .matching import duration_score, text_similarity
@@ -33,6 +34,8 @@ class DeezerTrackCandidate:
     album: str | None
     duration_ms: int | None
     payload: dict[str, Any]
+    cover_url: str | None = None
+    preview_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -383,6 +386,8 @@ async def queue_resolved_tracks(
 
     download_ids = extract_download_ids(response)
     for index, (track, result) in enumerate(resolved_tracks):
+        existing_job = database.get_acquisition_job(review.id, track.spotify_track_id, DEEMIX_PROVIDER)
+        existing_payload = existing_job.payload if existing_job and isinstance(existing_job.payload, dict) else {}
         database.update_acquisition_job(
             review.id,
             track.spotify_track_id,
@@ -390,6 +395,7 @@ async def queue_resolved_tracks(
             download_id=download_ids[index] if index < len(download_ids) else None,
             error=None,
             payload={
+                **existing_payload,
                 **compact_deezer_payload(result.payload or {}),
                 "batchCount": len(download_ids),
             },
@@ -458,6 +464,66 @@ async def sync_deemix_queue(
         mark_ready_tracks_after_scan(database, event_id)
 
 
+def match_manual_deezer_jobs(
+    tracks: list[Any],
+    audio_files: list[dict[str, Any]],
+    claimed: set[str],
+    *,
+    get_job_fn: Callable[[str], AcquisitionJob | None],
+    update_track_fn: Callable[..., None],
+    update_job_fn: Callable[..., None],
+) -> None:
+    """Phase 3 (shared): force-assign downloaded files to tracks with manual Deezer jobs.
+
+    Matches by ISRC first (exact), then by Deezer title+artist (fuzzy, 80% threshold).
+    This is reliable across concurrent downloads because it uses stored Deezer metadata,
+    not Spotify metadata or timing-dependent file scanning.
+    """
+    for track in tracks:
+        if track.status not in {"new", "missing"}:
+            continue
+        job = get_job_fn(track.spotify_track_id)
+        if not job or job.match_method != "manual":
+            continue
+        if job.status not in {"downloaded", "resolved", "queued", "downloading", "ready"}:
+            continue
+
+        payload = job.payload if isinstance(job.payload, dict) else {}
+        job_isrc: str | None = payload.get("isrc") or None
+        job_title: str = str(payload.get("title") or "")
+        job_artist: str = str(payload.get("artist") or "")
+
+        matched_file = None
+        unclaimed = [f for f in audio_files if f["file_path"] not in claimed]
+
+        if job_isrc:
+            matched_file = next((f for f in unclaimed if f.get("isrc") == job_isrc), None)
+
+        if not matched_file and job_title:
+            best_score = 0
+            for f in unclaimed:
+                title_score = text_similarity(job_title, f.get("title") or "")
+                artist_score = text_similarity(job_artist, f.get("artist") or "")
+                combined = round(title_score * 0.65 + artist_score * 0.35)
+                if combined > best_score:
+                    best_score = combined
+                    if combined >= 80:
+                        matched_file = f
+
+        if matched_file:
+            claimed.add(matched_file["file_path"])
+            update_track_fn(
+                track.spotify_track_id,
+                status="ready",
+                staging_file_path=matched_file["file_path"],
+                match_method="manual_deezer",
+                confidence=100,
+                reason="Manually selected Deezer track matched by Deezer metadata.",
+            )
+            if job.status != "ready":
+                update_job_fn(track.spotify_track_id, status="ready", error=None)
+
+
 def mark_ready_tracks_after_scan(database: LocalDatabase, event_id: int) -> None:
     review = scan_event_staging(database, event_id)
     ready_ids = {
@@ -477,6 +543,23 @@ def mark_ready_tracks_after_scan(database: LocalDatabase, event_id: int) -> None
                 status="acquisition_failed",
                 error="Downloaded file is missing from the event folder.",
             )
+
+    # Phase 3: force-assign for manual Deezer downloads (same logic as library).
+    review = require_event_review(database, event_id)
+    audio_files = scan_audio_files(Path(review.audio_dir))
+    claimed = {
+        track.staging_file_path
+        for track in review.tracks
+        if track.staging_file_path and track.status in {"ready", "applied"}
+    }
+    match_manual_deezer_jobs(
+        review.tracks,
+        audio_files,
+        claimed,
+        get_job_fn=lambda sid: database.get_acquisition_job(event_id, sid, DEEMIX_PROVIDER),
+        update_track_fn=lambda sid, **kw: database.update_event_track(event_id, sid, **kw),
+        update_job_fn=lambda sid, **kw: database.update_acquisition_job(event_id, sid, **kw),
+    )
 
 
 def build_acquisition_response(
@@ -552,13 +635,17 @@ def acquisition_job_payload(
 def compact_deezer_payload(payload: dict[str, Any]) -> dict[str, Any]:
     candidate = deezer_candidate_from_payload(payload)
     if candidate:
-        return {
+        result: dict[str, Any] = {
             "id": candidate.id,
             "title": candidate.title,
             "artist": candidate.artist,
             "album": candidate.album,
             "durationMs": candidate.duration_ms,
         }
+        isrc = str(payload.get("isrc") or "").strip()
+        if isrc:
+            result["isrc"] = isrc
+        return result
     compact = {}
     for key in ("id", "title", "title_short", "duration", "isrc", "error"):
         if key in payload:
@@ -579,6 +666,8 @@ def deemix_event_settings(audio_dir: Path) -> dict[str, Any]:
         "overwriteFiles": "rename",
         "bitrateFallback": True,
         "trackNameTemplate": "%artist% - %title%",
+        "albumTrackTemplate": "%artist% - %title%",
+        "playlistTrackTemplate": "%artist% - %title%",
     }
 
 
@@ -595,6 +684,8 @@ def deezer_candidate_from_payload(payload: dict[str, Any]) -> DeezerTrackCandida
         album=optional_text(album.get("title")),
         duration_ms=int(duration) * 1000 if duration is not None else None,
         payload=payload,
+        cover_url=optional_text(album.get("cover_medium") or album.get("cover")),
+        preview_url=optional_text(payload.get("preview")),
     )
 
 
@@ -665,3 +756,54 @@ def optional_text(value: object) -> str | None:
         return None
     text = str(value)
     return text or None
+
+
+async def queue_event_manual_deezer(
+    database: LocalDatabase,
+    event_id: int,
+    spotify_track_id: str,
+    deezer_track_id: str,
+    *,
+    deemix_client: DeemixClient | None = None,
+) -> dict[str, Any]:
+    """Queue a manually selected Deezer track for an event track download.
+
+    Stores {isrc, title, artist} in the job payload so Phase 3 can match the downloaded
+    file to this track regardless of timing or Deezer vs Spotify title differences.
+    """
+    review = require_event_review(database, event_id)
+    track = next((t for t in review.tracks if t.spotify_track_id == spotify_track_id), None)
+    if track is None:
+        raise KeyError(f"Track {spotify_track_id} not found in event {event_id}.")
+
+    resolver = DeezerResolver()
+    payload = await resolver._get(f"/track/{deezer_track_id}")
+    candidate = deezer_candidate_from_payload(payload)
+    if candidate is None:
+        raise ValueError(f"Deezer track {deezer_track_id} not found.")
+
+    deezer_isrc = str(payload.get("isrc") or "").strip() or None
+    database.upsert_acquisition_job(
+        event_id,
+        acquisition_job_payload(
+            track,
+            status="resolved",
+            deezer_track_id=candidate.id,
+            confidence=100,
+            match_method="manual",
+            output_dir=review.audio_dir,
+            payload={"isrc": deezer_isrc, "title": candidate.title, "artist": candidate.artist},
+        ),
+    )
+
+    result = DeezerResolveResult(
+        status="resolved",
+        confidence=100,
+        match_method="manual",
+        candidate=candidate,
+    )
+    client = deemix_client or DeemixClient()
+    await queue_resolved_tracks(database, review, client, [(track, result)])
+    await refresh_acquisition_jobs(database, event_id, deemix_client=client)
+
+    return {"queued": 1, "deezerTrackId": candidate.id, "title": candidate.title, "artist": candidate.artist}

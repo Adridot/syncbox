@@ -13,8 +13,10 @@ from .acquisition import (
     DeemixClient,
     DeezerResolver,
     DeezerResolveResult,
+    acquisition_job_payload,
     deezer_candidate_from_payload,
     get_deemix_status,
+    queue_event_manual_deezer,
     refresh_acquisition_jobs,
     retry_acquisition,
     run_auto_acquisition,
@@ -65,12 +67,10 @@ from .event_import import (
     require_event_review,
     scan_event_staging,
 )
-from .audio import scan_audio_files
 from .live_import import build_live_import_package
 from .library import (
     deemix_permanent_settings,
     download_library_tracks,
-    library_acquisition_job_payload,
     queue_library_tracks,
     refresh_library_acquisition_jobs,
     require_library_review,
@@ -238,6 +238,8 @@ async def search_deezer(query: str = Query(..., min_length=1)) -> list[dict[str,
                 "artist": candidate.artist,
                 "album": candidate.album,
                 "durationMs": candidate.duration_ms,
+                "coverUrl": candidate.cover_url,
+                "previewUrl": candidate.preview_url,
             })
     return results
 
@@ -275,11 +277,18 @@ async def queue_library_deezer_track(
         candidate=candidate,
     )
     deezer_isrc = str(payload.get("isrc") or "").strip() or None
-    permanent_dir = Path(adapter.storage_layout().permanent)
-    existing_files = sorted(f["file_path"] for f in scan_audio_files(permanent_dir))
+
+    # Store the chosen Deezer track on the library_track itself so matching survives job clearing
+    database.update_library_track(
+        source_id,
+        spotify_track_id,
+        pending_deezer_track_id=candidate.id,
+        pending_deezer_isrc=deezer_isrc,
+    )
+
     database.upsert_library_acquisition_job(
         source_id,
-        library_acquisition_job_payload(
+        acquisition_job_payload(
             track,
             status="resolved",
             deezer_track_id=candidate.id,
@@ -290,7 +299,6 @@ async def queue_library_deezer_track(
                 "isrc": deezer_isrc,
                 "title": candidate.title,
                 "artist": candidate.artist,
-                "pre_download_files": existing_files,
             },
         ),
     )
@@ -628,6 +636,45 @@ def repair_event_rekordbox_structure(event_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {"eventId": event_id, **repair_result}
+
+
+@app.get("/api/events/{event_id}/search-deezer", response_model=list[DeezerSearchResult])
+async def search_event_deezer(event_id: int, query: str = Query(..., min_length=1)) -> list[dict[str, Any]]:
+    resolver = DeezerResolver()
+    try:
+        payload = await resolver._get("/search", params={"q": query.strip(), "limit": 15})
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Deezer search failed: {exc}") from exc
+    results = []
+    for item in payload.get("data") or []:
+        candidate = deezer_candidate_from_payload(item)
+        if candidate:
+            results.append({
+                "id": candidate.id,
+                "title": candidate.title,
+                "artist": candidate.artist,
+                "album": candidate.album,
+                "durationMs": candidate.duration_ms,
+                "coverUrl": candidate.cover_url,
+                "previewUrl": candidate.preview_url,
+            })
+    return results
+
+
+@app.post("/api/events/{event_id}/tracks/{spotify_track_id}/queue-deezer")
+async def queue_event_deezer_track(
+    event_id: int,
+    spotify_track_id: str,
+    deezer_track_id: str = Body(..., embed=True, alias="deezerTrackId"),
+) -> dict[str, Any]:
+    try:
+        return await queue_event_manual_deezer(database, event_id, spotify_track_id, deezer_track_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Download queue failed: {exc}") from exc
 
 
 @app.post("/api/live-imports", response_model=LiveImportPackage)

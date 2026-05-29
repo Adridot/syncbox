@@ -278,6 +278,20 @@ class LocalDatabase:
                 """,
                 (now,),
             )
+            # Incremental migrations: add columns not present in the initial schema
+            existing_cols = {
+                r[1]
+                for r in connection.execute("PRAGMA table_info(library_tracks)").fetchall()
+            }
+            if "pending_deezer_track_id" not in existing_cols:
+                connection.execute(
+                    "ALTER TABLE library_tracks ADD COLUMN pending_deezer_track_id TEXT"
+                )
+            if "pending_deezer_isrc" not in existing_cols:
+                connection.execute(
+                    "ALTER TABLE library_tracks ADD COLUMN pending_deezer_isrc TEXT"
+                )
+
             connection.execute(
                 """
                 INSERT INTO library_sources (
@@ -811,6 +825,8 @@ class LocalDatabase:
             "tags_json",
             "reason",
             "payload_json",
+            "pending_deezer_track_id",
+            "pending_deezer_isrc",
         }
         updates = {key: value for key, value in values.items() if key in allowed}
         if not updates:
@@ -1880,6 +1896,8 @@ def library_track_from_row(row: sqlite3.Row) -> LibraryTrackReview:
         stagingFilePath=row["staging_file_path"],
         tags=json.loads(str(row["tags_json"])),
         reason=str(row["reason"]),
+        pendingDeezerTrackId=row["pending_deezer_track_id"] if "pending_deezer_track_id" in row.keys() else None,
+        pendingDeezerIsrc=row["pending_deezer_isrc"] if "pending_deezer_isrc" in row.keys() else None,
     )
 
 

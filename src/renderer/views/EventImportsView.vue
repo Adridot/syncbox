@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Trash2
 } from "@lucide/vue";
+import DeezerSearchPanel from "../components/DeezerSearchPanel.vue";
 import EventCard from "../components/EventCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import TrackReviewTable from "../components/TrackReviewTable.vue";
@@ -18,8 +19,6 @@ import { useUiStore } from "../stores/ui";
 const ui = useUiStore();
 const system = useSystemStore();
 const events = useEventsStore();
-
-const reviewFilters = ["all", "matched", "ready", "applied", "missing", "ambiguous", "ignored"];
 
 function eventStatusTone(event: { status: string; readyTracks: number; totalTracks: number }): "ok" | "warn" | "active" {
   if (event.status === "applied") return "ok";
@@ -222,32 +221,17 @@ async function openDesktopPath(path: string): Promise<void> {
           </div>
         </div>
 
-        <!-- Filter tabs -->
-        <div class="flex flex-wrap gap-1 border-b border-outline-variant bg-surface px-4 py-2">
-          <button
-            v-for="filter in reviewFilters"
-            :key="filter"
-            class="rounded border px-2.5 py-1 text-[11px] font-bold capitalize transition-colors"
-            :class="
-              events.reviewFilter === filter
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-outline bg-surface-container-high text-on-surface-variant hover:text-on-surface'
-            "
-            type="button"
-            @click="events.reviewFilter = filter"
-          >
-            {{ filter }}
-          </button>
-        </div>
-
-        <!-- Track table — takes remaining height -->
+        <!-- Track table with filters/pagination (Actionable/Ready/All) — takes remaining height -->
         <div class="min-h-0 flex-1 overflow-auto p-4">
           <TrackReviewTable
-            :active-event="events.activeEvent"
-            :tracks="events.filteredTracks"
+            :tracks="events.activeEvent.tracks"
             :acquisition-jobs="events.acquisitionJobs"
+            :staging-files="events.activeEvent.stagingFiles"
             @accept-suggested-match="events.acceptSuggestedMatch($event)"
             @assign-staging-file="(track, filePath) => events.assignStagingFile(track, filePath)"
+            @search-deezer="events.openDeezerSearch($event)"
+            @ignore="events.ignoreTrack($event)"
+            @unignore="events.unignoreTrack($event)"
           />
 
           <div v-if="events.activeEvent.stagingFiles.length > 0" class="mt-4">
@@ -278,5 +262,18 @@ async function openDesktopPath(path: string): Promise<void> {
         Select an event import to review tracks, files, and downloads.
       </div>
     </div>
+
+    <!-- Deezer Search Panel for events -->
+    <DeezerSearchPanel
+      v-if="events.deezerSearchTrack"
+      :track="events.deezerSearchTrack"
+      :query="events.deezerSearchQuery"
+      :loading="events.deezerSearchLoading"
+      :results="events.deezerSearchResults"
+      @update:query="events.deezerSearchQuery = $event"
+      @search="events.runDeezerSearch()"
+      @queue="events.queueDeezerTrack($event)"
+      @close="events.closeDeezerSearch()"
+    />
   </div>
 </template>

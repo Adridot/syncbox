@@ -2,11 +2,13 @@ import { defineStore } from "pinia";
 import { computed, reactive, ref } from "vue";
 import type {
   AcquisitionJob,
+  DeezerSearchResult,
   EventReview,
   EventSummary,
   EventTrackReview,
   GlobalAcquisitionJob,
   LiveImportPackage,
+  TrackReview,
 } from "../lib/api";
 import type { ImportFormState } from "../types/ui";
 import { useSystemStore } from "./system";
@@ -18,18 +20,14 @@ export const useEventsStore = defineStore("events", () => {
   const activeEvent = ref<EventReview | null>(null);
   const acquisitionJobs = ref<AcquisitionJob[]>([]);
   const globalAcquisitionJobs = ref<GlobalAcquisitionJob[]>([]);
+  const deezerSearchTrack = ref<TrackReview | null>(null);
+  const deezerSearchQuery = ref("");
+  const deezerSearchResults = ref<DeezerSearchResult[]>([]);
+  const deezerSearchLoading = ref(false);
   const liveImportPackage = ref<LiveImportPackage | null>(null);
-  const reviewFilter = ref("all");
-
   const importForm = reactive<ImportFormState>({
     playlistUrl: "",
     eventName: "",
-  });
-
-  const filteredTracks = computed(() => {
-    if (!activeEvent.value) return [];
-    if (reviewFilter.value === "all") return activeEvent.value.tracks;
-    return activeEvent.value.tracks.filter((t) => t.status === reviewFilter.value);
   });
 
   const readyToApply = computed(() => {
@@ -195,7 +193,7 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
-  async function assignStagingFile(track: EventTrackReview, value: string): Promise<void> {
+  async function assignStagingFile(track: TrackReview, value: string): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api || !activeEvent.value || !value) return;
@@ -223,7 +221,7 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
-  async function acceptSuggestedMatch(track: EventTrackReview): Promise<void> {
+  async function acceptSuggestedMatch(track: TrackReview): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api || !activeEvent.value || !track.rekordboxContentId) return;
@@ -237,15 +235,88 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
+  function openDeezerSearch(track: TrackReview): void {
+    deezerSearchTrack.value = track;
+    deezerSearchQuery.value = `${track.artists[0] ?? ""} ${track.title}`.trim();
+    deezerSearchResults.value = [];
+  }
+
+  function closeDeezerSearch(): void {
+    deezerSearchTrack.value = null;
+    deezerSearchQuery.value = "";
+    deezerSearchResults.value = [];
+  }
+
+  async function runDeezerSearch(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || !activeEvent.value || !deezerSearchQuery.value.trim()) return;
+    deezerSearchLoading.value = true;
+    try {
+      deezerSearchResults.value = await system.api.searchEventDeezer(
+        activeEvent.value.id,
+        deezerSearchQuery.value.trim()
+      );
+    } catch (err) {
+      ui.setMessage("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      deezerSearchLoading.value = false;
+    }
+  }
+
+  async function queueDeezerTrack(deezerTrackId: string): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || !activeEvent.value || !deezerSearchTrack.value) return;
+    await ui.withLoading(async () => {
+      const result = await system.api!.queueEventDeezerTrack(
+        activeEvent.value!.id,
+        deezerSearchTrack.value!.spotifyTrackId,
+        deezerTrackId
+      );
+      closeDeezerSearch();
+      await refreshActiveEvent();
+      ui.setMessage("success", `Queued: ${result.title}`);
+    });
+  }
+
+  async function ignoreTrack(track: TrackReview): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || !activeEvent.value) return;
+    await ui.withLoading(async () => {
+      activeEvent.value = await system.api!.updateEventTrack(activeEvent.value!.id, {
+        spotifyTrackId: track.spotifyTrackId,
+        status: "ignored",
+      });
+      ui.setMessage("success", "Track ignored.");
+    });
+  }
+
+  async function unignoreTrack(track: TrackReview): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || !activeEvent.value) return;
+    await ui.withLoading(async () => {
+      activeEvent.value = await system.api!.updateEventTrack(activeEvent.value!.id, {
+        spotifyTrackId: track.spotifyTrackId,
+        status: "missing",
+      });
+      ui.setMessage("success", "Track restored.");
+    });
+  }
+
   return {
     summaries,
     activeEvent,
     acquisitionJobs,
     globalAcquisitionJobs,
     liveImportPackage,
-    reviewFilter,
     importForm,
-    filteredTracks,
+    deezerSearchTrack,
+    deezerSearchQuery,
+    deezerSearchResults,
+    deezerSearchLoading,
     readyToApply,
     acquisitionCounts,
     refreshSummaries,
@@ -262,5 +333,11 @@ export const useEventsStore = defineStore("events", () => {
     assignStagingFile,
     acceptSuggestedMatch,
     clearDownloads,
+    openDeezerSearch,
+    closeDeezerSearch,
+    runDeezerSearch,
+    queueDeezerTrack,
+    ignoreTrack,
+    unignoreTrack,
   };
 });
