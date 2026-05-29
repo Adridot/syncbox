@@ -343,12 +343,18 @@ class RekordboxAdapter:
             database.close()
 
     def preview_event_delete(self, review: EventReview) -> EventDeletePreview:
+        assert_rekordbox_can_mutate()
         try:
             from pyrekordbox import Rekordbox6Database
         except Exception as exc:
             raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
 
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
+        try:
+            database = Rekordbox6Database(db_dir=str(self.database_dir))
+        except Exception as exc:
+            raise RuntimeError(
+                f"Cannot read Rekordbox database: {exc} — close Rekordbox and retry"
+            ) from exc
         try:
             plan = build_event_delete_plan(
                 database,

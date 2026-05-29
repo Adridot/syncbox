@@ -1,44 +1,28 @@
 <script setup lang="ts">
 import { AlertTriangle, CheckCircle2, Clock, FileAudio, RefreshCw, Search } from "@lucide/vue";
 import { computed } from "vue";
-import type {
-  DeemixStatus,
-  EventReview,
-  EventSummary,
-  EventTrackReview,
-  GlobalAcquisitionJob,
-  LibraryReview,
-  SyncProposal
-} from "../lib/api";
-import type { ViewKey } from "../types/ui";
+import type { GlobalAcquisitionJob } from "../lib/api";
 import StatusBadge from "../components/StatusBadge.vue";
+import { useEventsStore } from "../stores/events";
+import { useLibraryStore } from "../stores/library";
+import { useProposalsStore } from "../stores/proposals";
+import { useSystemStore } from "../stores/system";
+import { useUiStore } from "../stores/ui";
 
-const props = defineProps<{
-  activeEvent: EventReview | null;
-  activeLibraryReview: LibraryReview | null;
-  eventSummaries: EventSummary[];
-  acquisitionJobs: GlobalAcquisitionJob[];
-  deemixStatus: DeemixStatus | null;
-  proposals: SyncProposal[];
-}>();
-
-const emit = defineEmits<{
-  changeView: [view: ViewKey];
-  openEvent: [event: EventSummary];
-  downloadMissingTracks: [];
-  refreshEventFolder: [];
-  acceptSuggestedMatch: [track: EventTrackReview];
-  resolveProposal: [proposalId: number, status: string];
-}>();
+const ui = useUiStore();
+const system = useSystemStore();
+const events = useEventsStore();
+const library = useLibraryStore();
+const proposals = useProposalsStore();
 
 const pendingProposals = computed(() =>
-  props.proposals.filter((proposal) => proposal.status === "pending")
+  proposals.proposals.filter((p) => p.status === "pending")
 );
 const conflictTracks = computed(() =>
-  props.activeEvent?.tracks.filter((track) => track.status === "ambiguous") ?? []
+  events.activeEvent?.tracks.filter((t) => t.status === "ambiguous") ?? []
 );
 const libraryConflictTracks = computed(() =>
-  props.activeLibraryReview?.tracks.filter((track) => track.status === "conflict") ?? []
+  library.activeReview?.tracks.filter((t) => t.status === "conflict") ?? []
 );
 
 function acquisitionTrackTitle(job: GlobalAcquisitionJob): string {
@@ -55,16 +39,15 @@ function acquisitionDetail(job: GlobalAcquisitionJob): string {
 
 function jobTone(job: GlobalAcquisitionJob): "ok" | "warn" | "active" | "muted" {
   if (job.status === "ready" || job.status === "downloaded") return "ok";
-  if (job.status === "acquisition_failed" || job.status === "acquisition_ambiguous") {
-    return "warn";
-  }
+  if (job.status === "acquisition_failed" || job.status === "acquisition_ambiguous") return "warn";
   if (["queued", "downloading", "resolved"].includes(job.status)) return "active";
   return "muted";
 }
 
-function openEventInEvents(event: EventSummary): void {
-  emit("openEvent", event);
-  emit("changeView", "events");
+async function openEventInEvents(event: { id: number; eventName: string }): Promise<void> {
+  const summary = events.summaries.find((s) => s.id === event.id);
+  if (summary) await events.openEvent(summary);
+  ui.navigateTo("events");
 }
 </script>
 
@@ -85,14 +68,14 @@ function openEventInEvents(event: EventSummary): void {
             <button
               class="rounded border border-outline bg-surface-container px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary"
               type="button"
-              @click="emit('refreshEventFolder')"
+              @click="events.refreshEventFolder()"
             >
               Refresh Folder
             </button>
             <button
               class="rounded bg-primary px-4 py-2 text-sm font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02]"
               type="button"
-              @click="emit('downloadMissingTracks')"
+              @click="events.downloadMissingTracks()"
             >
               Download
             </button>
@@ -106,19 +89,19 @@ function openEventInEvents(event: EventSummary): void {
               <div>
                 <h3 class="font-bold text-on-surface">Provider Status</h3>
                 <p class="mt-1 text-xs text-on-surface-variant">
-                  {{ deemixStatus?.detail ?? "Provider status not loaded." }}
+                  {{ system.deemixStatus?.detail ?? "Provider status not loaded." }}
                 </p>
               </div>
             </div>
-            <StatusBadge :tone="deemixStatus?.available && deemixStatus?.authenticated ? 'ok' : 'warn'">
-              {{ deemixStatus?.available && deemixStatus?.authenticated ? "Deemix ready" : "Deemix unavailable" }}
+            <StatusBadge :tone="system.deemixStatus?.available && system.deemixStatus?.authenticated ? 'ok' : 'warn'">
+              {{ system.deemixStatus?.available && system.deemixStatus?.authenticated ? "Deemix ready" : "Deemix unavailable" }}
             </StatusBadge>
           </div>
         </div>
 
         <div class="flex flex-col gap-3">
           <div
-            v-for="job in acquisitionJobs"
+            v-for="job in events.globalAcquisitionJobs"
             :key="`${job.provider}-${job.spotifyTrackId}`"
             class="group relative overflow-hidden rounded-lg border border-outline-variant bg-surface-container-high p-4 transition-colors hover:border-primary"
           >
@@ -160,7 +143,7 @@ function openEventInEvents(event: EventSummary): void {
           </div>
 
           <div
-            v-if="acquisitionJobs.length === 0"
+            v-if="events.globalAcquisitionJobs.length === 0"
             class="rounded-lg border border-dashed border-outline bg-surface-container p-8 text-center text-sm text-on-surface-variant"
           >
             No acquisition jobs.
@@ -176,11 +159,11 @@ function openEventInEvents(event: EventSummary): void {
           </div>
           <div class="grid gap-2">
             <button
-              v-for="event in eventSummaries"
+              v-for="event in events.summaries"
               :key="event.id"
               class="rounded border p-3 text-left transition-colors"
               :class="
-                activeEvent?.id === event.id
+                events.activeEvent?.id === event.id
                   ? 'border-primary bg-primary/5'
                   : 'border-outline-variant bg-surface-container hover:border-primary'
               "
@@ -214,7 +197,7 @@ function openEventInEvents(event: EventSummary): void {
                 v-if="track.rekordboxContentId"
                 class="mt-3 inline-flex items-center gap-2 rounded border border-outline bg-surface px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
                 type="button"
-                @click="emit('acceptSuggestedMatch', track)"
+                @click="events.acceptSuggestedMatch(track)"
               >
                 <CheckCircle2 :size="15" aria-hidden="true" />
                 Accept Match
@@ -227,12 +210,12 @@ function openEventInEvents(event: EventSummary): void {
             >
               <strong class="block truncate text-sm text-on-surface">{{ track.title }}</strong>
               <span class="block truncate text-xs text-on-surface-variant">
-                {{ track.artists.join(", ") }} - {{ activeLibraryReview?.source.spotifyPlaylistName }}
+                {{ track.artists.join(", ") }} - {{ library.activeReview?.source.spotifyPlaylistName }}
               </span>
               <button
                 class="mt-3 inline-flex items-center gap-2 rounded border border-outline bg-surface px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
                 type="button"
-                @click="emit('changeView', 'library')"
+                @click="ui.navigateTo('library')"
               >
                 <CheckCircle2 :size="15" aria-hidden="true" />
                 Open Library
@@ -262,14 +245,14 @@ function openEventInEvents(event: EventSummary): void {
                 <button
                   class="rounded border border-outline bg-surface px-2.5 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
                   type="button"
-                  @click="emit('resolveProposal', proposal.id, 'ignored')"
+                  @click="proposals.resolve(proposal.id, 'ignored')"
                 >
                   Ignore
                 </button>
                 <button
                   class="rounded border border-outline bg-surface px-2.5 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
                   type="button"
-                  @click="emit('resolveProposal', proposal.id, 'protected')"
+                  @click="proposals.resolve(proposal.id, 'protected')"
                 >
                   Protect
                 </button>

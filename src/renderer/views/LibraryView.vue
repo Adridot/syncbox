@@ -10,115 +10,64 @@ import {
   X
 } from "@lucide/vue";
 import { computed, ref } from "vue";
-import type {
-  LibraryReview,
-  LibrarySource,
-  LibraryTrackReview,
-  RekordboxStatus,
-  RekordboxTag,
-  SpotifyPlaylistSummary,
-  SyncProposal,
-  TagPlaylistMapping
-} from "../lib/api";
-import type { MappingFormState, TagRuleFormState } from "../types/ui";
+import type { LibraryTrackReview } from "../lib/api";
 import PlaylistCard from "../components/PlaylistCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import { useLibraryStore } from "../stores/library";
+import { useProposalsStore } from "../stores/proposals";
+import { useSpotifyStore } from "../stores/spotify";
+import { useSystemStore } from "../stores/system";
+import { useUiStore } from "../stores/ui";
 
-const props = defineProps<{
-  spotifyPlaylists: SpotifyPlaylistSummary[];
-  spotifyPlaylistTotal: number;
-  librarySources: LibrarySource[];
-  activeReview: LibraryReview | null;
-  selectedTrackIds: string[];
-  selectedTracks: LibraryTrackReview[];
-  tagPlaylistMappings: TagPlaylistMapping[];
-  rekordboxTags: RekordboxTag[];
-  proposals: SyncProposal[];
-  tagRuleForm: TagRuleFormState;
-  mappingForm: MappingFormState;
-  tagRuleTagInput: string;
-  availableTagNames: string[];
-  searchQuery: string;
-  readyToApply: boolean;
-  rekordboxStatus: RekordboxStatus | null;
-  loading: boolean;
-}>();
-
-const emit = defineEmits<{
-  selectTagRulePlaylist: [playlistId: string];
-  selectMappingPlaylist: [playlistId: string];
-  saveTagRule: [];
-  saveTagPlaylistMapping: [];
-  openSource: [source: LibrarySource];
-  syncSource: [source: LibrarySource];
-  toggleTrack: [track: LibraryTrackReview, selected: boolean];
-  toggleAllTracks: [tracks: LibraryTrackReview[], selected: boolean];
-  updateSelectedTags: [tags: string[]];
-  updateTrackTags: [track: LibraryTrackReview, tags: string];
-  downloadSelected: [];
-  applySource: [];
-  addTagRuleTag: [tagName?: string];
-  removeTagRuleTag: [tagName: string];
-  updateTagRuleTagInput: [value: string];
-}>();
+const ui = useUiStore();
+const system = useSystemStore();
+const library = useLibraryStore();
+const spotify = useSpotifyStore();
+const proposals = useProposalsStore();
 
 const reviewFilter = ref("actionable");
 const drawerTagInput = ref("");
 
 const filteredSpotifyPlaylists = computed(() => {
-  const query = props.searchQuery.trim().toLowerCase();
-  if (!query) return props.spotifyPlaylists;
-  return props.spotifyPlaylists.filter((playlist) =>
-    playlist.name.toLowerCase().includes(query)
-  );
+  const query = ui.searchQuery.trim().toLowerCase();
+  if (!query) return spotify.playlists;
+  return spotify.playlists.filter((p) => p.name.toLowerCase().includes(query));
 });
 
 const filteredTracks = computed(() => {
-  const tracks = props.activeReview?.tracks ?? [];
+  const tracks = library.activeReview?.tracks ?? [];
   if (reviewFilter.value === "actionable") {
-    return tracks.filter((track) =>
-      ["new", "missing", "ready", "matched", "conflict"].includes(track.status)
-    );
+    return tracks.filter((t) => ["new", "missing", "ready", "matched", "conflict"].includes(t.status));
   }
   if (reviewFilter.value === "all") return tracks;
-  return tracks.filter((track) => track.status === reviewFilter.value);
+  return tracks.filter((t) => t.status === reviewFilter.value);
 });
 
 const selectedTagNames = computed(() => {
   const names = new Set<string>();
-  for (const track of props.selectedTracks) {
+  for (const track of library.selectedTracks) {
     for (const tagName of track.tags) names.add(tagName);
   }
-  return [...names].sort((left, right) => left.localeCompare(right));
+  return [...names].sort((a, b) => a.localeCompare(b));
 });
 
 const allFilteredSelected = computed(() => {
   if (filteredTracks.value.length === 0) return false;
-  const selected = new Set(props.selectedTrackIds);
-  return filteredTracks.value.every((track) => selected.has(track.spotifyTrackId));
+  const selected = new Set(library.selectedTrackIds);
+  return filteredTracks.value.every((t) => selected.has(t.spotifyTrackId));
 });
 
 const pendingLibraryProposals = computed(() =>
-  props.proposals.filter(
-    (proposal) =>
-      proposal.status === "pending" &&
-      proposal.payload?.sourceId === props.activeReview?.source.id
+  proposals.proposals.filter(
+    (p) => p.status === "pending" && p.payload?.sourceId === library.activeReview?.source.id
   )
 );
 
 const reviewFilters = [
-  "actionable",
-  "new",
-  "missing",
-  "ready",
-  "matched",
-  "conflict",
-  "imported",
-  "removed_from_source",
-  "all"
+  "actionable", "new", "missing", "ready", "matched", "conflict", "imported", "removed_from_source", "all"
 ];
 
-function sourceTone(source: LibrarySource): "ok" | "warn" | "active" | "muted" {
+function sourceTone(source: { conflictTrackCount: number; newTrackCount: number; readyTrackCount: number; importedTrackCount: number; status: string }): "ok" | "warn" | "active" | "muted" {
   if (source.conflictTrackCount > 0) return "warn";
   if (source.newTrackCount > 0 || source.readyTrackCount > 0) return "active";
   if (source.importedTrackCount > 0) return "ok";
@@ -152,14 +101,11 @@ function applyDrawerTag(tagName: string): void {
   const tags = new Set(selectedTagNames.value);
   tags.add(trimmed);
   drawerTagInput.value = "";
-  emit("updateSelectedTags", [...tags]);
+  library.updateSelectedTags([...tags]);
 }
 
 function removeDrawerTag(tagName: string): void {
-  emit(
-    "updateSelectedTags",
-    selectedTagNames.value.filter((item) => item !== tagName)
-  );
+  library.updateSelectedTags(selectedTagNames.value.filter((t) => t !== tagName));
 }
 </script>
 
@@ -175,7 +121,7 @@ function removeDrawerTag(tagName: string): void {
             </p>
           </div>
           <StatusBadge tone="active">
-            {{ librarySources.length }} followed sources
+            {{ library.sources.length }} followed sources
           </StatusBadge>
         </div>
 
@@ -184,17 +130,17 @@ function removeDrawerTag(tagName: string): void {
             <Plus class="text-primary" :size="20" aria-hidden="true" />
             <h3 class="text-lg font-bold text-on-surface">Follow Permanent Playlist</h3>
           </div>
-          <form class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" @submit.prevent="emit('saveTagRule')">
+          <form class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" @submit.prevent="library.saveTagRule()">
             <label class="grid gap-2">
               <span class="text-sm font-bold text-on-surface">Spotify source</span>
               <select
                 class="rounded border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
-                v-model="tagRuleForm.sourcePlaylistId"
+                v-model="library.tagRuleForm.sourcePlaylistId"
                 required
-                @change="emit('selectTagRulePlaylist', ($event.target as HTMLSelectElement).value)"
+                @change="library.selectTagRulePlaylist(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">Select a Spotify playlist</option>
-                <option v-for="playlist in spotifyPlaylists" :key="playlist.id" :value="playlist.id">
+                <option v-for="playlist in spotify.playlists" :key="playlist.id" :value="playlist.id">
                   {{ playlist.name }} - {{ playlist.trackCount }} tracks
                 </option>
               </select>
@@ -203,13 +149,13 @@ function removeDrawerTag(tagName: string): void {
             <label class="grid gap-2">
               <span class="text-sm font-bold text-on-surface">Default existing MyTags</span>
               <div class="grid gap-2">
-                <div v-if="tagRuleForm.tags.length > 0" class="flex flex-wrap gap-2">
+                <div v-if="library.tagRuleForm.tags.length > 0" class="flex flex-wrap gap-2">
                   <button
-                    v-for="tagName in tagRuleForm.tags"
+                    v-for="tagName in library.tagRuleForm.tags"
                     :key="tagName"
                     class="inline-flex items-center gap-2 rounded border border-outline bg-surface-variant px-2.5 py-1 text-xs font-bold text-on-surface"
                     type="button"
-                    @click="emit('removeTagRuleTag', tagName)"
+                    @click="library.removeTagRuleTag(tagName)"
                   >
                     {{ tagName }}
                     <X :size="12" aria-hidden="true" />
@@ -218,23 +164,23 @@ function removeDrawerTag(tagName: string): void {
                 <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                   <input
                     class="rounded border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
-                    :value="tagRuleTagInput"
+                    :value="library.tagRuleTagInput"
                     list="library-source-tags"
                     placeholder="Existing Rekordbox MyTag"
-                    @input="emit('updateTagRuleTagInput', ($event.target as HTMLInputElement).value)"
-                    @change="emit('addTagRuleTag')"
-                    @keydown.enter.prevent="emit('addTagRuleTag')"
+                    @input="library.tagRuleTagInput = ($event.target as HTMLInputElement).value"
+                    @change="library.addTagRuleTag()"
+                    @keydown.enter.prevent="library.addTagRuleTag()"
                   />
                   <button
                     class="rounded border border-outline bg-surface px-3 py-2 text-xs font-bold text-on-surface transition-colors hover:border-primary"
                     type="button"
-                    @click="emit('addTagRuleTag')"
+                    @click="library.addTagRuleTag()"
                   >
                     Add
                   </button>
                 </div>
                 <datalist id="library-source-tags">
-                  <option v-for="tagName in availableTagNames" :key="tagName" :value="tagName" />
+                  <option v-for="tagName in spotify.availableTagNames" :key="tagName" :value="tagName" />
                 </datalist>
               </div>
             </label>
@@ -252,18 +198,18 @@ function removeDrawerTag(tagName: string): void {
           <div class="mb-4 flex items-center justify-between">
             <h3 class="text-lg font-bold text-on-surface">Permanent Sources</h3>
             <span class="text-xs text-on-surface-variant">
-              {{ librarySources.length }} tracked
+              {{ library.sources.length }} tracked
             </span>
           </div>
 
           <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             <article
-              v-for="source in librarySources"
+              v-for="source in library.sources"
               :key="source.id"
               class="group rounded-lg border border-outline-variant bg-surface-container-high p-4 transition-all hover:border-primary"
-              :class="activeReview?.source.id === source.id ? 'border-primary bg-primary/5' : ''"
+              :class="library.activeReview?.source.id === source.id ? 'border-primary bg-primary/5' : ''"
             >
-              <button class="mb-4 flex w-full items-start gap-4 text-left" type="button" @click="emit('openSource', source)">
+              <button class="mb-4 flex w-full items-start gap-4 text-left" type="button" @click="library.openSource(source)">
                 <div class="grid h-16 w-16 shrink-0 place-items-center rounded border border-outline bg-surface-container">
                   <img
                     v-if="source.imageUrl"
@@ -292,8 +238,8 @@ function removeDrawerTag(tagName: string): void {
                 <button
                   class="inline-flex items-center gap-2 rounded border border-outline bg-surface px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
                   type="button"
-                  :disabled="loading"
-                  @click="emit('syncSource', source)"
+                  :disabled="ui.loading"
+                  @click="library.syncSource(source)"
                 >
                   <RefreshCw :size="14" aria-hidden="true" />
                   Sync
@@ -302,7 +248,7 @@ function removeDrawerTag(tagName: string): void {
             </article>
 
             <div
-              v-if="librarySources.length === 0"
+              v-if="library.sources.length === 0"
               class="rounded-lg border border-dashed border-outline bg-surface-container p-6 text-sm text-on-surface-variant"
             >
               No permanent sources configured.
@@ -311,30 +257,30 @@ function removeDrawerTag(tagName: string): void {
         </section>
 
         <section
-          v-if="activeReview"
+          v-if="library.activeReview"
           class="mb-8 rounded-xl border border-outline-variant bg-surface-container p-5 md:p-6"
         >
           <div class="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
               <div class="mb-2 flex flex-wrap items-center gap-3">
-                <h3 class="text-xl font-bold text-on-surface">{{ activeReview.source.spotifyPlaylistName }}</h3>
-                <StatusBadge :tone="sourceTone(activeReview.source)">
-                  {{ activeReview.newTracks }} new
+                <h3 class="text-xl font-bold text-on-surface">{{ library.activeReview.source.spotifyPlaylistName }}</h3>
+                <StatusBadge :tone="sourceTone(library.activeReview.source)">
+                  {{ library.activeReview.newTracks }} new
                 </StatusBadge>
                 <StatusBadge tone="muted">
-                  {{ selectedTrackIds.length }} selected
+                  {{ library.selectedTrackIds.length }} selected
                 </StatusBadge>
               </div>
               <p class="text-sm text-on-surface-variant">
-                {{ activeReview.totalTracks }} tracks tracked, {{ activeReview.readyTracks }} ready, {{ activeReview.conflictTracks }} conflicts.
+                {{ library.activeReview.totalTracks }} tracks tracked, {{ library.activeReview.readyTracks }} ready, {{ library.activeReview.conflictTracks }} conflicts.
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
               <button
                 class="inline-flex items-center gap-2 rounded border border-outline bg-surface-container-high px-3 py-2 text-xs font-bold text-on-surface transition-colors hover:border-primary disabled:cursor-not-allowed disabled:opacity-60"
                 type="button"
-                :disabled="loading"
-                @click="emit('downloadSelected')"
+                :disabled="ui.loading"
+                @click="library.downloadSelected()"
               >
                 <Download :size="16" aria-hidden="true" />
                 Download
@@ -342,8 +288,8 @@ function removeDrawerTag(tagName: string): void {
               <button
                 class="inline-flex items-center gap-2 rounded bg-primary px-4 py-2 text-xs font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-60"
                 type="button"
-                :disabled="loading || !readyToApply || !rekordboxStatus?.mutationAllowed"
-                @click="emit('applySource')"
+                :disabled="ui.loading || !library.readyToApply || !system.rekordboxStatus?.mutationAllowed"
+                @click="library.applySource()"
               >
                 <UploadCloud :size="16" aria-hidden="true" />
                 Import to Rekordbox
@@ -353,12 +299,12 @@ function removeDrawerTag(tagName: string): void {
 
           <div class="mb-6 grid grid-cols-2 gap-3 md:grid-cols-6">
             <div v-for="metric in [
-              ['new', activeReview.newTracks],
-              ['matched', activeReview.matchedTracks],
-              ['ready', activeReview.readyTracks],
-              ['imported', activeReview.importedTracks],
-              ['conflict', activeReview.conflictTracks],
-              ['removed', activeReview.removedTracks]
+              ['new', library.activeReview.newTracks],
+              ['matched', library.activeReview.matchedTracks],
+              ['ready', library.activeReview.readyTracks],
+              ['imported', library.activeReview.importedTracks],
+              ['conflict', library.activeReview.conflictTracks],
+              ['removed', library.activeReview.removedTracks]
             ]" :key="metric[0]" class="rounded border border-outline-variant bg-surface-container-high p-3">
               <strong class="block text-2xl text-on-surface">{{ metric[1] }}</strong>
               <span class="text-xs text-on-surface-variant">{{ metric[0] }}</span>
@@ -391,7 +337,7 @@ function removeDrawerTag(tagName: string): void {
                       class="h-4 w-4 rounded border-outline-variant bg-surface accent-primary"
                       type="checkbox"
                       :checked="allFilteredSelected"
-                      @change="emit('toggleAllTracks', filteredTracks, ($event.target as HTMLInputElement).checked)"
+                      @change="library.toggleAllTracks(filteredTracks, ($event.target as HTMLInputElement).checked)"
                     />
                   </th>
                   <th class="px-4 py-3">Requested Track</th>
@@ -414,8 +360,8 @@ function removeDrawerTag(tagName: string): void {
                     <input
                       class="h-4 w-4 rounded border-outline-variant bg-surface accent-primary"
                       type="checkbox"
-                      :checked="selectedTrackIds.includes(track.spotifyTrackId)"
-                      @change="emit('toggleTrack', track, ($event.target as HTMLInputElement).checked)"
+                      :checked="library.selectedTrackIds.includes(track.spotifyTrackId)"
+                      @change="library.toggleTrack(track, ($event.target as HTMLInputElement).checked)"
                     />
                   </td>
                   <td class="px-4 py-3 align-top">
@@ -444,7 +390,7 @@ function removeDrawerTag(tagName: string): void {
                       :value="track.tags.join(', ')"
                       list="library-review-tags"
                       placeholder="Existing MyTags"
-                      @change="emit('updateTrackTags', track, ($event.target as HTMLInputElement).value)"
+                      @change="library.updateTrackTags(track, ($event.target as HTMLInputElement).value)"
                     />
                   </td>
                 </tr>
@@ -456,7 +402,7 @@ function removeDrawerTag(tagName: string): void {
               </tbody>
             </table>
             <datalist id="library-review-tags">
-              <option v-for="tagItem in rekordboxTags" :key="tagItem.id" :value="tagItem.name" />
+              <option v-for="tagItem in spotify.rekordboxTags" :key="tagItem.id" :value="tagItem.name" />
             </datalist>
           </div>
 
@@ -473,29 +419,29 @@ function removeDrawerTag(tagName: string): void {
             <Tags class="text-secondary" :size="20" aria-hidden="true" />
             <h3 class="text-lg font-bold text-on-surface">Tag to Spotify Playlist Mappings</h3>
           </div>
-          <form class="mb-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" @submit.prevent="emit('saveTagPlaylistMapping')">
+          <form class="mb-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" @submit.prevent="library.saveTagPlaylistMapping()">
             <label class="grid gap-2">
               <span class="text-sm font-bold text-on-surface">Existing MyTag</span>
               <input
                 class="rounded border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
-                v-model="mappingForm.tagName"
+                v-model="library.mappingForm.tagName"
                 list="mapping-tags"
                 placeholder="MyTag"
               />
               <datalist id="mapping-tags">
-                <option v-for="tagName in availableTagNames" :key="tagName" :value="tagName" />
+                <option v-for="tagName in spotify.availableTagNames" :key="tagName" :value="tagName" />
               </datalist>
             </label>
             <label class="grid gap-2">
               <span class="text-sm font-bold text-on-surface">Spotify playlist</span>
               <select
                 class="rounded border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
-                v-model="mappingForm.spotifyPlaylistId"
+                v-model="library.mappingForm.spotifyPlaylistId"
                 required
-                @change="emit('selectMappingPlaylist', ($event.target as HTMLSelectElement).value)"
+                @change="library.selectMappingPlaylist(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">Select playlist</option>
-                <option v-for="playlist in spotifyPlaylists" :key="playlist.id" :value="playlist.id">
+                <option v-for="playlist in spotify.playlists" :key="playlist.id" :value="playlist.id">
                   {{ playlist.name }}
                 </option>
               </select>
@@ -506,14 +452,14 @@ function removeDrawerTag(tagName: string): void {
           </form>
           <div class="grid gap-2 md:grid-cols-2">
             <div
-              v-for="mapping in tagPlaylistMappings"
+              v-for="mapping in library.tagPlaylistMappings"
               :key="mapping.id"
               class="rounded border border-outline-variant bg-surface-container p-3 text-sm"
             >
               <strong class="text-on-surface">{{ mapping.tagName }}</strong>
               <span class="text-on-surface-variant"> -> {{ mapping.spotifyPlaylistName }}</span>
             </div>
-            <div v-if="tagPlaylistMappings.length === 0" class="text-sm text-on-surface-variant">
+            <div v-if="library.tagPlaylistMappings.length === 0" class="text-sm text-on-surface-variant">
               No mappings configured.
             </div>
           </div>
@@ -523,7 +469,7 @@ function removeDrawerTag(tagName: string): void {
           <div class="mb-4 flex items-center justify-between">
             <h3 class="text-lg font-bold text-on-surface">Available Spotify Playlists</h3>
             <span class="text-xs text-on-surface-variant">
-              {{ filteredSpotifyPlaylists.length }} of {{ spotifyPlaylistTotal || spotifyPlaylists.length }}
+              {{ filteredSpotifyPlaylists.length }} of {{ spotify.playlistTotal || spotify.playlists.length }}
             </span>
           </div>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -531,10 +477,7 @@ function removeDrawerTag(tagName: string): void {
               v-for="playlist in filteredSpotifyPlaylists"
               :key="playlist.id"
               :playlist="playlist"
-              @select="
-                tagRuleForm.sourcePlaylistId = playlist.id;
-                emit('selectTagRulePlaylist', playlist.id);
-              "
+              @select="library.tagRuleForm.sourcePlaylistId = playlist.id; library.selectTagRulePlaylist(playlist.id);"
             />
           </div>
         </section>
@@ -542,18 +485,18 @@ function removeDrawerTag(tagName: string): void {
     </div>
 
     <aside
-      v-if="selectedTrackIds.length > 0"
+      v-if="library.selectedTrackIds.length > 0"
       class="hidden h-full w-[380px] shrink-0 flex-col border-l border-outline-variant bg-surface-container p-6 shadow-2xl xl:flex"
     >
       <div class="mb-6 flex items-center justify-between">
         <h2 class="text-lg font-bold text-on-surface">Batch Tagging</h2>
-        <StatusBadge tone="active">{{ selectedTrackIds.length }} selected</StatusBadge>
+        <StatusBadge tone="active">{{ library.selectedTrackIds.length }} selected</StatusBadge>
       </div>
 
       <div class="mb-6 rounded border border-primary/20 bg-primary/5 p-4">
         <div class="mb-1 text-[10px] font-bold uppercase text-primary">Selected source</div>
         <div class="text-xl font-bold text-on-surface">
-          {{ activeReview?.source.spotifyPlaylistName ?? "My Library" }}
+          {{ library.activeReview?.source.spotifyPlaylistName ?? "My Library" }}
         </div>
       </div>
 
@@ -586,7 +529,7 @@ function removeDrawerTag(tagName: string): void {
           @keydown.enter.prevent="applyDrawerTag(drawerTagInput)"
         />
         <datalist id="drawer-tags">
-          <option v-for="tagName in availableTagNames" :key="tagName" :value="tagName" />
+          <option v-for="tagName in spotify.availableTagNames" :key="tagName" :value="tagName" />
         </datalist>
         <button
           class="inline-flex items-center justify-center gap-2 rounded bg-primary px-4 py-2 text-sm font-bold text-white"

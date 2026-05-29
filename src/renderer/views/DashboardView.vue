@@ -9,45 +9,29 @@ import {
   RefreshCw
 } from "@lucide/vue";
 import { computed } from "vue";
-import type {
-  DeemixStatus,
-  EventSummary,
-  GlobalAcquisitionJob,
-  HealthResponse,
-  LibrarySource,
-  RekordboxStatus,
-  SpotifyPlaylistSummary,
-  SyncProposal
-} from "../lib/api";
-import type { ViewKey } from "../types/ui";
 import MetricCard from "../components/MetricCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import { useEventsStore } from "../stores/events";
+import { useLibraryStore } from "../stores/library";
+import { useProposalsStore } from "../stores/proposals";
+import { useSpotifyStore } from "../stores/spotify";
+import { useSystemStore } from "../stores/system";
+import { useUiStore } from "../stores/ui";
 
-const props = defineProps<{
-  health: HealthResponse | null;
-  rekordboxStatus: RekordboxStatus | null;
-  deemixStatus: DeemixStatus | null;
-  eventSummaries: EventSummary[];
-  proposals: SyncProposal[];
-  librarySources: LibrarySource[];
-  spotifyPlaylists: SpotifyPlaylistSummary[];
-  globalAcquisitionJobs: GlobalAcquisitionJob[];
-}>();
-
-defineEmits<{
-  changeView: [view: ViewKey];
-}>();
+const ui = useUiStore();
+const system = useSystemStore();
+const events = useEventsStore();
+const library = useLibraryStore();
+const spotify = useSpotifyStore();
+const proposals = useProposalsStore();
 
 const pendingProposals = computed(
-  () => props.proposals.filter((proposal) => proposal.status === "pending").length
+  () => proposals.proposals.filter((p) => p.status === "pending").length
 );
 const activeDownloads = computed(
-  () =>
-    props.globalAcquisitionJobs.filter((job) =>
-      ["queued", "downloading", "resolved"].includes(job.status)
-    ).length
+  () => events.globalAcquisitionJobs.filter((job) => ["queued", "downloading", "resolved"].includes(job.status)).length
 );
-const recentEvents = computed(() => props.eventSummaries.slice(0, 4));
+const recentEvents = computed(() => events.summaries.slice(0, 4));
 </script>
 
 <template>
@@ -63,14 +47,14 @@ const recentEvents = computed(() => props.eventSummaries.slice(0, 4));
       <div class="mb-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Permanent Playlists"
-          :value="librarySources.length"
+          :value="library.sources.length"
           detail="Followed Spotify sources"
           :icon="Library"
           tone="primary"
         />
         <MetricCard
           title="Event Imports"
-          :value="eventSummaries.length"
+          :value="events.summaries.length"
           detail="Temporary playlists"
           :icon="Music"
           tone="secondary"
@@ -102,15 +86,15 @@ const recentEvents = computed(() => props.eventSummaries.slice(0, 4));
                 <div
                   class="h-2 w-2 rounded-full"
                   :class="
-                    health?.status === 'ok'
+                    system.health?.status === 'ok'
                       ? 'bg-secondary shadow-[0_0_8px_var(--color-secondary)]'
                       : 'bg-tertiary shadow-[0_0_8px_var(--color-tertiary)]'
                   "
                 />
                 <span class="text-sm font-semibold text-on-surface">Local API</span>
               </div>
-              <StatusBadge :tone="health?.status === 'ok' ? 'ok' : 'warn'">
-                {{ health?.status ?? "starting" }}
+              <StatusBadge :tone="system.health?.status === 'ok' ? 'ok' : 'warn'">
+                {{ system.health?.status ?? "starting" }}
               </StatusBadge>
             </div>
 
@@ -121,8 +105,8 @@ const recentEvents = computed(() => props.eventSummaries.slice(0, 4));
                 <Database class="text-primary" :size="18" aria-hidden="true" />
                 <span class="text-sm font-semibold text-on-surface">Rekordbox Database</span>
               </div>
-              <StatusBadge :tone="rekordboxStatus?.mutationAllowed ? 'ok' : 'warn'">
-                {{ rekordboxStatus?.mutationAllowed ? "Ready" : "Locked" }}
+              <StatusBadge :tone="system.rekordboxStatus?.mutationAllowed ? 'ok' : 'warn'">
+                {{ system.rekordboxStatus?.mutationAllowed ? "Ready" : "Locked" }}
               </StatusBadge>
             </div>
 
@@ -134,10 +118,10 @@ const recentEvents = computed(() => props.eventSummaries.slice(0, 4));
                 <span class="text-sm font-semibold text-on-surface">Deemix Integration</span>
               </div>
               <StatusBadge
-                :tone="deemixStatus?.available && deemixStatus?.authenticated ? 'ok' : 'warn'"
+                :tone="system.deemixStatus?.available && system.deemixStatus?.authenticated ? 'ok' : 'warn'"
               >
                 {{
-                  deemixStatus?.available && deemixStatus?.authenticated
+                  system.deemixStatus?.available && system.deemixStatus?.authenticated
                     ? "Ready"
                     : "Unavailable"
                 }}
@@ -152,7 +136,7 @@ const recentEvents = computed(() => props.eventSummaries.slice(0, 4));
             <button
               class="rounded border border-outline bg-surface-container-high px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
               type="button"
-              @click="$emit('changeView', 'events')"
+              @click="ui.navigateTo('events')"
             >
               Open Events
             </button>
@@ -179,22 +163,22 @@ const recentEvents = computed(() => props.eventSummaries.slice(0, 4));
             <div>
               <h3 class="text-lg font-bold text-on-surface">Library Health</h3>
               <p class="mt-1 text-sm text-on-surface-variant">
-                {{ spotifyPlaylists.length }} Spotify playlists loaded,
-                {{ librarySources.length }} permanent sources configured.
+                {{ spotify.playlists.length }} Spotify playlists loaded,
+                {{ library.sources.length }} permanent sources configured.
               </p>
             </div>
             <div class="flex flex-wrap gap-3">
               <button
                 class="rounded bg-primary px-4 py-2 text-sm font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02]"
                 type="button"
-                @click="$emit('changeView', 'library')"
+                @click="ui.navigateTo('library')"
               >
                 Open My Library
               </button>
               <button
                 class="rounded border border-outline bg-surface-container-high px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary"
                 type="button"
-                @click="$emit('changeView', 'downloadCenter')"
+                @click="ui.navigateTo('downloadCenter')"
               >
                 Download Center
               </button>

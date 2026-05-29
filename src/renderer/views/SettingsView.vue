@@ -1,17 +1,8 @@
 <script setup lang="ts">
 import { Database, ExternalLink, FileAudio, FolderOpen, Key, Save, Settings2 } from "@lucide/vue";
-import type { AppSettings, StorageLayout } from "../lib/api";
+import { useSettingsStore } from "../stores/settings";
 
-defineProps<{
-  settings: AppSettings;
-  storage: StorageLayout | null;
-}>();
-
-defineEmits<{
-  saveSettings: [];
-  openSpotifyAuth: [];
-  ensureStorage: [];
-}>();
+const settings = useSettingsStore();
 </script>
 
 <template>
@@ -29,7 +20,7 @@ defineEmits<{
         <button
           class="inline-flex items-center gap-2 rounded bg-primary px-5 py-2 text-sm font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02]"
           type="button"
-          @click="$emit('saveSettings')"
+          @click="settings.save()"
         >
           <Save :size="18" aria-hidden="true" />
           Save Changes
@@ -48,14 +39,14 @@ defineEmits<{
                 <span class="text-sm font-bold text-on-surface">Spotify Client ID</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
-                  v-model="settings.spotifyClientId"
+                  v-model="settings.settings.spotifyClientId"
                 />
               </label>
               <label class="grid gap-2">
                 <span class="text-sm font-bold text-on-surface">Spotify Redirect URI</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
-                  v-model="settings.spotifyRedirectUri"
+                  v-model="settings.settings.spotifyRedirectUri"
                 />
                 <small class="text-xs text-on-surface-variant">
                   Add this exact value in the Spotify Developer Dashboard.
@@ -64,7 +55,7 @@ defineEmits<{
               <button
                 class="inline-flex items-center gap-2 rounded border border-outline bg-surface px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary"
                 type="button"
-                @click="$emit('openSpotifyAuth')"
+                @click="settings.openSpotifyAuth()"
               >
                 <ExternalLink :size="17" aria-hidden="true" />
                 Connect Spotify
@@ -82,14 +73,14 @@ defineEmits<{
                 <span class="text-sm font-bold text-on-surface">Rekordbox database directory</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
-                  v-model="settings.rekordboxDatabaseDir"
+                  v-model="settings.settings.rekordboxDatabaseDir"
                 />
               </label>
               <label class="grid gap-2">
                 <span class="text-sm font-bold text-on-surface">Storage root</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
-                  v-model="settings.storageRoot"
+                  v-model="settings.settings.storageRoot"
                 />
               </label>
             </div>
@@ -105,27 +96,27 @@ defineEmits<{
             <button
               class="mb-5 inline-flex w-full items-center justify-center gap-2 rounded border border-outline bg-surface px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary"
               type="button"
-              @click="$emit('ensureStorage')"
+              @click="settings.ensureStorage()"
             >
               <FileAudio :size="17" aria-hidden="true" />
               Ensure Folders
             </button>
-            <dl v-if="storage" class="grid gap-3 text-xs">
+            <dl v-if="settings.storage" class="grid gap-3 text-xs">
               <div>
                 <dt class="font-bold text-on-surface">Inbox</dt>
-                <dd class="break-all text-on-surface-variant">{{ storage.inbox }}</dd>
+                <dd class="break-all text-on-surface-variant">{{ settings.storage.inbox }}</dd>
               </div>
               <div>
                 <dt class="font-bold text-on-surface">Permanent</dt>
-                <dd class="break-all text-on-surface-variant">{{ storage.permanent }}</dd>
+                <dd class="break-all text-on-surface-variant">{{ settings.storage.permanent }}</dd>
               </div>
               <div>
                 <dt class="font-bold text-on-surface">Events</dt>
-                <dd class="break-all text-on-surface-variant">{{ storage.events }}</dd>
+                <dd class="break-all text-on-surface-variant">{{ settings.storage.events }}</dd>
               </div>
               <div>
                 <dt class="font-bold text-on-surface">Manual</dt>
-                <dd class="break-all text-on-surface-variant">{{ storage.manualCollection }}</dd>
+                <dd class="break-all text-on-surface-variant">{{ settings.storage.manualCollection }}</dd>
               </div>
             </dl>
             <p v-else class="text-xs text-on-surface-variant">
@@ -148,7 +139,7 @@ defineEmits<{
             </h3>
             <input
               class="rounded border border-outline bg-surface-container-high px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
-              v-model.number="settings.apiPort"
+              v-model.number="settings.settings.apiPort"
               type="number"
             />
           </section>
@@ -157,4 +148,3 @@ defineEmits<{
     </div>
   </div>
 </template>
-
