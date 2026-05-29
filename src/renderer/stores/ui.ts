@@ -12,8 +12,7 @@ export const useUiStore = defineStore("ui", () => {
   const pageTitle = computed(() => {
     if (activeView.value === "dashboard") return "Dashboard";
     if (activeView.value === "library") return "My Library";
-    if (activeView.value === "events") return "Event Imports";
-    if (activeView.value === "manualEvents") return "Manual Event";
+    if (activeView.value === "events") return "Events";
     if (activeView.value === "downloadCenter") return "Download & Match Center";
     return "Settings";
   });

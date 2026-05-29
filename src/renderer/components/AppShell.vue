@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Library,
   ListChecks,
-  ListPlus,
 } from "@lucide/vue";
 import type { ViewKey } from "../types/ui";
 import { useSystemStore } from "../stores/system";
@@ -17,8 +16,7 @@ const system = useSystemStore();
 const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "library", label: "My Library", icon: Library },
-  { key: "events", label: "Event Imports", icon: CalendarDays },
-  { key: "manualEvents", label: "Manual Event", icon: ListPlus },
+  { key: "events", label: "Events", icon: CalendarDays },
   { key: "downloadCenter", label: "Download & Match", icon: ListChecks }
 ];
 </script>

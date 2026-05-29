@@ -77,15 +77,6 @@ async function openDesktopPath(path: string): Promise<void> {
               Refresh
             </button>
             <button
-              class="inline-flex items-center gap-2 rounded border border-outline bg-surface-container-high px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary disabled:opacity-60"
-              type="button"
-              :disabled="ui.loading"
-              @click="events.downloadMissingTracks()"
-            >
-              <FileAudio :size="14" aria-hidden="true" />
-              Download
-            </button>
-            <button
               class="inline-flex items-center gap-2 rounded bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02] disabled:opacity-60"
               type="button"
               :disabled="ui.loading || !events.readyToApply || !system.rekordboxStatus?.mutationAllowed"

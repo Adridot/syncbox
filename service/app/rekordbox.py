@@ -204,7 +204,7 @@ class RekordboxAdapter:
         database = Rekordbox6Database(db_dir=str(self.database_dir))
         imported = 0
         tagged = 0
-        smart_playlist_name = f"{review.event_name} - Smart"
+        event_playlist_name = review.event_name
         try:
             event_tag = ensure_event_my_tag(
                 database,
@@ -265,12 +265,12 @@ class RekordboxAdapter:
 
             playlist = ensure_event_smart_playlist(
                 database,
-                name=smart_playlist_name,
+                name=event_playlist_name,
                 event_tag=event_tag,
                 operator=int(Operator.CONTAINS),
                 smart_list_class=SmartList,
             )
-            smart_playlist_name = str(getattr(playlist, "Name", smart_playlist_name))
+            event_playlist_name = str(getattr(playlist, "Name", event_playlist_name))
 
             database.commit()
 
@@ -281,7 +281,7 @@ class RekordboxAdapter:
                 "backup_path": str(backup_path),
                 "imported": imported,
                 "tagged": tagged,
-                "smart_playlist": smart_playlist_name,
+                "smart_playlist": event_playlist_name,
             }
         except Exception:
             if hasattr(database, "rollback"):
@@ -304,7 +304,7 @@ class RekordboxAdapter:
             raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
 
         database = Rekordbox6Database(db_dir=str(self.database_dir))
-        smart_playlist_name = f"{review.event_name} - Smart"
+        event_playlist_name = review.event_name
         try:
             event_tag = ensure_event_my_tag(
                 database,
@@ -314,7 +314,7 @@ class RekordboxAdapter:
             )
             playlist = ensure_event_smart_playlist(
                 database,
-                name=smart_playlist_name,
+                name=event_playlist_name,
                 event_tag=event_tag,
                 operator=int(Operator.CONTAINS),
                 smart_list_class=SmartList,
@@ -325,7 +325,7 @@ class RekordboxAdapter:
                 "tag_id": str(event_tag.ID),
                 "tag_parent": EVENT_MY_TAG_CATEGORY_NAME,
                 "playlist_id": str(playlist.ID),
-                "playlist": str(getattr(playlist, "Name", smart_playlist_name)),
+                "playlist": str(getattr(playlist, "Name", event_playlist_name)),
                 "playlist_folder": EVENT_IMPORTS_PLAYLIST_FOLDER_NAME,
             }
         except Exception:
@@ -390,8 +390,10 @@ class RekordboxAdapter:
                 mark_rekordbox_row_deleted(row)
             database.commit()
 
-            smart_playlist_name = f"{review.default_tag} - Smart"
-            _remove_playlist_from_xml(self.database_dir, smart_playlist_name)
+            # Remove the event playlist from the exported XML. Cover both the
+            # current name (event name) and the legacy "<name> - Smart".
+            _remove_playlist_from_xml(self.database_dir, review.default_tag)
+            _remove_playlist_from_xml(self.database_dir, f"{review.default_tag} - Smart")
 
             preview = event_delete_preview_from_plan(review, plan)
             return EventDeleteResponse(
@@ -911,11 +913,13 @@ def build_event_delete_plan(
             "warnings": [f'Event MyTag "{event_tag_name}" was not found in Rekordbox.'],
         }
 
-    smart_playlist_name = f"{event_tag_name} - Smart"
+    # The event playlist is named after the event; also match the legacy
+    # "<name> - Smart" so events applied before the rename are still cleaned up.
+    event_playlist_names = {event_tag_name, f"{event_tag_name} - Smart"}
     event_playlist_rows = [
         playlist
         for playlist in database.get_playlist()
-        if str(getattr(playlist, "Name", "") or "") == smart_playlist_name
+        if str(getattr(playlist, "Name", "") or "") in event_playlist_names
         and not is_rekordbox_row_deleted(playlist)
     ]
 

@@ -4,9 +4,8 @@ import { onMounted } from "vue";
 import AppShell from "./components/AppShell.vue";
 import DashboardView from "./views/DashboardView.vue";
 import DownloadMatchCenterView from "./views/DownloadMatchCenterView.vue";
-import EventImportsView from "./views/EventImportsView.vue";
+import EventsView from "./views/EventsView.vue";
 import LibraryView from "./views/LibraryView.vue";
-import ManualEventView from "./views/ManualEventView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import { useRefreshManager } from "./composables/useRefreshManager";
 import { useEventsStore } from "./stores/events";
@@ -63,8 +62,7 @@ onMounted(async () => {
 
     <DashboardView v-if="ui.activeView === 'dashboard'" />
     <LibraryView v-else-if="ui.activeView === 'library'" />
-    <EventImportsView v-else-if="ui.activeView === 'events'" />
-    <ManualEventView v-else-if="ui.activeView === 'manualEvents'" />
+    <EventsView v-else-if="ui.activeView === 'events'" />
     <DownloadMatchCenterView v-else-if="ui.activeView === 'downloadCenter'" />
     <SettingsView v-else />
   </AppShell>

@@ -3,6 +3,7 @@ import { computed, reactive, ref } from "vue";
 import type {
   DeezerSearchResult,
   GlobalAcquisitionJob,
+  LibraryDownloadResponse,
   LibraryReview,
   LibrarySource,
   LibraryTrackReview,
@@ -108,6 +109,8 @@ export const useLibraryStore = defineStore("library", () => {
         if (updated) activeReview.value = updated;
       }
       ui.setMessage("success", `${reviews.length} source(s) synced.`);
+      // Auto-download the open source's missing tracks (bounded to the active one).
+      if (activeReview.value) await autoDownloadSource(activeReview.value.source.id);
     });
   }
 
@@ -122,6 +125,8 @@ export const useLibraryStore = defineStore("library", () => {
       await proposals.refresh();
       selectedTrackIds.value = [];
       ui.setMessage("success", `"${source.spotifyPlaylistName}" synced.`);
+      // Missing tracks are fetched automatically; only failures are surfaced.
+      await autoDownloadSource(source.id);
     });
   }
 
@@ -152,6 +157,7 @@ export const useLibraryStore = defineStore("library", () => {
       activeReview.value = await system.api!.syncLibrarySource(source.id);
       selectedTrackIds.value = [];
       ui.setMessage("success", "Permanent playlist source saved and synced.");
+      await autoDownloadSource(source.id);
     });
   }
 
@@ -220,21 +226,33 @@ export const useLibraryStore = defineStore("library", () => {
     });
   }
 
-  async function downloadSelected(): Promise<void> {
+  // Titles of tracks that could not be acquired (not found on Deemix).
+  function notFoundTitles(result: LibraryDownloadResponse): string {
+    const failedIds = new Set(
+      result.jobs.filter((job) => job.status === "acquisition_failed").map((job) => job.spotifyTrackId)
+    );
+    const titles = result.review.tracks
+      .filter((track) => failedIds.has(track.spotifyTrackId))
+      .map((track) => track.title);
+    return titles.slice(0, 6).join(", ") + (titles.length > 6 ? "…" : "");
+  }
+
+  // Auto-acquire missing tracks for a source. Downloads happen silently; the
+  // only message shown is a warning listing tracks not found on Deemix.
+  async function autoDownloadSource(sourceId: number): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
-    if (!system.api || !activeReview.value) return;
-    await ui.withLoading(async () => {
-      const result = await system.api!.downloadLibraryTracks({
-        sourceId: activeReview.value!.source.id,
-        spotifyTrackIds: selectedTrackIds.value.length > 0 ? selectedTrackIds.value : null,
-      });
-      activeReview.value = result.review;
-      sources.value = await system.api!.listLibrarySources();
-      globalAcquisitionJobs.value = await system.api!.listGlobalAcquisitionJobs();
-      const action = result.created === 0 && result.ready > 0 ? "Download state refreshed" : "Download started";
-      ui.setMessage("success", `${action}. Queued ${result.queued}, ready ${result.ready}, failed ${result.failed}, ambiguous ${result.ambiguous}.`);
-    });
+    if (!system.api) return;
+    const result = await system.api.downloadLibraryTracks({ sourceId, spotifyTrackIds: null });
+    activeReview.value = result.review;
+    sources.value = await system.api.listLibrarySources();
+    globalAcquisitionJobs.value = await system.api.listGlobalAcquisitionJobs();
+    if (result.failed > 0) {
+      ui.setMessage(
+        "error",
+        `${result.failed} titre(s) introuvable(s) sur Deemix : ${notFoundTitles(result)}`
+      );
+    }
   }
 
   async function applySource(): Promise<void> {
@@ -385,7 +403,6 @@ export const useLibraryStore = defineStore("library", () => {
     toggleAllTracks,
     updateSelectedTags,
     updateTrackTags,
-    downloadSelected,
     applySource,
     selectTagRulePlaylist,
     selectMappingPlaylist,

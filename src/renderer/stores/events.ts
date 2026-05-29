@@ -3,6 +3,7 @@ import { computed, reactive, ref } from "vue";
 import type {
   AcquisitionJob,
   DeezerSearchResult,
+  EventAcquisitionResponse,
   EventReview,
   EventSummary,
   EventTrackReview,
@@ -105,10 +106,10 @@ export const useEventsStore = defineStore("events", () => {
     if (!system.api) return;
     await ui.withLoading(async () => {
       activeEvent.value = await system.api!.analyzeSpotifyEvent(importForm);
-      acquisitionJobs.value = await system.api!.listAcquisitionJobs(activeEvent.value!.id);
       summaries.value = await system.api!.listEvents();
       ui.navigateTo("events");
       ui.setMessage("success", `${activeEvent.value!.totalTracks} Spotify tracks analyzed.`);
+      await autoDownload(activeEvent.value!.id);
     });
   }
 
@@ -126,7 +127,7 @@ export const useEventsStore = defineStore("events", () => {
       activeEvent.value = created;
       acquisitionJobs.value = await system.api!.listAcquisitionJobs(created.id);
       summaries.value = await system.api!.listEvents();
-      ui.navigateTo("manualEvents");
+      ui.navigateTo("events");
       ui.setMessage("success", `Event "${created.eventName}" created.`);
       return created;
     });
@@ -139,9 +140,10 @@ export const useEventsStore = defineStore("events", () => {
     if (!system.api) return;
     await ui.withLoading(async () => {
       activeEvent.value = await system.api!.addEventSpotifyTrack(eventId, trackUrl.trim());
-      acquisitionJobs.value = await system.api!.listAcquisitionJobs(eventId);
       summaries.value = await system.api!.listEvents();
       ui.setMessage("success", "Track added to the event.");
+      // Missing tracks are fetched automatically; only failures are surfaced.
+      await autoDownload(eventId);
     });
   }
 
@@ -200,18 +202,34 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
-  async function downloadMissingTracks(): Promise<void> {
+  // Titles of tracks that could not be acquired (not found on Deemix).
+  function notFoundTitles(result: EventAcquisitionResponse): string {
+    const failedIds = new Set(
+      result.jobs.filter((job) => job.status === "acquisition_failed").map((job) => job.spotifyTrackId)
+    );
+    const titles = result.review.tracks
+      .filter((track) => failedIds.has(track.spotifyTrackId))
+      .map((track) => track.title);
+    return titles.slice(0, 6).join(", ") + (titles.length > 6 ? "…" : "");
+  }
+
+  // Auto-acquire missing tracks for an event. Downloads happen silently; the
+  // only message shown is a warning listing tracks not found on Deemix.
+  async function autoDownload(eventId: number): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
-    if (!system.api || !activeEvent.value) return;
-    await ui.withLoading(async () => {
-      const result = await system.api!.runAutoAcquisition(activeEvent.value!.id);
-      activeEvent.value = result.review;
-      acquisitionJobs.value = result.jobs;
-      summaries.value = await system.api!.listEvents();
-      globalAcquisitionJobs.value = await system.api!.listGlobalAcquisitionJobs();
-      ui.setMessage("success", `Download started. Queued ${result.queued}, failed ${result.failed}, ambiguous ${result.ambiguous}.`);
-    });
+    if (!system.api) return;
+    const result = await system.api.runAutoAcquisition(eventId);
+    activeEvent.value = result.review;
+    acquisitionJobs.value = result.jobs;
+    summaries.value = await system.api.listEvents();
+    globalAcquisitionJobs.value = await system.api.listGlobalAcquisitionJobs();
+    if (result.failed > 0) {
+      ui.setMessage(
+        "error",
+        `${result.failed} titre(s) introuvable(s) sur Deemix : ${notFoundTitles(result)}`
+      );
+    }
   }
 
   async function applyActiveEvent(): Promise<void> {
@@ -390,7 +408,6 @@ export const useEventsStore = defineStore("events", () => {
     addTrackToEvent,
     createLiveImportPackage,
     refreshEventFolder,
-    downloadMissingTracks,
     applyActiveEvent,
     deleteActiveEvent,
     assignStagingFile,

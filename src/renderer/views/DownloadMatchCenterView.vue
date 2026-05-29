@@ -90,13 +90,6 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
             >
               Clear Completed
             </button>
-            <button
-              class="rounded bg-primary px-4 py-2 text-sm font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02]"
-              type="button"
-              @click="events.downloadMissingTracks()"
-            >
-              Download
-            </button>
           </div>
         </div>
 

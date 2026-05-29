@@ -4,7 +4,6 @@ export type ViewKey =
   | "dashboard"
   | "library"
   | "events"
-  | "manualEvents"
   | "downloadCenter"
   | "settings";
 
