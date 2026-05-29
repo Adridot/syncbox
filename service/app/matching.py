@@ -55,6 +55,10 @@ def duration_score(left_ms: int | None, right_ms: int | None) -> int:
 # is wrong/colliding (e.g. a different song tagged with the same code), so we
 # refuse the blind ISRC match and fall back to metadata scoring.
 ISRC_DURATION_TOLERANCE_MS = 15000
+# ...unless the titles clearly match: same ISRC + same title but different length
+# is just another edit/version of the same song (e.g. "Peña Baiona"), which we
+# still want to link. Only a *title* mismatch + duration mismatch is a collision.
+ISRC_TITLE_MATCH_THRESHOLD = 82
 
 
 def isrc_durations_compatible(left_ms: int | None, right_ms: int | None) -> bool:
@@ -74,9 +78,11 @@ def match_spotify_track(
             if candidate.isrc and candidate.isrc.upper() == spotify_track.isrc.upper():
                 if not isrc_durations_compatible(
                     spotify_track.duration_ms, candidate.duration_ms
-                ):
-                    # ISRC collision: same code, very different runtime. Skip this
-                    # candidate and let metadata scoring decide instead.
+                ) and text_similarity(spotify_track.title, candidate.title) < ISRC_TITLE_MATCH_THRESHOLD:
+                    # ISRC collision: same code, very different runtime AND a
+                    # different title -> a wrong code, not the same song. Skip and
+                    # let metadata scoring decide. (Same title + different runtime
+                    # is just another edit, so we keep the match.)
                     continue
                 return MatchResult(
                     status="matched",

@@ -61,6 +61,35 @@ def test_isrc_match_rejected_when_durations_differ_wildly() -> None:
     assert result.status == "missing"
 
 
+def test_isrc_match_kept_when_same_title_different_duration() -> None:
+    # Real case: Spotify "Peña Baiona" (Harmonie Bayonnaise, 5:07) shares the
+    # ISRC of the Rekordbox "Peña Baiona" (Marc Lartigau, 4:11). Same song,
+    # different edit -> must still match despite the 56s gap and different artist.
+    spotify = SpotifyTrack(
+        id="sp1",
+        uri="spotify:track:sp1",
+        title="Peña Baiona",
+        artists=["Harmonie Bayonnaise", "Les Socios", "Irrintzina"],
+        durationMs=307160,
+        isrc="FRZ510300044",
+    )
+    rekordbox = [
+        RekordboxTrack(
+            contentId="rb1",
+            title="Peña Baiona",
+            artist="Marc Lartigau",
+            durationMs=251000,
+            isrc="FRZ510300044",
+        )
+    ]
+
+    result = match_spotify_track(spotify, rekordbox)
+
+    assert result.status == "matched"
+    assert result.method == "isrc"
+    assert result.rekordbox_content_id == "rb1"
+
+
 def test_isrc_match_kept_when_duration_unknown() -> None:
     spotify = SpotifyTrack(
         id="sp1",
