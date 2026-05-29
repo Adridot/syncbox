@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, reactive, ref } from "vue";
 import type {
+  DeezerSearchResult,
   GlobalAcquisitionJob,
   LibraryReview,
   LibrarySource,
@@ -22,6 +23,12 @@ export const useLibraryStore = defineStore("library", () => {
   const tagPlaylistMappings = ref<TagPlaylistMapping[]>([]);
   const globalAcquisitionJobs = ref<GlobalAcquisitionJob[]>([]);
   const tagRuleTagInput = ref("");
+
+  // Deezer search panel state
+  const deezerSearchTrack = ref<LibraryTrackReview | null>(null);
+  const deezerSearchQuery = ref("");
+  const deezerSearchResults = ref<DeezerSearchResult[]>([]);
+  const deezerSearchLoading = ref(false);
 
   const tagRuleForm = reactive<TagRuleFormState>({
     sourcePlaylistId: "",
@@ -275,6 +282,63 @@ export const useLibraryStore = defineStore("library", () => {
     tagRuleForm.tags = tagRuleForm.tags.filter((t) => t !== tagName);
   }
 
+  function openDeezerSearch(track: LibraryTrackReview): void {
+    deezerSearchTrack.value = track;
+    deezerSearchQuery.value = [track.title, ...track.artists].join(" ");
+    deezerSearchResults.value = [];
+  }
+
+  function closeDeezerSearch(): void {
+    deezerSearchTrack.value = null;
+    deezerSearchResults.value = [];
+    deezerSearchQuery.value = "";
+  }
+
+  async function runDeezerSearch(): Promise<void> {
+    const system = useSystemStore();
+    if (!system.api || !deezerSearchQuery.value.trim()) return;
+    deezerSearchLoading.value = true;
+    try {
+      deezerSearchResults.value = await system.api.searchDeezer(deezerSearchQuery.value.trim());
+    } catch {
+      deezerSearchResults.value = [];
+    } finally {
+      deezerSearchLoading.value = false;
+    }
+  }
+
+  async function queueDeezerTrack(deezerTrackId: string): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || !activeReview.value || !deezerSearchTrack.value) return;
+    await ui.withLoading(async () => {
+      await system.api!.queueDeezerTrack(
+        activeReview.value!.source.id,
+        deezerSearchTrack.value!.spotifyTrackId,
+        deezerTrackId
+      );
+      activeReview.value = await system.api!.getLibraryReview(activeReview.value!.source.id);
+      sources.value = await system.api!.listLibrarySources();
+      ui.setMessage("success", "Track queued for download.");
+      closeDeezerSearch();
+    });
+  }
+
+  async function ignoreTrack(track: LibraryTrackReview): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || !activeReview.value) return;
+    await ui.withLoading(async () => {
+      activeReview.value = await system.api!.updateLibraryTracks({
+        sourceId: activeReview.value!.source.id,
+        spotifyTrackIds: [track.spotifyTrackId],
+        status: "ignored",
+      });
+      sources.value = await system.api!.listLibrarySources();
+      ui.setMessage("success", "Track ignored.");
+    });
+  }
+
   return {
     sources,
     activeReview,
@@ -287,6 +351,10 @@ export const useLibraryStore = defineStore("library", () => {
     mappingForm,
     selectedTracks,
     readyToApply,
+    deezerSearchTrack,
+    deezerSearchQuery,
+    deezerSearchResults,
+    deezerSearchLoading,
     refreshSources,
     syncAllSources,
     refreshTagRules,
@@ -307,5 +375,10 @@ export const useLibraryStore = defineStore("library", () => {
     selectMappingPlaylist,
     addTagRuleTag,
     removeTagRuleTag,
+    openDeezerSearch,
+    closeDeezerSearch,
+    runDeezerSearch,
+    queueDeezerTrack,
+    ignoreTrack,
   };
 });

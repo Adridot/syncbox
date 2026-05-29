@@ -1,3 +1,11 @@
+export type DeezerSearchResult = {
+  id: string;
+  title: string;
+  artist: string;
+  album?: string | null;
+  durationMs?: number | null;
+};
+
 export type HealthResponse = {
   status: string;
   service: string;
@@ -425,6 +433,14 @@ export class ApiClient {
 
   async applyLibrarySource(sourceId: number): Promise<LibraryApplyResponse> {
     return this.post(`/api/library/sources/${sourceId}/apply`, {});
+  }
+
+  async searchDeezer(query: string): Promise<DeezerSearchResult[]> {
+    return this.get(`/api/library/search-deezer?query=${encodeURIComponent(query)}`);
+  }
+
+  async queueDeezerTrack(sourceId: number, spotifyTrackId: string, deezerTrackId: string): Promise<{ queued: number }> {
+    return this.post(`/api/library/sources/${sourceId}/tracks/${spotifyTrackId}/queue-deezer`, { deezerTrackId });
   }
 
   async listTagPlaylistMappings(): Promise<TagPlaylistMapping[]> {

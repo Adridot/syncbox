@@ -397,6 +397,14 @@ class EventSummary(BaseModel):
     created_at: str = Field(alias="createdAt")
 
 
+class DeezerSearchResult(BaseModel):
+    id: str
+    title: str
+    artist: str
+    album: str | None = None
+    duration_ms: int | None = Field(default=None, alias="durationMs")
+
+
 class SpotifyTrack(BaseModel):
     id: str
     uri: str

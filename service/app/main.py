@@ -4,12 +4,16 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from .config import load_config
 from .acquisition import (
+    DeemixClient,
+    DeezerResolver,
+    DeezerResolveResult,
+    deezer_candidate_from_payload,
     get_deemix_status,
     refresh_acquisition_jobs,
     retry_acquisition,
@@ -20,6 +24,7 @@ from .models import (
     AcquisitionJob,
     AppSettings,
     DeemixStatus,
+    DeezerSearchResult,
     EventAcquisitionResponse,
     EventApplyResponse,
     EventDeletePreview,
@@ -62,7 +67,11 @@ from .event_import import (
 )
 from .live_import import build_live_import_package
 from .library import (
+    deemix_permanent_settings,
     download_library_tracks,
+    library_acquisition_job_payload,
+    queue_library_tracks,
+    refresh_library_acquisition_jobs,
     require_library_review,
     refresh_library_review_state,
     sync_library_source,
@@ -209,6 +218,80 @@ async def download_library_track_files(request: LibraryTrackDownloadRequest) -> 
         return await download_library_tracks(database, build_rekordbox_adapter(), request)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/library/search-deezer", response_model=list[DeezerSearchResult])
+async def search_deezer(query: str = Query(..., min_length=1)) -> list[dict[str, Any]]:
+    resolver = DeezerResolver()
+    try:
+        payload = await resolver._get("/search", params={"q": query.strip(), "limit": 15})
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Deezer search failed: {exc}") from exc
+    results = []
+    for item in payload.get("data") or []:
+        candidate = deezer_candidate_from_payload(item)
+        if candidate:
+            results.append({
+                "id": candidate.id,
+                "title": candidate.title,
+                "artist": candidate.artist,
+                "album": candidate.album,
+                "durationMs": candidate.duration_ms,
+            })
+    return results
+
+
+@app.post("/api/library/sources/{source_id}/tracks/{spotify_track_id}/queue-deezer")
+async def queue_library_deezer_track(
+    source_id: int,
+    spotify_track_id: str,
+    deezer_track_id: str = Body(..., embed=True, alias="deezerTrackId"),
+) -> dict[str, Any]:
+    try:
+        review = require_library_review(database, source_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    track = next((t for t in review.tracks if t.spotify_track_id == spotify_track_id), None)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found in source review.")
+
+    resolver = DeezerResolver()
+    try:
+        payload = await resolver._get(f"/track/{deezer_track_id}")
+        candidate = deezer_candidate_from_payload(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Deezer lookup failed: {exc}") from exc
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Deezer track not found.")
+
+    adapter = build_rekordbox_adapter()
+    result = DeezerResolveResult(
+        status="resolved",
+        confidence=100,
+        match_method="manual",
+        candidate=candidate,
+    )
+    database.upsert_library_acquisition_job(
+        source_id,
+        library_acquisition_job_payload(
+            track,
+            status="resolved",
+            deezer_track_id=candidate.id,
+            confidence=100,
+            match_method="manual",
+            output_dir=adapter.storage_layout().permanent,
+        ),
+    )
+    client = DeemixClient()
+    try:
+        await queue_library_tracks(database, adapter, review, client, [(track, result)])
+        await refresh_library_acquisition_jobs(database, adapter, source_id, deemix_client=client)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Download queue failed: {exc}") from exc
+
+    return {"queued": 1, "deezerTrackId": candidate.id, "title": candidate.title, "artist": candidate.artist}
 
 
 @app.post("/api/library/sources/{source_id}/apply", response_model=LibraryApplyResponse)

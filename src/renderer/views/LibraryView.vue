@@ -2,9 +2,12 @@
 import {
   CheckCircle2,
   Download,
+  EyeOff,
   Library,
+  Loader2,
   Plus,
   RefreshCw,
+  Search,
   Tags,
   UploadCloud,
   X
@@ -354,6 +357,7 @@ function removeDrawerTag(tagName: string): void {
                   <th class="px-4 py-3">Rekordbox / File</th>
                   <th class="px-4 py-3">Status</th>
                   <th class="px-4 py-3">Tags</th>
+                  <th class="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-outline-variant/50 text-sm">
@@ -403,9 +407,31 @@ function removeDrawerTag(tagName: string): void {
                       @change="library.updateTrackTags(track, ($event.target as HTMLInputElement).value)"
                     />
                   </td>
+                  <td class="px-4 py-3 align-top">
+                    <div v-if="track.status === 'new' || track.status === 'missing'" class="flex gap-1.5">
+                      <button
+                        class="inline-flex items-center gap-1 rounded border border-outline bg-surface-container px-2 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
+                        type="button"
+                        :title="`Search Deezer for: ${track.title}`"
+                        @click="library.openDeezerSearch(track)"
+                      >
+                        <Search :size="12" aria-hidden="true" />
+                        Search
+                      </button>
+                      <button
+                        class="inline-flex items-center gap-1 rounded border border-outline bg-surface-container px-2 py-1 text-[11px] font-bold text-on-surface-variant transition-colors hover:border-outline-variant"
+                        type="button"
+                        title="Ignore this track"
+                        @click="library.ignoreTrack(track)"
+                      >
+                        <EyeOff :size="12" aria-hidden="true" />
+                        Ignore
+                      </button>
+                    </div>
+                  </td>
                 </tr>
                 <tr v-if="filteredTracks.length === 0">
-                  <td class="px-4 py-6 text-on-surface-variant" colspan="5">
+                  <td class="px-4 py-6 text-on-surface-variant" colspan="6">
                     No tracks for this filter.
                   </td>
                 </tr>
@@ -549,6 +575,83 @@ function removeDrawerTag(tagName: string): void {
           <CheckCircle2 :size="16" aria-hidden="true" />
           Apply Tag
         </button>
+      </div>
+    </aside>
+
+    <!-- Deezer Search Panel — slides in from right, takes priority over batch tagging -->
+    <aside
+      v-if="library.deezerSearchTrack"
+      class="flex h-full w-[420px] shrink-0 flex-col border-l border-outline-variant bg-surface-container shadow-2xl"
+    >
+      <div class="flex items-center justify-between border-b border-outline-variant p-4">
+        <div>
+          <h2 class="text-base font-bold text-on-surface">Search Deezer</h2>
+          <p class="mt-0.5 max-w-[280px] truncate text-xs text-on-surface-variant">
+            {{ library.deezerSearchTrack.title }} — {{ library.deezerSearchTrack.artists.join(", ") }}
+          </p>
+        </div>
+        <button
+          class="grid h-8 w-8 place-items-center rounded border border-outline bg-surface text-on-surface-variant hover:border-primary"
+          type="button"
+          @click="library.closeDeezerSearch()"
+        >
+          <X :size="16" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div class="border-b border-outline-variant p-4">
+        <form class="flex gap-2" @submit.prevent="library.runDeezerSearch()">
+          <input
+            class="min-w-0 flex-1 rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
+            v-model="library.deezerSearchQuery"
+            type="text"
+            placeholder="Search query…"
+          />
+          <button
+            class="inline-flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+            type="submit"
+            :disabled="library.deezerSearchLoading"
+          >
+            <Loader2 v-if="library.deezerSearchLoading" :size="15" class="animate-spin" aria-hidden="true" />
+            <Search v-else :size="15" aria-hidden="true" />
+            Search
+          </button>
+        </form>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4">
+        <div v-if="library.deezerSearchResults.length === 0 && !library.deezerSearchLoading" class="py-8 text-center text-sm text-on-surface-variant">
+          <p v-if="library.deezerSearchQuery">No results. Try a different query.</p>
+          <p v-else>Enter a search query and press Search.</p>
+        </div>
+
+        <div class="flex flex-col gap-3">
+          <div
+            v-for="result in library.deezerSearchResults"
+            :key="result.id"
+            class="rounded-lg border border-outline-variant bg-surface p-3"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <strong class="block truncate text-sm text-on-surface">{{ result.title }}</strong>
+                <span class="block truncate text-xs text-on-surface-variant">{{ result.artist }}</span>
+                <span v-if="result.album" class="block truncate text-[11px] text-on-surface-variant">{{ result.album }}</span>
+                <span v-if="result.durationMs" class="text-[10px] text-on-surface-variant">
+                  {{ Math.floor(result.durationMs / 60000) }}:{{ String(Math.floor((result.durationMs % 60000) / 1000)).padStart(2, "0") }}
+                </span>
+              </div>
+              <button
+                class="shrink-0 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-[0_2px_8px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02] disabled:opacity-60"
+                type="button"
+                :disabled="ui.loading"
+                @click="library.queueDeezerTrack(result.id)"
+              >
+                <Download :size="13" aria-hidden="true" />
+                Download
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </aside>
   </div>
