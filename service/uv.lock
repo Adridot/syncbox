@@ -454,7 +454,7 @@ wheels = [
 ]
 
 [[package]]
-name = "rekordbox-sync-service"
+name = "syncbox-service"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

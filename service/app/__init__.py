@@ -1,2 +1,2 @@
-"""Local API service for Rekordbox Sync Studio."""
+"""Local API service for Syncbox — DJ playlist sync for Rekordbox."""
 

@@ -1,7 +1,7 @@
 [project]
-name = "rekordbox-sync-service"
+name = "syncbox-service"
 version = "0.1.0"
-description = "Local API service for Rekordbox Sync Studio."
+description = "Local API service for Syncbox — DJ playlist sync for Rekordbox."
 requires-python = ">=3.12,<3.15"
 dependencies = [
   "fastapi>=0.115.0",

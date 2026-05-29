@@ -2,7 +2,7 @@
 
 ## Current V2 Workflow
 
-Rekordbox Sync Studio now supports the first end-to-end event import workflow: Spotify playlist analysis, Rekordbox matching, manual file staging, and guarded Rekordbox application while Rekordbox is closed.
+Syncbox now supports the first end-to-end event import workflow: Spotify playlist analysis, Rekordbox matching, manual file staging, and guarded Rekordbox application while Rekordbox is closed.
 
 ## Main Screens
 

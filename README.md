@@ -1,4 +1,6 @@
-# Rekordbox Sync Studio
+# Syncbox
+
+> DJ Playlist Sync for Rekordbox
 
 Local desktop app foundation for synchronizing Spotify playlists with a Rekordbox library through a controlled review workflow.
 

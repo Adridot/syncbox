@@ -8,6 +8,6 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       openPath: (path: string) => Promise<void>;
     };
-    rekordboxSyncStudioStopAutoRefresh?: () => void;
+    syncboxStopAutoRefresh?: () => void;
   }
 }

@@ -28,12 +28,10 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
       aria-label="Primary"
     >
       <div class="p-6">
-        <div class="mb-8 flex items-center gap-2">
-          <div class="grid h-8 w-8 place-items-center rounded bg-primary text-lg font-bold text-white">
-            R
-          </div>
-          <h1 class="text-lg font-bold leading-none tracking-tight">
-            Rekordbox <span class="text-primary">Studio</span>
+        <div class="mb-8 flex items-center gap-2.5">
+          <img src="/favicon.png" alt="" class="h-9 w-9 shrink-0 rounded-lg" />
+          <h1 class="text-xl font-bold leading-none tracking-tight">
+            SYNC<span class="text-primary">BOX</span>
           </h1>
         </div>
 

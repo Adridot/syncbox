@@ -90,7 +90,7 @@ from .sync import generate_bidirectional_proposals
 
 config = load_config()
 database = LocalDatabase(config.app_database_path)
-app = FastAPI(title="Rekordbox Sync Studio API", version="0.1.0")
+app = FastAPI(title="Syncbox API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -113,7 +113,7 @@ def startup() -> None:
 def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        service="rekordbox-sync-service",
+        service="syncbox-service",
         version=app.version,
         databasePath=str(database.path),
     )
@@ -455,7 +455,7 @@ async def spotify_callback(
         await SpotifyClient(database).exchange_callback(code, state)
     except SpotifyAuthError as exc:
         return callback_page("Spotify Authorization Failed", str(exc))
-    return callback_page("Spotify Connected", "You can return to Rekordbox Sync Studio.")
+    return callback_page("Spotify Connected", "You can return to Syncbox.")
 
 
 

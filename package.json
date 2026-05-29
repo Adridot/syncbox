@@ -1,9 +1,9 @@
 {
-  "name": "rekordbox-sync-studio",
+  "name": "syncbox",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local desktop app for controlled Spotify to Rekordbox synchronization.",
+  "description": "Syncbox — DJ playlist sync for Rekordbox. Local desktop app for controlled Spotify to Rekordbox synchronization.",
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:service\" \"npm:dev:desktop\"",

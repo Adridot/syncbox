@@ -21,7 +21,7 @@ class ServiceConfig:
 
     @property
     def app_database_path(self) -> Path:
-        return self.data_dir / "rekordbox-sync-studio.sqlite3"
+        return self.data_dir / "syncbox.sqlite3"
 
 
 def load_config() -> ServiceConfig:

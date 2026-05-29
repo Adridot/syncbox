@@ -72,7 +72,8 @@ function createWindow(): void {
     minWidth: 980,
     minHeight: 680,
     show: false,
-    title: "Rekordbox Sync Studio",
+    title: "Syncbox",
+    icon: join(app.getAppPath(), "public/favicon.png"),
     backgroundColor: "#f7f8fb",
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
