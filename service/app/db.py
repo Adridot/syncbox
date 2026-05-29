@@ -320,6 +320,17 @@ class LocalDatabase:
             ).fetchone()
             return str(row["value"]) if row else default
 
+    def set_setting(self, key: str, value: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
+
     def get_app_settings(self, defaults: AppSettings) -> AppSettings:
         return AppSettings(
             spotifyClientId=self.get_setting(
