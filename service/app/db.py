@@ -1179,6 +1179,25 @@ class LocalDatabase:
             )
             return int(cursor.lastrowid)
 
+    def clear_completed_acquisition_jobs(self, scope: str | None = None) -> int:
+        terminal = ("ready", "downloaded", "acquisition_failed", "acquisition_ambiguous")
+        placeholders = ", ".join("?" * len(terminal))
+        cleared = 0
+        with self.connect() as connection:
+            if scope in (None, "event"):
+                cursor = connection.execute(
+                    f"DELETE FROM event_acquisition_jobs WHERE status IN ({placeholders})",
+                    terminal,
+                )
+                cleared += cursor.rowcount
+            if scope in (None, "library"):
+                cursor = connection.execute(
+                    f"DELETE FROM library_acquisition_jobs WHERE status IN ({placeholders})",
+                    terminal,
+                )
+                cleared += cursor.rowcount
+        return cleared
+
     def delete_event_import(self, event_id: int) -> None:
         with self.connect() as connection:
             connection.execute(

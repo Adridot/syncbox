@@ -293,6 +293,12 @@ async def list_global_acquisition_jobs(
     return database.list_global_acquisition_jobs(scope=scope, status=status, source=source)
 
 
+@app.delete("/api/acquisition/jobs/clear")
+def clear_acquisition_jobs(scope: str | None = Query(default=None)) -> dict[str, int]:
+    cleared = database.clear_completed_acquisition_jobs(scope=scope)
+    return {"cleared": cleared}
+
+
 @app.get("/api/sync/proposals", response_model=list[SyncProposal])
 def list_sync_proposals() -> list[SyncProposal]:
     return database.list_proposals()

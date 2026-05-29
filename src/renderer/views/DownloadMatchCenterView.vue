@@ -84,6 +84,13 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
               Refresh Folder
             </button>
             <button
+              class="rounded border border-outline bg-surface-container px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-tertiary/60"
+              type="button"
+              @click="events.clearDownloads()"
+            >
+              Clear Completed
+            </button>
+            <button
               class="rounded bg-primary px-4 py-2 text-sm font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02]"
               type="button"
               @click="events.downloadMissingTracks()"

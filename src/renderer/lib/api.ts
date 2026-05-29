@@ -466,6 +466,11 @@ export class ApiClient {
     return this.get(`/api/acquisition/jobs${suffix}`);
   }
 
+  async clearAcquisitionJobs(scope?: string): Promise<{ cleared: number }> {
+    const suffix = scope ? `?scope=${scope}` : "";
+    return this.delete(`/api/acquisition/jobs/clear${suffix}`);
+  }
+
   async getSpotifyAuthUrl(clientId: string, redirectUri: string): Promise<AuthUrlResponse> {
     return this.post("/api/spotify/auth-url", { clientId, redirectUri });
   }
@@ -551,6 +556,11 @@ export class ApiClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
+    return this.parse<T>(response);
+  }
+
+  private async delete<T>(path: string): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, { method: "DELETE" });
     return this.parse<T>(response);
   }
 

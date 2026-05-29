@@ -209,6 +209,20 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
+  async function clearDownloads(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    await ui.withLoading(async () => {
+      const result = await system.api!.clearAcquisitionJobs();
+      globalAcquisitionJobs.value = await system.api!.listGlobalAcquisitionJobs();
+      if (activeEvent.value) {
+        acquisitionJobs.value = await system.api!.listAcquisitionJobs(activeEvent.value.id);
+      }
+      ui.setMessage("success", `${result.cleared} download job(s) cleared.`);
+    });
+  }
+
   async function acceptSuggestedMatch(track: EventTrackReview): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -247,5 +261,6 @@ export const useEventsStore = defineStore("events", () => {
     deleteActiveEvent,
     assignStagingFile,
     acceptSuggestedMatch,
+    clearDownloads,
   };
 });

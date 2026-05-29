@@ -208,16 +208,16 @@ async function openDesktopPath(path: string): Promise<void> {
           </div>
 
           <!-- Metrics -->
-          <div class="mt-3 flex flex-wrap gap-3">
+          <div class="mt-3 grid grid-cols-5 gap-2">
             <div v-for="[label, value] in [
               ['matched', events.activeEvent.matchedTracks],
               ['ready', events.activeEvent.readyTracks],
               ['applied', events.activeEvent.appliedTracks],
               ['missing', events.activeEvent.missingTracks],
               ['ambiguous', events.activeEvent.ambiguousTracks],
-            ]" :key="label" class="rounded border border-outline-variant bg-surface-container-high px-3 py-1.5 text-center">
-              <strong class="block text-base text-on-surface">{{ value }}</strong>
-              <span class="text-[10px] text-on-surface-variant">{{ label }}</span>
+            ]" :key="label" class="rounded border border-outline-variant bg-surface-container-high p-2 text-center">
+              <strong class="block text-xl text-on-surface">{{ value }}</strong>
+              <span class="text-[10px] uppercase tracking-wide text-on-surface-variant">{{ label }}</span>
             </div>
           </div>
         </div>

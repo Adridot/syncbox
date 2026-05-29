@@ -186,6 +186,11 @@ class RekordboxAdapter:
         except Exception as exc:
             raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
 
+        xml_path = self.database_dir / "masterPlaylists6.xml"
+        xml_backup: bytes | None = None
+        if xml_path.exists():
+            xml_backup = xml_path.read_bytes()
+
         database = Rekordbox6Database(db_dir=str(self.database_dir))
         imported = 0
         tagged = 0
@@ -257,6 +262,10 @@ class RekordboxAdapter:
             smart_playlist_name = str(getattr(playlist, "Name", smart_playlist_name))
 
             database.commit()
+
+            if xml_backup is not None:
+                xml_path.write_bytes(xml_backup)
+
             return {
                 "backup_path": str(backup_path),
                 "imported": imported,
@@ -266,6 +275,8 @@ class RekordboxAdapter:
         except Exception:
             if hasattr(database, "rollback"):
                 database.rollback()
+            if xml_backup is not None and xml_path.exists():
+                xml_path.write_bytes(xml_backup)
             raise
         finally:
             database.close()
@@ -396,10 +407,14 @@ class RekordboxAdapter:
         except Exception as exc:
             raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
 
+        xml_path = self.database_dir / "masterPlaylists6.xml"
+        xml_backup: bytes | None = None
+        if xml_path.exists():
+            xml_backup = xml_path.read_bytes()
+
         database = Rekordbox6Database(db_dir=str(self.database_dir))
         imported = 0
         tagged = 0
-        permanent = 0
         try:
             all_tags = {
                 str(tag.Name): tag
@@ -442,13 +457,10 @@ class RekordboxAdapter:
                 if track.rekordbox_content_id:
                     content = content_by_id.get(str(track.rekordbox_content_id))
                 if content is None and track.staging_file_path:
-                    original_path = Path(track.staging_file_path)
                     file_path = move_to_permanent(
-                        original_path,
+                        Path(track.staging_file_path),
                         Path(self.storage_layout().permanent),
                     )
-                    if file_path.resolve() != original_path.resolve():
-                        permanent += 1
                     content = find_content_by_path(content_by_path, file_path)
                     if content is None:
                         content = find_content_by_path(deleted_content_by_path, file_path)
@@ -476,16 +488,24 @@ class RekordboxAdapter:
                     ensure_content_tag(database, tables, content, all_tags[tag_name])
                     tagged += 1
 
-            database.commit()
+            if imported > 0 or tagged > 0:
+                database.commit()
+            else:
+                database.rollback()
+
+            if xml_backup is not None:
+                xml_path.write_bytes(xml_backup)
+
             return {
                 "backup_path": str(backup_path),
                 "imported": imported,
                 "tagged": tagged,
-                "permanent": permanent,
             }
         except Exception:
             if hasattr(database, "rollback"):
                 database.rollback()
+            if xml_backup is not None and xml_path.exists():
+                xml_path.write_bytes(xml_backup)
             raise
         finally:
             database.close()

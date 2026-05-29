@@ -14,7 +14,6 @@ import StatusBadge from "../components/StatusBadge.vue";
 import { useEventsStore } from "../stores/events";
 import { useLibraryStore } from "../stores/library";
 import { useProposalsStore } from "../stores/proposals";
-import { useSpotifyStore } from "../stores/spotify";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
 
@@ -22,7 +21,6 @@ const ui = useUiStore();
 const system = useSystemStore();
 const events = useEventsStore();
 const library = useLibraryStore();
-const spotify = useSpotifyStore();
 const proposals = useProposalsStore();
 
 const pendingProposals = computed(
@@ -158,33 +156,6 @@ const recentEvents = computed(() => events.summaries.slice(0, 4));
           </div>
         </section>
 
-        <section class="rounded-xl border border-outline-variant bg-surface-container p-6 xl:col-span-2">
-          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 class="text-lg font-bold text-on-surface">Library Health</h3>
-              <p class="mt-1 text-sm text-on-surface-variant">
-                {{ spotify.playlists.length }} Spotify playlists loaded,
-                {{ library.sources.length }} permanent sources configured.
-              </p>
-            </div>
-            <div class="flex flex-wrap gap-3">
-              <button
-                class="rounded bg-primary px-4 py-2 text-sm font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02]"
-                type="button"
-                @click="ui.navigateTo('library')"
-              >
-                Open My Library
-              </button>
-              <button
-                class="rounded border border-outline bg-surface-container-high px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary"
-                type="button"
-                @click="ui.navigateTo('downloadCenter')"
-              >
-                Download Center
-              </button>
-            </div>
-          </div>
-        </section>
       </div>
     </div>
   </div>

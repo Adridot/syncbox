@@ -112,6 +112,13 @@ function acquisitionTone(job?: AcquisitionJob): "ok" | "warn" | "active" | "mute
                   {{ file.title }} - {{ file.artist || file.filePath }}
                 </option>
               </select>
+              <p
+                v-if="track.status === 'missing' && activeEvent.stagingFiles.length === 0"
+                class="max-w-[360px] rounded border border-dashed border-outline bg-surface-container/50 px-3 py-2 text-[11px] leading-relaxed text-on-surface-variant"
+              >
+                Not found on Deezer. Add the audio file manually to the event folder and click
+                <strong class="text-on-surface">Refresh Folder</strong>.
+              </p>
             </div>
           </td>
           <td class="px-4 py-3 align-top">
