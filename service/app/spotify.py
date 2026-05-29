@@ -138,6 +138,43 @@ class SpotifyClient:
             params={"limit": limit, "offset": offset},
         )
 
+    async def get_current_user_id(self) -> str:
+        payload = await self._request("GET", "/me", params={})
+        user_id = payload.get("id")
+        if not user_id:
+            raise SpotifyAuthError("Could not resolve the current Spotify user.")
+        return str(user_id)
+
+    async def get_track(self, track_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/tracks/{track_id}", params={})
+
+    async def search_track(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "GET",
+            "/search",
+            params={"q": query, "type": "track", "limit": max(1, min(limit, 50))},
+        )
+        return payload.get("tracks", {}).get("items", []) or []
+
+    async def create_playlist(
+        self, name: str, *, public: bool = False, description: str = ""
+    ) -> dict[str, Any]:
+        user_id = await self.get_current_user_id()
+        payload = await self._request(
+            "POST",
+            f"/users/{user_id}/playlists",
+            json={"name": name, "public": public, "description": description},
+        )
+        external_urls = payload.get("external_urls") or {}
+        return {
+            "id": str(payload.get("id", "")),
+            "name": str(payload.get("name", name)),
+            "url": str(
+                external_urls.get("spotify")
+                or f"https://open.spotify.com/playlist/{payload.get('id', '')}"
+            ),
+        }
+
     async def add_tracks_to_playlist(self, playlist_id: str, uris: list[str]) -> None:
         for start in range(0, len(uris), 100):
             await self._request(
@@ -231,20 +268,29 @@ def create_code_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
-def parse_playlist_id(value: str) -> str:
+def _parse_spotify_id(value: str, kind: str) -> str:
     parsed = urlparse(value)
     if parsed.scheme.startswith("http") and parsed.netloc:
         parts = [part for part in parsed.path.split("/") if part]
-        if "playlist" in parts:
-            index = parts.index("playlist")
+        if kind in parts:
+            index = parts.index(kind)
             if len(parts) > index + 1:
-                return parts[index + 1]
+                # Strip any trailing query/fragment captured in the path segment.
+                return parts[index + 1].split("?")[0]
         query = parse_qs(parsed.query)
-        if "playlist" in query:
-            return query["playlist"][0]
-    if value.startswith("spotify:playlist:"):
+        if kind in query:
+            return query[kind][0]
+    if value.startswith(f"spotify:{kind}:"):
         return value.split(":")[-1]
     return value.strip()
+
+
+def parse_playlist_id(value: str) -> str:
+    return _parse_spotify_id(value, "playlist")
+
+
+def parse_track_id(value: str) -> str:
+    return _parse_spotify_id(value, "track")
 
 
 def summarize_playlist_page(payload: dict[str, Any]) -> dict[str, Any]:
@@ -302,31 +348,38 @@ def playlist_image_url(images: object) -> str | None:
     return None
 
 
+def track_payload_to_spotify_track(track: dict[str, Any]) -> SpotifyTrack | None:
+    """Convert a raw Spotify track object into a SpotifyTrack, or None if it is
+    not a usable full track (local files, episodes, missing id/uri)."""
+    if not isinstance(track, dict):
+        return None
+    if track.get("type") not in (None, "track") or track.get("is_local"):
+        return None
+    track_id = track.get("id")
+    uri = track.get("uri")
+    if not track_id or not uri:
+        return None
+    external_ids = track.get("external_ids") or {}
+    return SpotifyTrack(
+        id=str(track_id),
+        uri=str(uri),
+        title=str(track.get("name") or "Untitled track"),
+        artists=[
+            str(artist.get("name"))
+            for artist in track.get("artists", [])
+            if artist.get("name")
+        ],
+        durationMs=int(track.get("duration_ms") or 0),
+        isrc=external_ids.get("isrc"),
+    )
+
+
 def playlist_items_to_tracks(items: list[dict[str, Any]]) -> list[SpotifyTrack]:
     tracks: list[SpotifyTrack] = []
     for item in items:
-        track = item.get("track") or {}
-        if track.get("type") != "track" or track.get("is_local"):
-            continue
-        track_id = track.get("id")
-        uri = track.get("uri")
-        if not track_id or not uri:
-            continue
-        external_ids = track.get("external_ids") or {}
-        tracks.append(
-            SpotifyTrack(
-                id=str(track_id),
-                uri=str(uri),
-                title=str(track.get("name") or "Untitled track"),
-                artists=[
-                    str(artist.get("name"))
-                    for artist in track.get("artists", [])
-                    if artist.get("name")
-                ],
-                durationMs=int(track.get("duration_ms") or 0),
-                isrc=external_ids.get("isrc"),
-            )
-        )
+        track = track_payload_to_spotify_track(item.get("track") or {})
+        if track is not None:
+            tracks.append(track)
     return tracks
 
 

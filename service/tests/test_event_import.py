@@ -1,10 +1,136 @@
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from app import event_import
 from app.audio import scan_audio_files
 from app.db import LocalDatabase
-from app.event_import import build_event_track_rows, scan_event_staging
+from app.event_import import (
+    add_spotify_track_to_event,
+    build_event_track_rows,
+    create_manual_event,
+    scan_event_staging,
+)
 from app.models import RekordboxTrack, SpotifyTrack
+
+
+class FakeAdapter:
+    """Minimal RekordboxAdapter stand-in for event scaffolding/matching tests."""
+
+    def __init__(self, events_dir: Path, tracks: list[dict] | None = None) -> None:
+        self._events_dir = events_dir
+        self._tracks = tracks or []
+
+    def ensure_storage_layout(self):
+        self._events_dir.mkdir(parents=True, exist_ok=True)
+        return SimpleNamespace(events=str(self._events_dir))
+
+    def read_library_snapshot(self):
+        return {"available": True, "tracks": self._tracks}
+
+
+class FakeSpotifyClient:
+    def __init__(self, track_payload: dict) -> None:
+        self._payload = track_payload
+        self.requested_id: str | None = None
+
+    async def get_track(self, track_id: str) -> dict:
+        self.requested_id = track_id
+        return self._payload
+
+
+def test_create_manual_event_is_empty_and_unlinked(tmp_path: Path) -> None:
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    adapter = FakeAdapter(tmp_path / "events")
+
+    review = create_manual_event(database, adapter, "  Soirée Test  ")
+
+    assert review.event_name == "Soirée Test"
+    assert review.spotify_playlist_id.startswith("manual:")
+    assert review.tracks == []
+
+
+def test_add_spotify_track_matches_collection_then_adds_additively(tmp_path: Path) -> None:
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    # First track already exists in the Rekordbox snapshot (matched by ISRC).
+    adapter = FakeAdapter(
+        tmp_path / "events",
+        tracks=[
+            {
+                "contentId": "rb-1",
+                "title": "Known Song",
+                "artist": "Known Artist",
+                "durationMs": 181000,
+                "isrc": "USRC10000001",
+            }
+        ],
+    )
+    review = create_manual_event(database, adapter, "Manual Event")
+    event_id = review.id
+
+    # Spotify ids are 22-char base62 strings (validated before the API call).
+    id_known = "1xV89fEoj4JNCrbMq5rA7G"
+    id_new = "5vNRhkKd0yEAg8suGBpjeY"
+    matched_client = FakeSpotifyClient(
+        {
+            "id": id_known,
+            "uri": f"spotify:track:{id_known}",
+            "name": "Known Song",
+            "artists": [{"name": "Known Artist"}],
+            "duration_ms": 180000,
+            "external_ids": {"isrc": "USRC10000001"},
+            "type": "track",
+        }
+    )
+    review = asyncio.run(
+        add_spotify_track_to_event(
+            database, adapter, matched_client, event_id,
+            f"https://open.spotify.com/track/{id_known}",
+        )
+    )
+    assert matched_client.requested_id == id_known
+    assert len(review.tracks) == 1
+    assert review.tracks[0].status == "matched"
+    assert review.tracks[0].rekordbox_content_id == "rb-1"
+
+    # A second, unknown track is appended without dropping the first (UPSERT).
+    missing_client = FakeSpotifyClient(
+        {
+            "id": id_new,
+            "uri": f"spotify:track:{id_new}",
+            "name": "New Song",
+            "artists": [{"name": "Someone"}],
+            "duration_ms": 200000,
+            "external_ids": {"isrc": "USRC10000002"},
+            "type": "track",
+        }
+    )
+    review = asyncio.run(
+        add_spotify_track_to_event(
+            database, adapter, missing_client, event_id, f"spotify:track:{id_new}"
+        )
+    )
+    statuses = {t.spotify_track_id: t.status for t in review.tracks}
+    assert statuses == {id_known: "matched", id_new: "missing"}
+
+
+def test_add_spotify_track_rejects_invalid_link(tmp_path: Path) -> None:
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    adapter = FakeAdapter(tmp_path / "events")
+    event_id = create_manual_event(database, adapter, "Manual Event").id
+
+    client = FakeSpotifyClient({})
+    try:
+        asyncio.run(
+            add_spotify_track_to_event(database, adapter, client, event_id, "not-a-link")
+        )
+        assert False, "expected ValueError for an invalid link"
+    except ValueError:
+        pass
+    assert client.requested_id is None  # never called Spotify
 
 
 def test_event_track_rows_mark_duplicate_spotify_tracks() -> None:

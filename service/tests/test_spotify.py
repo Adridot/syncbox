@@ -1,4 +1,43 @@
-from app.spotify import parse_playlist_id, playlist_items_to_tracks, summarize_playlist_page
+from app.spotify import (
+    parse_playlist_id,
+    parse_track_id,
+    playlist_items_to_tracks,
+    summarize_playlist_page,
+    track_payload_to_spotify_track,
+)
+
+
+def test_parse_track_id_from_url() -> None:
+    assert parse_track_id("https://open.spotify.com/track/abc123?si=xyz") == "abc123"
+
+
+def test_parse_track_id_from_uri_and_raw() -> None:
+    assert parse_track_id("spotify:track:abc123") == "abc123"
+    assert parse_track_id("abc123") == "abc123"
+
+
+def test_track_payload_to_spotify_track_valid() -> None:
+    track = track_payload_to_spotify_track(
+        {
+            "id": "t1",
+            "uri": "spotify:track:t1",
+            "name": "Song",
+            "artists": [{"name": "Artist A"}, {"name": "Artist B"}],
+            "duration_ms": 200000,
+            "external_ids": {"isrc": "USRC11111111"},
+            "type": "track",
+        }
+    )
+    assert track is not None
+    assert track.id == "t1"
+    assert track.artists == ["Artist A", "Artist B"]
+    assert track.isrc == "USRC11111111"
+
+
+def test_track_payload_to_spotify_track_rejects_local_and_missing() -> None:
+    assert track_payload_to_spotify_track({"id": "x", "uri": "u", "is_local": True}) is None
+    assert track_payload_to_spotify_track({"id": None, "uri": None}) is None
+    assert track_payload_to_spotify_track({"type": "episode", "id": "e", "uri": "u"}) is None
 
 
 def test_parse_playlist_id_from_url() -> None:

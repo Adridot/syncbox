@@ -33,9 +33,11 @@ from .models import (
     EventDeleteResponse,
     EventReview,
     EventSummary,
+    EventTrackAddRequest,
     EventTrackReview,
     EventTrackUpdateRequest,
     GlobalAcquisitionJob,
+    ManualEventCreateRequest,
     HealthResponse,
     LibraryApplyResponse,
     LibraryReview,
@@ -62,8 +64,10 @@ from .models import (
     TagRuleIn,
 )
 from .event_import import (
+    add_spotify_track_to_event,
     analyze_spotify_event,
     apply_event_track_update,
+    create_manual_event,
     require_event_review,
     scan_event_staging,
 )
@@ -477,6 +481,38 @@ async def analyze_event(request: SpotifyEventAnalyzeRequest) -> EventReview:
         return enrich_review_with_rekordbox_tracks(review)
     except SpotifyAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/events", response_model=EventReview)
+def create_event(request: ManualEventCreateRequest) -> EventReview:
+    try:
+        review = create_manual_event(database, build_rekordbox_adapter(), request.event_name)
+        return enrich_review_with_rekordbox_tracks(review)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/events/{event_id}/tracks/spotify", response_model=EventReview)
+async def add_event_spotify_track(event_id: int, request: EventTrackAddRequest) -> EventReview:
+    try:
+        review = await add_spotify_track_to_event(
+            database,
+            build_rekordbox_adapter(),
+            SpotifyClient(database),
+            event_id,
+            request.track_url,
+        )
+        return enrich_review_with_rekordbox_tracks(review)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SpotifyAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

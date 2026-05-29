@@ -16,11 +16,58 @@ from .models import (
     SpotifyTrack,
 )
 from .rekordbox import RekordboxAdapter
-from .spotify import SpotifyClient, parse_playlist_id, playlist_items_to_tracks
+from .spotify import (
+    SpotifyClient,
+    parse_playlist_id,
+    parse_track_id,
+    playlist_items_to_tracks,
+    track_payload_to_spotify_track,
+)
 
 
 STAGING_AUTO_MATCH_MINIMUM_CONFIDENCE = 85
 STAGING_MATCH_METHOD_PREFIX = "staging:"
+
+
+def scaffold_event(
+    database: LocalDatabase,
+    adapter: RekordboxAdapter,
+    event_name: str,
+    *,
+    playlist_id: str,
+    playlist_name: str,
+    snapshot_id: str | None = None,
+) -> int:
+    """Create the event row and its on-disk staging layout. Returns the event id."""
+    layout = adapter.ensure_storage_layout()
+    package = build_live_import_package(Path(layout.events), event_name)
+    return database.create_event_import(
+        {
+            "event_name": event_name,
+            "event_slug": package["eventSlug"],
+            "spotify_playlist_id": playlist_id,
+            "spotify_playlist_name": playlist_name,
+            "spotify_snapshot_id": snapshot_id,
+            "default_tag": event_name,
+            "status": "review",
+            "event_dir": package["eventDir"],
+            "audio_dir": package["audioDir"],
+            "playlist_path": package["playlistPath"],
+        }
+    )
+
+
+def _load_rekordbox_snapshot(adapter: RekordboxAdapter) -> tuple[list[RekordboxTrack], dict[str, Any]]:
+    library = adapter.read_library_snapshot()
+    rekordbox_tracks = [RekordboxTrack(**track) for track in library.get("tracks", [])]
+    return rekordbox_tracks, library
+
+
+def _require_review(database: LocalDatabase, event_id: int) -> EventReview:
+    review = database.get_event_review(event_id)
+    if review is None:
+        raise RuntimeError("Event review could not be created.")
+    return review
 
 
 async def analyze_spotify_event(
@@ -33,34 +80,80 @@ async def analyze_spotify_event(
     playlist = await client.get_playlist(playlist_id)
     playlist_items = await client.get_playlist_items(playlist_id)
     spotify_tracks = playlist_items_to_tracks(playlist_items)
-    library = adapter.read_library_snapshot()
-    rekordbox_tracks = [
-        RekordboxTrack(**track) for track in library.get("tracks", [])
-    ]
+    rekordbox_tracks, library = _load_rekordbox_snapshot(adapter)
 
+    event_id = scaffold_event(
+        database,
+        adapter,
+        request.event_name,
+        playlist_id=playlist_id,
+        playlist_name=str(playlist.get("name") or request.event_name),
+        snapshot_id=playlist.get("snapshot_id"),
+    )
+
+    rows = build_event_track_rows(event_id, spotify_tracks, rekordbox_tracks, library)
+    database.upsert_event_tracks(event_id, rows)
+    return _require_review(database, event_id)
+
+
+def create_manual_event(
+    database: LocalDatabase,
+    adapter: RekordboxAdapter,
+    event_name: str,
+) -> EventReview:
+    """Create an empty event with no Spotify playlist behind it."""
+    name = event_name.strip()
+    if not name:
+        raise ValueError("Event name is required.")
     layout = adapter.ensure_storage_layout()
-    package = build_live_import_package(Path(layout.events), request.event_name)
+    package = build_live_import_package(Path(layout.events), name)
     event_id = database.create_event_import(
         {
-            "event_name": request.event_name,
+            "event_name": name,
             "event_slug": package["eventSlug"],
-            "spotify_playlist_id": playlist_id,
-            "spotify_playlist_name": str(playlist.get("name") or request.event_name),
-            "spotify_snapshot_id": playlist.get("snapshot_id"),
-            "default_tag": request.event_name,
+            # "manual:" prefix keeps it unique and ensures it never matches a
+            # permanent library source in event_matches_permanent_source().
+            "spotify_playlist_id": f"manual:{package['eventSlug']}",
+            "spotify_playlist_name": name,
+            "spotify_snapshot_id": None,
+            "default_tag": name,
             "status": "review",
             "event_dir": package["eventDir"],
             "audio_dir": package["audioDir"],
             "playlist_path": package["playlistPath"],
         }
     )
+    return _require_review(database, event_id)
 
-    rows = build_event_track_rows(event_id, spotify_tracks, rekordbox_tracks, library)
+
+async def add_spotify_track_to_event(
+    database: LocalDatabase,
+    adapter: RekordboxAdapter,
+    client: SpotifyClient,
+    event_id: int,
+    track_url: str,
+) -> EventReview:
+    """Fetch a single Spotify track by link/URI/id and add it to an event.
+
+    The track is matched against the Rekordbox collection exactly like playlist
+    analysis, then upserted (additively) into the event's track list.
+    """
+    require_event_review(database, event_id)  # 404 if the event does not exist
+
+    track_id = parse_track_id(track_url)
+    # Spotify track ids are 22-char base62 strings; validate before calling the
+    # API so a typo gives a clear 400 instead of a misleading auth error.
+    if not (len(track_id) == 22 and track_id.isalnum()):
+        raise ValueError("That does not look like a Spotify track link.")
+    payload = await client.get_track(track_id)
+    spotify_track = track_payload_to_spotify_track(payload)
+    if spotify_track is None:
+        raise ValueError("That Spotify link does not point to a playable track.")
+
+    rekordbox_tracks, library = _load_rekordbox_snapshot(adapter)
+    rows = build_event_track_rows(event_id, [spotify_track], rekordbox_tracks, library)
     database.upsert_event_tracks(event_id, rows)
-    review = database.get_event_review(event_id)
-    if review is None:
-        raise RuntimeError("Event review could not be created.")
-    return review
+    return _require_review(database, event_id)
 
 
 def build_event_track_rows(

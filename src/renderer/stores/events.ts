@@ -112,6 +112,66 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
+  async function createManualEvent(eventName: string): Promise<EventReview | null> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return null;
+    const name = eventName.trim();
+    if (!name) {
+      ui.setMessage("error", "Event name is required.");
+      return null;
+    }
+    const review = await ui.withLoading(async () => {
+      const created = await system.api!.createManualEvent({ eventName: name });
+      activeEvent.value = created;
+      acquisitionJobs.value = await system.api!.listAcquisitionJobs(created.id);
+      summaries.value = await system.api!.listEvents();
+      ui.navigateTo("manualEvents");
+      ui.setMessage("success", `Event "${created.eventName}" created.`);
+      return created;
+    });
+    return review ?? null;
+  }
+
+  async function addSpotifyTrack(eventId: number, trackUrl: string): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    await ui.withLoading(async () => {
+      activeEvent.value = await system.api!.addEventSpotifyTrack(eventId, trackUrl.trim());
+      acquisitionJobs.value = await system.api!.listAcquisitionJobs(eventId);
+      summaries.value = await system.api!.listEvents();
+      ui.setMessage("success", "Track added to the event.");
+    });
+  }
+
+  async function addTrackToEvent(input: {
+    url: string;
+    targetEventId?: number | null;
+    newEventName?: string;
+  }): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    const url = input.url.trim();
+    if (!url) {
+      ui.setMessage("error", "Paste a Spotify track link first.");
+      return;
+    }
+    const newName = input.newEventName?.trim();
+    let eventId = input.targetEventId ?? null;
+    if (newName) {
+      const review = await createManualEvent(newName);
+      if (!review) return;
+      eventId = review.id;
+    }
+    if (!eventId) {
+      ui.setMessage("error", "Choose a target event or create a new one.");
+      return;
+    }
+    await addSpotifyTrack(eventId, url);
+  }
+
   async function createLiveImportPackage(): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -325,6 +385,9 @@ export const useEventsStore = defineStore("events", () => {
     scanStaging,
     openEvent,
     analyzeImport,
+    createManualEvent,
+    addSpotifyTrack,
+    addTrackToEvent,
     createLiveImportPackage,
     refreshEventFolder,
     downloadMissingTracks,

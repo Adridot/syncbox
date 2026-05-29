@@ -140,6 +140,14 @@ class SpotifyEventAnalyzeRequest(SpotifyEventPreviewRequest):
     pass
 
 
+class ManualEventCreateRequest(BaseModel):
+    event_name: str = Field(alias="eventName", min_length=1)
+
+
+class EventTrackAddRequest(BaseModel):
+    track_url: str = Field(alias="trackUrl", min_length=1)
+
+
 class EventTrackUpdateRequest(BaseModel):
     spotify_track_id: str = Field(alias="spotifyTrackId", min_length=1)
     rekordbox_content_id: str | None = Field(default=None, alias="rekordboxContentId")

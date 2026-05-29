@@ -1,6 +1,12 @@
 import type { AppSettings } from "../lib/api";
 
-export type ViewKey = "dashboard" | "library" | "events" | "downloadCenter" | "settings";
+export type ViewKey =
+  | "dashboard"
+  | "library"
+  | "events"
+  | "manualEvents"
+  | "downloadCenter"
+  | "settings";
 
 export type ImportFormState = {
   playlistUrl: string;

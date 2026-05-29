@@ -13,6 +13,7 @@ export const useUiStore = defineStore("ui", () => {
     if (activeView.value === "dashboard") return "Dashboard";
     if (activeView.value === "library") return "My Library";
     if (activeView.value === "events") return "Event Imports";
+    if (activeView.value === "manualEvents") return "Manual Event";
     if (activeView.value === "downloadCenter") return "Download & Match Center";
     return "Settings";
   });
@@ -31,13 +32,14 @@ export const useUiStore = defineStore("ui", () => {
     successMessage.value = "";
   }
 
-  async function withLoading(task: () => Promise<void>): Promise<void> {
+  async function withLoading<T>(task: () => Promise<T>): Promise<T | undefined> {
     loading.value = true;
     clearMessages();
     try {
-      await task();
+      return await task();
     } catch (error) {
       setMessage("error", error instanceof Error ? error.message : String(error));
+      return undefined;
     } finally {
       loading.value = false;
     }

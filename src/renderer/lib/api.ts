@@ -531,6 +531,14 @@ export class ApiClient {
     return this.get("/api/events");
   }
 
+  async createManualEvent(input: { eventName: string }): Promise<EventReview> {
+    return this.post("/api/events", input);
+  }
+
+  async addEventSpotifyTrack(eventId: number, trackUrl: string): Promise<EventReview> {
+    return this.post(`/api/events/${eventId}/tracks/spotify`, { trackUrl });
+  }
+
   async getEventReview(eventId: number): Promise<EventReview> {
     return this.get(`/api/events/${eventId}/review`);
   }
