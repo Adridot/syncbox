@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { FileAudio, FolderOpen, RefreshCw, ShieldCheck, Trash2 } from "@lucide/vue";
+import { ref } from "vue";
+import { FileAudio, FolderOpen, Link2, Plus, RefreshCw, ShieldCheck, Trash2 } from "@lucide/vue";
 import DeezerSearchPanel from "./DeezerSearchPanel.vue";
 import StatusBadge from "./StatusBadge.vue";
 import TrackReviewTable from "./TrackReviewTable.vue";
@@ -7,14 +8,20 @@ import { useEventsStore } from "../stores/events";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
 
-// Shared "active event" workspace used by both the Event Imports and Manual
-// Event tabs. It reads the events store directly so the two tabs operate on the
-// same active event.
+// Shared "active event" workspace. Reads the events store directly.
 const ui = useUiStore();
 const system = useSystemStore();
 const events = useEventsStore();
 
 const emptyMessage = "Select or create an event to review tracks, files, and downloads.";
+
+// Contextual "add a track to this event" bar.
+const trackUrl = ref("");
+async function addTrackToActiveEvent(): Promise<void> {
+  if (!events.activeEvent) return;
+  await events.addSpotifyTrack(events.activeEvent.id, trackUrl.value);
+  if (!ui.errorMessage) trackUrl.value = "";
+}
 
 function eventStatusTone(event: {
   status: string;
@@ -42,6 +49,29 @@ async function openDesktopPath(path: string): Promise<void> {
 <template>
   <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
     <div v-if="events.activeEvent" class="flex h-full flex-col">
+      <!-- Contextual: add a track to this event by Spotify link -->
+      <form
+        class="flex items-center gap-2 border-b border-outline-variant bg-surface-container px-4 py-2"
+        @submit.prevent="addTrackToActiveEvent()"
+      >
+        <Link2 class="shrink-0 text-on-surface-variant" :size="14" aria-hidden="true" />
+        <input
+          class="min-w-0 flex-1 rounded border border-outline bg-surface-container-high px-3 py-1.5 text-xs text-on-surface focus:border-primary focus:outline-none"
+          v-model="trackUrl"
+          type="text"
+          placeholder="Add a track to this event — paste a Spotify track link"
+          required
+        />
+        <button
+          class="inline-flex shrink-0 items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.02] disabled:opacity-60"
+          type="submit"
+          :disabled="ui.loading"
+        >
+          <Plus :size="13" aria-hidden="true" />
+          Add
+        </button>
+      </form>
+
       <!-- Event header -->
       <div class="border-b border-outline-variant bg-surface p-4">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

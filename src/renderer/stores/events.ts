@@ -100,6 +100,12 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
+  // Deselect the active event to return to the creation screen.
+  function closeActiveEvent(): void {
+    activeEvent.value = null;
+    acquisitionJobs.value = [];
+  }
+
   async function analyzeImport(): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -402,6 +408,7 @@ export const useEventsStore = defineStore("events", () => {
     refreshActiveEvent,
     scanStaging,
     openEvent,
+    closeActiveEvent,
     analyzeImport,
     createManualEvent,
     addSpotifyTrack,
