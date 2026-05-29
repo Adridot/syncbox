@@ -72,7 +72,10 @@ def find_downloaded_file(
     from .matching import text_similarity
 
     def sanitize_filename(s: str) -> str:
-        return re.sub(r'[\\/:*?"<>|]', "", s).strip()
+        cleaned = re.sub(r'[\\/:*?"<>|]', "", s).strip()
+        # Deemix strips trailing dots/spaces from filename components (Windows-safe),
+        # e.g. the title "APT." is written to disk as "Artist - APT.mp3".
+        return cleaned.rstrip(" .")
 
     # Build expected filenames from the Deemix naming template "%artist% - %title%"
     # and common variants produced by overwriteFiles:"rename" and playlist numbering.
