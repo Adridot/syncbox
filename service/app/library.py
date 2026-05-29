@@ -704,6 +704,68 @@ def mark_library_ready_after_scan(
                     error=None,
                 )
 
+    # Phase 3: Force-match tracks with manual Deezer jobs using ISRC or low-threshold title match.
+    # This covers classical/foreign titles where the MP3 title differs from the Spotify title.
+    review = require_library_review(database, source_id)
+    claimed = {
+        track.staging_file_path
+        for track in review.tracks
+        if track.staging_file_path and track.status in {"ready", "imported"}
+    }
+    isrc_to_file = {
+        f["isrc"]: f
+        for f in audio_files
+        if f.get("isrc") and f["file_path"] not in claimed
+    }
+    for track in review.tracks:
+        if track.status not in {"new", "missing"}:
+            continue
+        job = database.get_library_acquisition_job(source_id, track.spotify_track_id)
+        if not job or job.match_method != "manual":
+            continue
+        if job.status not in {"downloaded", "resolved", "queued", "downloading", "ready"}:
+            continue
+        # Try ISRC from job payload first
+        job_isrc = job.payload.get("isrc") if isinstance(job.payload, dict) else None
+        matched_file = None
+        if job_isrc and job_isrc in isrc_to_file:
+            matched_file = isrc_to_file[job_isrc]
+        else:
+            # Fall back to lower-confidence title matching (50%) for manually selected tracks
+            available = [f for f in audio_files if f["file_path"] not in claimed]
+            spotify_track = library_track_to_spotify_track(track)
+            for f in available:
+                candidate = RekordboxTrack(
+                    contentId=f["file_path"],
+                    title=f["title"],
+                    artist=f["artist"],
+                    durationMs=f["duration_ms"],
+                    isrc=f["isrc"],
+                    filePath=f["file_path"],
+                )
+                result = match_spotify_track(spotify_track, [candidate], minimum_confidence=50)
+                if result.status == "matched":
+                    matched_file = f
+                    break
+        if matched_file and matched_file["file_path"] not in claimed:
+            claimed.add(matched_file["file_path"])
+            database.update_library_track(
+                source_id,
+                track.spotify_track_id,
+                status="ready",
+                staging_file_path=matched_file["file_path"],
+                match_method="manual_deezer",
+                confidence=100,
+                reason="Manually selected Deezer track downloaded and matched.",
+            )
+            if job.status != "ready":
+                database.update_library_acquisition_job(
+                    source_id,
+                    track.spotify_track_id,
+                    status="ready",
+                    error=None,
+                )
+
 
 def library_ready_reason(track: LibraryTrackReview) -> str:
     if "missing from the Rekordbox collection" in track.reason:

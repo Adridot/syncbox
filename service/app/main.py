@@ -273,6 +273,7 @@ async def queue_library_deezer_track(
         match_method="manual",
         candidate=candidate,
     )
+    deezer_isrc = str(payload.get("isrc") or "").strip() or None
     database.upsert_library_acquisition_job(
         source_id,
         library_acquisition_job_payload(
@@ -282,6 +283,7 @@ async def queue_library_deezer_track(
             confidence=100,
             match_method="manual",
             output_dir=adapter.storage_layout().permanent,
+            payload={"isrc": deezer_isrc, "title": candidate.title, "artist": candidate.artist},
         ),
     )
     client = DeemixClient()
