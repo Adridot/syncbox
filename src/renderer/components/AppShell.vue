@@ -9,22 +9,12 @@ import {
   Search,
   Wifi
 } from "@lucide/vue";
-import type { DeemixStatus, HealthResponse, RekordboxStatus } from "../lib/api";
 import type { ViewKey } from "../types/ui";
+import { useSystemStore } from "../stores/system";
+import { useUiStore } from "../stores/ui";
 
-const props = defineProps<{
-  activeView: ViewKey;
-  health: HealthResponse | null;
-  rekordboxStatus: RekordboxStatus | null;
-  deemixStatus: DeemixStatus | null;
-  searchQuery: string;
-  title: string;
-}>();
-
-defineEmits<{
-  changeView: [view: ViewKey];
-  updateSearchQuery: [value: string];
-}>();
+const ui = useUiStore();
+const system = useSystemStore();
 
 const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -55,12 +45,12 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
             <button
               class="group flex w-full items-center gap-3 rounded-r p-3 text-sm font-medium transition-colors"
               :class="
-                activeView === item.key
+                ui.activeView === item.key
                   ? '-ml-[2px] border-l-2 border-primary bg-surface-container-high text-primary'
                   : 'text-on-surface-variant hover:text-on-surface'
               "
               type="button"
-              @click="$emit('changeView', item.key)"
+              @click="ui.navigateTo(item.key)"
             >
               <component :is="item.icon" :size="20" aria-hidden="true" />
               <span>{{ item.label }}</span>
@@ -73,12 +63,12 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
         <button
           class="mb-6 flex w-full items-center gap-3 rounded-r p-3 text-sm font-medium transition-colors"
           :class="
-            activeView === 'settings'
+            ui.activeView === 'settings'
               ? '-ml-[2px] border-l-2 border-primary bg-surface-container-high text-primary'
               : 'text-on-surface-variant hover:text-on-surface'
           "
           type="button"
-          @click="$emit('changeView', 'settings')"
+          @click="ui.navigateTo('settings')"
         >
           <Cog :size="20" aria-hidden="true" />
           <span>Settings</span>
@@ -87,39 +77,39 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
           <div
             class="h-2 w-2 rounded-full"
             :class="
-              health?.status === 'ok'
+              system.health?.status === 'ok'
                 ? 'bg-secondary shadow-[0_0_8px_var(--color-secondary)]'
                 : 'bg-tertiary shadow-[0_0_8px_var(--color-tertiary)]'
             "
           />
           <span class="text-xs text-on-surface-variant">
-            API {{ health?.status ?? "starting" }}
+            API {{ system.health?.status ?? "starting" }}
           </span>
         </div>
         <div class="mb-4 flex items-center gap-2">
           <div
             class="h-2 w-2 rounded-full"
             :class="
-              rekordboxStatus?.mutationAllowed
+              system.rekordboxStatus?.mutationAllowed
                 ? 'bg-primary shadow-[0_0_8px_var(--color-primary)]'
                 : 'bg-tertiary shadow-[0_0_8px_var(--color-tertiary)]'
             "
           />
           <span class="text-xs text-on-surface-variant">
-            {{ rekordboxStatus?.rekordboxRunning ? "Rekordbox Live" : "Rekordbox Closed" }}
+            {{ system.rekordboxStatus?.rekordboxRunning ? "Rekordbox Live" : "Rekordbox Closed" }}
           </span>
         </div>
         <div class="flex items-center gap-2">
           <div
             class="h-2 w-2 rounded-full"
             :class="
-              deemixStatus?.available && deemixStatus?.authenticated
+              system.deemixStatus?.available && system.deemixStatus?.authenticated
                 ? 'bg-secondary shadow-[0_0_8px_var(--color-secondary)]'
                 : 'bg-outline'
             "
           />
           <span class="text-xs text-on-surface-variant">
-            {{ deemixStatus?.available ? "Deemix Available" : "Deemix Offline" }}
+            {{ system.deemixStatus?.available ? "Deemix Available" : "Deemix Offline" }}
           </span>
         </div>
       </div>
@@ -130,7 +120,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
         class="flex h-16 shrink-0 items-center justify-between border-b border-outline-variant bg-surface px-4 md:px-8"
       >
         <div class="flex min-w-0 items-center gap-4">
-          <h2 class="truncate text-lg font-bold text-on-surface md:text-xl">{{ title }}</h2>
+          <h2 class="truncate text-lg font-bold text-on-surface md:text-xl">{{ ui.pageTitle }}</h2>
         </div>
 
         <div class="ml-auto flex items-center gap-3">
@@ -144,15 +134,15 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
               class="w-56 rounded border border-outline bg-surface-container-high py-1.5 pl-9 pr-4 text-sm text-on-surface transition-colors focus:border-primary focus:outline-none lg:w-72"
               type="search"
               placeholder="Search library..."
-              :value="searchQuery"
-              @input="$emit('updateSearchQuery', ($event.target as HTMLInputElement).value)"
+              :value="ui.searchQuery"
+              @input="ui.searchQuery = ($event.target as HTMLInputElement).value"
             />
           </div>
           <div
             class="hidden items-center gap-2 rounded border border-outline-variant bg-surface-container-high px-3 py-1.5 text-xs text-on-surface-variant lg:flex"
           >
             <Wifi :size="15" aria-hidden="true" />
-            <span>{{ rekordboxStatus?.mutationAllowed ? "Writes allowed" : "Write locked" }}</span>
+            <span>{{ system.rekordboxStatus?.mutationAllowed ? "Writes allowed" : "Write locked" }}</span>
           </div>
           <button
             class="grid h-9 w-9 place-items-center rounded border border-outline bg-surface-container-high text-on-surface-variant transition-colors hover:border-primary hover:text-on-surface"

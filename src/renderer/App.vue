@@ -44,16 +44,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <AppShell
-    :active-view="ui.activeView"
-    :health="system.health"
-    :rekordbox-status="system.rekordboxStatus"
-    :deemix-status="system.deemixStatus"
-    :search-query="ui.searchQuery"
-    :title="ui.pageTitle"
-    @change-view="ui.navigateTo($event)"
-    @update-search-query="ui.searchQuery = $event"
-  >
+  <AppShell>
     <div
       v-if="ui.errorMessage"
       class="absolute bottom-4 right-4 z-50 flex min-h-11 max-w-xl items-center gap-3 rounded border border-error/30 bg-error-container px-4 text-sm text-on-error-container shadow-xl"
