@@ -247,6 +247,7 @@ class RekordboxAdapter:
                                 database,
                                 tables,
                                 str(file_path),
+                                artist=", ".join(track.artists),
                                 Title=track.title,
                                 ISRC=track.isrc or "",
                                 Length=max(1, round(track.duration_ms / 1000)),
@@ -482,6 +483,7 @@ class RekordboxAdapter:
                                 database,
                                 tables,
                                 str(file_path),
+                                artist=", ".join(track.artists),
                                 Title=track.title,
                                 ISRC=track.isrc or "",
                                 Length=max(1, round(track.duration_ms / 1000)),
@@ -738,7 +740,24 @@ def generated_rekordbox_id(database: Any, table: Any) -> str:
     return str(database.generate_unused_id(table))
 
 
-def add_rekordbox_content(database: Any, tables: Any, path: str, **kwargs: Any) -> Any:
+def ensure_artist(database: Any, name: str) -> Any | None:
+    """Return an existing (active) DjmdArtist by name, creating one if needed."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    try:
+        existing = database.get_artist(Name=name)
+        row = existing.first() if hasattr(existing, "first") else None
+        if row is not None and not is_rekordbox_row_deleted(row):
+            return row
+    except Exception:
+        pass
+    return database.add_artist(name)
+
+
+def add_rekordbox_content(
+    database: Any, tables: Any, path: str, *, artist: str = "", **kwargs: Any
+) -> Any:
     from datetime import date
     from uuid import uuid4
 
@@ -777,6 +796,9 @@ def add_rekordbox_content(database: Any, tables: Any, path: str, **kwargs: Any) 
         rb_file_id=generated_rekordbox_id(database, tables.DjmdContent),
         **kwargs,
     )
+    artist_row = ensure_artist(database, artist)
+    if artist_row is not None:
+        content.ArtistID = artist_row.ID
     database.add(content)
     database.flush()
     return content

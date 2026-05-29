@@ -237,6 +237,22 @@ def classify_untagged(
     return decisions
 
 
+def parse_leading_artist(title: str) -> str:
+    """Extract the artist from a "Artist - Title" string.
+
+    Many legacy imports stored the artist inside the title (e.g.
+    "Maitre Gims - Zombie (Dj Last One)") with an empty ArtistName. Returns the
+    text before the first " - " separator, or "" if there is no usable split.
+    """
+    if " - " not in title:
+        return ""
+    artist, _, remainder = title.partition(" - ")
+    artist = artist.strip()
+    if not artist or not remainder.strip():
+        return ""
+    return artist
+
+
 def summarize(decisions: Iterable[CleanupDecision]) -> dict[str, int]:
     counts: dict[str, int] = defaultdict(int)
     for decision in decisions:

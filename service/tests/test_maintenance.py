@@ -1,4 +1,5 @@
 from app.maintenance import (
+    parse_leading_artist,
     ACTION_DELETE,
     ACTION_KEEP,
     REASON_ALT_VERSION,
@@ -112,6 +113,18 @@ def test_junk_is_never_kept_and_summary_counts_match():
     assert counts.get(ACTION_DELETE, 0) == 1
     assert counts.get(ACTION_KEEP, 0) == 1
     assert counts.get(REASON_UNIQUE_MAINSTREAM, 0) == 1
+
+
+def test_parse_leading_artist():
+    assert parse_leading_artist("Maitre Gims - Zombie (Dj Last One)") == "Maitre Gims"
+    assert parse_leading_artist("50 Cent - P.I.M.P. (Electro Remix)") == "50 Cent"
+    # no separator -> cannot determine
+    assert parse_leading_artist("Amare") == ""
+    assert parse_leading_artist("Et je suis pas venu ici pour souffrir ok !") == ""
+    # only splits when both sides are non-empty
+    assert parse_leading_artist("Artist - ") == ""
+    # first separator wins
+    assert parse_leading_artist("A - B - C") == "A"
 
 
 def test_no_decision_is_dropped():
