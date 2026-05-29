@@ -143,8 +143,6 @@ class EventTrackUpdateRequest(BaseModel):
     rekordbox_content_id: str | None = Field(default=None, alias="rekordboxContentId")
     staging_file_path: str | None = Field(default=None, alias="stagingFilePath")
     status: str | None = None
-    permanent: bool | None = None
-    tags: list[str] | None = None
 
 
 class EventApplyResponse(BaseModel):
@@ -152,7 +150,6 @@ class EventApplyResponse(BaseModel):
     backup_path: str = Field(alias="backupPath")
     imported: int
     tagged: int
-    permanent: int
     spotify_added: int = Field(alias="spotifyAdded")
     smart_playlist: str | None = Field(default=None, alias="smartPlaylist")
     warnings: list[str] = Field(default_factory=list)
@@ -250,8 +247,6 @@ class EventTrackReview(BaseModel):
     match_method: str | None = Field(default=None, alias="matchMethod")
     confidence: int = 0
     staging_file_path: str | None = Field(default=None, alias="stagingFilePath")
-    permanent: bool = False
-    tags: list[str] = Field(default_factory=list)
     reason: str
 
 

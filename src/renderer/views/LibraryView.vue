@@ -147,7 +147,7 @@ function removeDrawerTag(tagName: string): void {
             </label>
 
             <label class="grid gap-2">
-              <span class="text-sm font-bold text-on-surface">Default existing MyTags</span>
+              <span class="text-sm font-bold text-on-surface">Default MyTags <span class="font-normal text-on-surface-variant">(optional)</span></span>
               <div class="grid gap-2">
                 <div v-if="library.tagRuleForm.tags.length > 0" class="flex flex-wrap gap-2">
                   <button
@@ -166,7 +166,7 @@ function removeDrawerTag(tagName: string): void {
                     class="rounded border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
                     :value="library.tagRuleTagInput"
                     list="library-source-tags"
-                    placeholder="Existing Rekordbox MyTag"
+                    placeholder="Existing Rekordbox MyTag (optional)"
                     @input="library.tagRuleTagInput = ($event.target as HTMLInputElement).value"
                     @change="library.addTagRuleTag()"
                     @keydown.enter.prevent="library.addTagRuleTag()"
@@ -197,9 +197,19 @@ function removeDrawerTag(tagName: string): void {
         <section class="mb-8">
           <div class="mb-4 flex items-center justify-between">
             <h3 class="text-lg font-bold text-on-surface">Permanent Sources</h3>
-            <span class="text-xs text-on-surface-variant">
-              {{ library.sources.length }} tracked
-            </span>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-on-surface-variant">{{ library.sources.length }} tracked</span>
+              <button
+                v-if="library.sources.length > 0"
+                class="inline-flex items-center gap-1.5 rounded border border-outline bg-surface px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary disabled:opacity-60"
+                type="button"
+                :disabled="ui.loading"
+                @click="library.syncAllSources()"
+              >
+                <RefreshCw :size="13" aria-hidden="true" />
+                Sync All
+              </button>
+            </div>
           </div>
 
           <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

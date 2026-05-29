@@ -88,6 +88,21 @@ export const useLibraryStore = defineStore("library", () => {
     });
   }
 
+  async function syncAllSources(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    await ui.withLoading(async () => {
+      const reviews = await system.api!.syncAllLibrarySources();
+      sources.value = await system.api!.listLibrarySources();
+      if (activeReview.value) {
+        const updated = reviews.find((r) => r.source.id === activeReview.value!.source.id);
+        if (updated) activeReview.value = updated;
+      }
+      ui.setMessage("success", `${reviews.length} source(s) synced.`);
+    });
+  }
+
   async function syncSource(source: LibrarySource): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -107,8 +122,8 @@ export const useLibraryStore = defineStore("library", () => {
     const ui = useUiStore();
     const spotify = useSpotifyStore();
     if (!system.api) return;
-    if (!tagRuleForm.sourcePlaylistId || tagRuleForm.tags.length === 0) {
-      ui.setMessage("error", "Select a source playlist and at least one tag.");
+    if (!tagRuleForm.sourcePlaylistId) {
+      ui.setMessage("error", "Select a source playlist.");
       return;
     }
     await ui.withLoading(async () => {
@@ -273,6 +288,7 @@ export const useLibraryStore = defineStore("library", () => {
     selectedTracks,
     readyToApply,
     refreshSources,
+    syncAllSources,
     refreshTagRules,
     refreshMappings,
     refreshGlobalJobs,

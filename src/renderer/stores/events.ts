@@ -195,32 +195,6 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
-  async function updatePermanent(track: EventTrackReview, permanent: boolean): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api || !activeEvent.value) return;
-    await ui.withLoading(async () => {
-      activeEvent.value = await system.api!.updateEventTrack(activeEvent.value!.id, {
-        spotifyTrackId: track.spotifyTrackId,
-        permanent,
-      });
-    });
-  }
-
-  async function updateTrackTags(track: EventTrackReview, value: string): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api || !activeEvent.value) return;
-    const tags = value.split(",").map((t) => t.trim()).filter(Boolean);
-    await ui.withLoading(async () => {
-      activeEvent.value = await system.api!.updateEventTrack(activeEvent.value!.id, {
-        spotifyTrackId: track.spotifyTrackId,
-        tags,
-      });
-      ui.setMessage("success", "Track tags updated.");
-    });
-  }
-
   async function assignStagingFile(track: EventTrackReview, value: string): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -249,17 +223,6 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
-  function selectSpotifyPlaylist(playlist: { url: string; name: string }): void {
-    const ui = useUiStore();
-    importForm.playlistUrl = playlist.url;
-    if (!importForm.eventName.trim()) {
-      importForm.eventName = playlist.name;
-    }
-    liveImportPackage.value = null;
-    ui.navigateTo("events");
-    ui.setMessage("success", `"${playlist.name}" selected.`);
-  }
-
   return {
     summaries,
     activeEvent,
@@ -282,10 +245,7 @@ export const useEventsStore = defineStore("events", () => {
     downloadMissingTracks,
     applyActiveEvent,
     deleteActiveEvent,
-    updatePermanent,
-    updateTrackTags,
     assignStagingFile,
     acceptSuggestedMatch,
-    selectSpotifyPlaylist,
   };
 });

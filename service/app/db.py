@@ -320,17 +320,6 @@ class LocalDatabase:
             ).fetchone()
             return str(row["value"]) if row else default
 
-    def set_setting(self, key: str, value: str) -> None:
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO settings (key, value)
-                VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                """,
-                (key, value),
-            )
-
     def get_app_settings(self, defaults: AppSettings) -> AppSettings:
         return AppSettings(
             spotifyClientId=self.get_setting(
@@ -570,21 +559,6 @@ class LocalDatabase:
             ).fetchone()
         return library_source_from_row(row) if row else None
 
-    def get_library_source_by_playlist_id(
-        self, spotify_playlist_id: str
-    ) -> LibrarySource | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT id
-                FROM library_sources
-                WHERE spotify_playlist_id = ?
-                """,
-                (spotify_playlist_id,),
-            ).fetchone()
-        if not row:
-            return None
-        return self.get_library_source(int(row["id"]))
 
     def upsert_library_source(self, source: LibrarySourceIn) -> LibrarySource:
         now = utc_now()
@@ -1546,8 +1520,6 @@ class LocalDatabase:
             "match_method",
             "confidence",
             "staging_file_path",
-            "permanent",
-            "tags_json",
             "reason",
             "payload_json",
         }
@@ -1680,8 +1652,6 @@ class LocalDatabase:
                     matchMethod=row["match_method"],
                     confidence=int(row["confidence"] or 0),
                     stagingFilePath=row["staging_file_path"],
-                    permanent=bool(row["permanent"]),
-                    tags=json.loads(str(row["tags_json"])),
                     reason=str(row["reason"]),
                 )
             )

@@ -1,13 +1,10 @@
 <script setup lang="ts">
 import {
   CalendarDays,
-  CircleUser,
   Cog,
   LayoutDashboard,
   Library,
   ListChecks,
-  Search,
-  Wifi
 } from "@lucide/vue";
 import type { ViewKey } from "../types/ui";
 import { useSystemStore } from "../stores/system";
@@ -123,34 +120,6 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
           <h2 class="truncate text-lg font-bold text-on-surface md:text-xl">{{ ui.pageTitle }}</h2>
         </div>
 
-        <div class="ml-auto flex items-center gap-3">
-          <div class="relative hidden sm:block">
-            <Search
-              class="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant"
-              :size="16"
-              aria-hidden="true"
-            />
-            <input
-              class="w-56 rounded border border-outline bg-surface-container-high py-1.5 pl-9 pr-4 text-sm text-on-surface transition-colors focus:border-primary focus:outline-none lg:w-72"
-              type="search"
-              placeholder="Search library..."
-              :value="ui.searchQuery"
-              @input="ui.searchQuery = ($event.target as HTMLInputElement).value"
-            />
-          </div>
-          <div
-            class="hidden items-center gap-2 rounded border border-outline-variant bg-surface-container-high px-3 py-1.5 text-xs text-on-surface-variant lg:flex"
-          >
-            <Wifi :size="15" aria-hidden="true" />
-            <span>{{ system.rekordboxStatus?.mutationAllowed ? "Writes allowed" : "Write locked" }}</span>
-          </div>
-          <button
-            class="grid h-9 w-9 place-items-center rounded border border-outline bg-surface-container-high text-on-surface-variant transition-colors hover:border-primary hover:text-on-surface"
-            type="button"
-          >
-            <CircleUser :size="18" aria-hidden="true" />
-          </button>
-        </div>
       </header>
 
       <main class="relative min-h-0 flex-1 overflow-hidden">

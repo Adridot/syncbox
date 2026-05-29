@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -188,34 +189,14 @@ class RekordboxAdapter:
         database = Rekordbox6Database(db_dir=str(self.database_dir))
         imported = 0
         tagged = 0
-        permanent = 0
         smart_playlist_name = f"{review.event_name} - Smart"
         try:
-            all_tags = {
-                str(tag.Name): tag
-                for tag in database.get_my_tag()
-                if not getattr(tag, "rb_local_deleted", 0)
-            }
             event_tag = ensure_event_my_tag(
                 database,
                 tables,
                 review.default_tag,
                 EVENT_MY_TAG_CATEGORY_NAME,
             )
-            all_tags[review.default_tag] = event_tag
-
-            requested_tags = {
-                tag_name
-                for track in review.tracks
-                for tag_name in track.tags
-                if tag_name.strip()
-            }
-            missing_tags = sorted(tag_name for tag_name in requested_tags if tag_name not in all_tags)
-            if missing_tags:
-                raise RuntimeError(
-                    "These MyTags must already exist before applying the event: "
-                    + ", ".join(missing_tags)
-                )
 
             all_content = list(database.get_content())
             content_by_id = {
@@ -239,14 +220,7 @@ class RekordboxAdapter:
                 if track.rekordbox_content_id:
                     content = content_by_id.get(str(track.rekordbox_content_id))
                 if content is None and track.staging_file_path:
-                    original_path = Path(track.staging_file_path)
-                    file_path = original_path
-                    if track.permanent:
-                        file_path = move_to_permanent(
-                            original_path, Path(self.storage_layout().permanent)
-                        )
-                        if file_path.resolve() != original_path.resolve():
-                            permanent += 1
+                    file_path = Path(track.staging_file_path)
                     content = find_content_by_path(content_by_path, file_path)
                     if content is None:
                         content = find_content_by_path(deleted_content_by_path, file_path)
@@ -270,10 +244,8 @@ class RekordboxAdapter:
                 if content is None:
                     raise RuntimeError(f"Could not resolve Rekordbox content for {track.title}.")
 
-                tag_names = [review.default_tag, *track.tags]
-                for tag_name in dict.fromkeys(tag_names):
-                    ensure_content_tag(database, tables, content, all_tags[tag_name])
-                    tagged += 1
+                ensure_content_tag(database, tables, content, event_tag)
+                tagged += 1
 
             playlist = ensure_event_smart_playlist(
                 database,
@@ -289,7 +261,6 @@ class RekordboxAdapter:
                 "backup_path": str(backup_path),
                 "imported": imported,
                 "tagged": tagged,
-                "permanent": permanent,
                 "smart_playlist": smart_playlist_name,
             }
         except Exception:
@@ -391,7 +362,15 @@ class RekordboxAdapter:
                 mark_rekordbox_row_deleted(row)
             for content in plan["delete_contents"]:
                 mark_rekordbox_row_deleted(content)
+            for row in plan["event_mytag_rows"]:
+                mark_rekordbox_row_deleted(row)
+            for row in plan["event_playlist_rows"]:
+                mark_rekordbox_row_deleted(row)
             database.commit()
+
+            smart_playlist_name = f"{review.default_tag} - Smart"
+            _remove_playlist_from_xml(self.database_dir, smart_playlist_name)
+
             preview = event_delete_preview_from_plan(review, plan)
             return EventDeleteResponse(
                 **preview.model_dump(by_alias=True),
@@ -840,13 +819,25 @@ def build_event_delete_plan(
         for tag in tags
         if str(getattr(tag, "Name", "") or "") == event_tag_name
     }
+    event_mytag_rows = [tag for tag in tags if str(tag.ID) in event_tag_ids]
+
     if not event_tag_ids:
         return {
             "event_tag_rows": [],
+            "event_mytag_rows": [],
+            "event_playlist_rows": [],
             "delete_contents": [],
             "protected_contents": [],
             "warnings": [f'Event MyTag "{event_tag_name}" was not found in Rekordbox.'],
         }
+
+    smart_playlist_name = f"{event_tag_name} - Smart"
+    event_playlist_rows = [
+        playlist
+        for playlist in database.get_playlist()
+        if str(getattr(playlist, "Name", "") or "") == smart_playlist_name
+        and not is_rekordbox_row_deleted(playlist)
+    ]
 
     contents_by_id = {
         str(content.ID): content
@@ -896,6 +887,8 @@ def build_event_delete_plan(
 
     return {
         "event_tag_rows": event_tag_rows,
+        "event_mytag_rows": event_mytag_rows,
+        "event_playlist_rows": event_playlist_rows,
         "delete_contents": delete_contents,
         "protected_contents": protected_contents,
         "warnings": [],
@@ -923,6 +916,33 @@ def event_delete_preview_from_plan(
         protectedSamples=[content_title(content) for content in protected_contents[:5]],
         warnings=plan["warnings"],
     )
+
+
+def _remove_playlist_from_xml(database_dir: Path, playlist_name: str) -> None:
+    xml_path = database_dir / "masterPlaylists6.xml"
+    if not xml_path.exists():
+        return
+
+    backup_path = xml_path.with_suffix(f".xml.bak-{safe_timestamp()}")
+    shutil.copy2(xml_path, backup_path)
+
+    try:
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        _remove_xml_node_by_name(root, playlist_name)
+        ET.indent(tree, space="  ")
+        tree.write(str(xml_path), encoding="utf-8", xml_declaration=True)
+    except Exception:
+        shutil.copy2(backup_path, xml_path)
+        raise
+
+
+def _remove_xml_node_by_name(element: ET.Element, name: str) -> None:
+    for child in list(element):
+        if child.get("Name") == name:
+            element.remove(child)
+        else:
+            _remove_xml_node_by_name(child, name)
 
 
 def tag_name_for_my_tag_row(row: Any, tags_by_id: dict[str, Any]) -> str:

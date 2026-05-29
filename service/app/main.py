@@ -148,8 +148,6 @@ def list_library_sources() -> list[LibrarySource]:
 
 @app.post("/api/library/sources", response_model=LibrarySource)
 def save_library_source(source: LibrarySourceIn) -> LibrarySource:
-    if not source.tags:
-        raise HTTPException(status_code=400, detail="At least one tag is required.")
     return database.upsert_library_source(source)
 
 
@@ -168,6 +166,21 @@ async def sync_library_source_endpoint(source_id: int) -> LibraryReview:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/library/sources/sync-all", response_model=list[LibraryReview])
+async def sync_all_library_sources() -> list[LibraryReview]:
+    sources = database.list_library_sources()
+    adapter = build_rekordbox_adapter()
+    client = SpotifyClient(database)
+    results: list[LibraryReview] = []
+    for source in sources:
+        try:
+            review = await sync_library_source(database, adapter, client, source.id)
+            results.append(review)
+        except Exception:
+            pass
+    return results
 
 
 @app.get("/api/library/sources/{source_id}/review", response_model=LibraryReview)
@@ -296,42 +309,6 @@ def resolve_sync_proposal(
     return proposal
 
 
-@app.post("/api/sync/proposals/generate-demo")
-def generate_demo_proposals() -> dict[str, int]:
-    settings = get_settings()
-    adapter = build_rekordbox_adapter()
-    manual_root = Path(adapter.storage_layout().manual_collection)
-    proposals = generate_bidirectional_proposals(
-        spotify_track_ids={"spotify-existing"},
-        rekordbox_tracks=[
-            RekordboxTrack(
-                contentId="rb-demo-manual",
-                title="Manual Upload",
-                artist="Client File",
-                durationMs=180000,
-                isrc=None,
-                filePath=str(manual_root / "manual-upload.mp3"),
-                protected=True,
-            ),
-            RekordboxTrack(
-                contentId="rb-demo-linked",
-                title="Removed Spotify Track",
-                artist="Known Artist",
-                durationMs=210000,
-                isrc="FRZ123456789",
-                filePath=str(
-                    Path(settings.storage_root)
-                    / "_rekordbox_sync/permanent/track.mp3"
-                ),
-                protected=False,
-            ),
-        ],
-        linked_spotify_by_content_id={"rb-demo-linked": "spotify-removed"},
-        manual_collection_root=manual_root,
-    )
-    created = database.insert_proposals(proposals)
-    return {"created": created}
-
 
 @app.post("/api/spotify/auth-url", response_model=SpotifyAuthUrlResponse)
 def spotify_auth_url(request: SpotifyAuthUrlRequest) -> dict[str, str]:
@@ -374,22 +351,6 @@ async def spotify_callback(
     return callback_page("Spotify Connected", "You can return to Rekordbox Sync Studio.")
 
 
-@app.post("/api/events/spotify/preview")
-async def preview_spotify_event(request: SpotifyEventPreviewRequest) -> dict[str, Any]:
-    playlist_id = parse_playlist_id(str(request.playlist_url))
-    client = SpotifyClient(database)
-    try:
-        playlist = await client.get_playlist(playlist_id)
-        items = await client.get_playlist_items(playlist_id)
-    except SpotifyAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-
-    return {
-        "eventName": request.event_name,
-        "playlist": playlist,
-        "trackCount": len(items),
-        "defaultTag": request.event_name,
-    }
 
 
 @app.get("/api/events", response_model=list[EventSummary])
@@ -539,12 +500,6 @@ async def apply_event(event_id: int) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    warnings: list[str] = []
-    try:
-        spotify_added = await add_permanent_tracks_to_spotify(apply_review)
-    except Exception as exc:
-        spotify_added = 0
-        warnings.append(f"Spotify playlist update failed: {exc}")
     database.mark_event_tracks_applied(
         event_id, [track.spotify_track_id for track in applicable_tracks]
     )
@@ -555,10 +510,9 @@ async def apply_event(event_id: int) -> dict[str, Any]:
         "backupPath": apply_result["backup_path"],
         "imported": apply_result["imported"],
         "tagged": apply_result["tagged"],
-        "permanent": apply_result["permanent"],
-        "spotifyAdded": spotify_added,
+        "spotifyAdded": 0,
         "smartPlaylist": apply_result["smart_playlist"],
-        "warnings": warnings,
+        "warnings": [],
     }
 
 
@@ -749,30 +703,6 @@ def next_event_status_after_apply(review: EventReview) -> str:
         return "partially_applied"
     return "applied"
 
-
-async def add_permanent_tracks_to_spotify(review: EventReview) -> int:
-    mappings = {
-        mapping.tag_name: mapping.spotify_playlist_id
-        for mapping in database.list_tag_playlist_mappings()
-        if mapping.enabled
-    }
-    playlist_uris: dict[str, set[str]] = {}
-    for track in review.tracks:
-        if not track.permanent:
-            continue
-        for tag_name in track.tags:
-            playlist_id = mappings.get(tag_name)
-            if playlist_id:
-                playlist_uris.setdefault(playlist_id, set()).add(track.spotify_uri)
-
-    added = 0
-    client = SpotifyClient(database)
-    for playlist_id, uris in playlist_uris.items():
-        if not uris:
-            continue
-        await client.add_tracks_to_playlist(playlist_id, sorted(uris))
-        added += len(uris)
-    return added
 
 
 async def add_library_tracks_to_spotify(review: LibraryReview) -> int:

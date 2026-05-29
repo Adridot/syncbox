@@ -144,8 +144,6 @@ def base_track_row(
     match_method: str | None = None,
     confidence: int = 0,
     staging_file_path: str | None = None,
-    permanent: bool = False,
-    tags: list[str] | None = None,
 ) -> dict[str, Any]:
     payload = spotify_track.model_dump(by_alias=True)
     if rekordbox_payload:
@@ -164,8 +162,6 @@ def base_track_row(
         "match_method": match_method,
         "confidence": confidence,
         "staging_file_path": staging_file_path,
-        "permanent": permanent,
-        "tags": tags or [],
         "reason": reason,
         "payload": payload,
     }
@@ -364,10 +360,6 @@ def apply_event_track_update(
         values["status"] = request.status or "ready"
         values["match_method"] = "manual_staging"
         values["reason"] = "Manually linked to a staged audio file."
-    if request.permanent is not None:
-        values["permanent"] = int(request.permanent)
-    if request.tags is not None:
-        values["tags_json"] = json.dumps(request.tags)
     database.update_event_track(event_id, request.spotify_track_id, **values)
     return require_event_review(database, event_id)
 

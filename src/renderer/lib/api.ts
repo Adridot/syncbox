@@ -397,6 +397,10 @@ export class ApiClient {
     return this.post(`/api/library/sources/${sourceId}/sync`, {});
   }
 
+  async syncAllLibrarySources(): Promise<LibraryReview[]> {
+    return this.post("/api/library/sources/sync-all", {});
+  }
+
   async getLibraryReview(sourceId: number): Promise<LibraryReview> {
     return this.get(`/api/library/sources/${sourceId}/review`);
   }
@@ -462,10 +466,6 @@ export class ApiClient {
     return this.get(`/api/acquisition/jobs${suffix}`);
   }
 
-  async generateDemoProposals(): Promise<{ created: number }> {
-    return this.post("/api/sync/proposals/generate-demo", {});
-  }
-
   async getSpotifyAuthUrl(clientId: string, redirectUri: string): Promise<AuthUrlResponse> {
     return this.post("/api/spotify/auth-url", { clientId, redirectUri });
   }
@@ -474,12 +474,6 @@ export class ApiClient {
     return this.get(`/api/spotify/playlists?offset=${offset}&limit=${limit}`);
   }
 
-  async previewSpotifyEvent(input: {
-    playlistUrl: string;
-    eventName: string;
-  }): Promise<Record<string, unknown>> {
-    return this.post("/api/events/spotify/preview", input);
-  }
 
   async analyzeSpotifyEvent(input: {
     playlistUrl: string;
