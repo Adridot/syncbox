@@ -65,6 +65,7 @@ from .event_import import (
     require_event_review,
     scan_event_staging,
 )
+from .audio import scan_audio_files
 from .live_import import build_live_import_package
 from .library import (
     deemix_permanent_settings,
@@ -274,6 +275,8 @@ async def queue_library_deezer_track(
         candidate=candidate,
     )
     deezer_isrc = str(payload.get("isrc") or "").strip() or None
+    permanent_dir = Path(adapter.storage_layout().permanent)
+    existing_files = sorted(f["file_path"] for f in scan_audio_files(permanent_dir))
     database.upsert_library_acquisition_job(
         source_id,
         library_acquisition_job_payload(
@@ -283,7 +286,12 @@ async def queue_library_deezer_track(
             confidence=100,
             match_method="manual",
             output_dir=adapter.storage_layout().permanent,
-            payload={"isrc": deezer_isrc, "title": candidate.title, "artist": candidate.artist},
+            payload={
+                "isrc": deezer_isrc,
+                "title": candidate.title,
+                "artist": candidate.artist,
+                "pre_download_files": existing_files,
+            },
         ),
     )
     client = DeemixClient()
@@ -644,6 +652,8 @@ def build_rekordbox_adapter() -> RekordboxAdapter:
     return RekordboxAdapter(
         database_dir=Path(settings.rekordbox_database_dir),
         storage_root=Path(settings.storage_root),
+        permanent_path=settings.permanent_path,
+        manual_collection_path=settings.manual_collection_path,
     )
 
 

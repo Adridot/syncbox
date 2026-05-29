@@ -28,6 +28,8 @@ export type AppSettings = {
   rekordboxDatabaseDir: string;
   storageRoot: string;
   apiPort: number;
+  permanentPath: string;
+  manualCollectionPath: string;
 };
 
 export type StorageLayout = {

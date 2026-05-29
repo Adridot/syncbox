@@ -83,6 +83,28 @@ const settings = useSettingsStore();
                   v-model="settings.settings.storageRoot"
                 />
               </label>
+              <label class="grid gap-2">
+                <span class="text-sm font-bold text-on-surface">
+                  Permanent downloads path
+                  <span class="font-normal text-on-surface-variant">(optional)</span>
+                </span>
+                <input
+                  class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
+                  v-model="settings.settings.permanentPath"
+                  placeholder="{storageRoot}/_rekordbox_sync/permanent"
+                />
+              </label>
+              <label class="grid gap-2">
+                <span class="text-sm font-bold text-on-surface">
+                  Manual collection path
+                  <span class="font-normal text-on-surface-variant">(optional)</span>
+                </span>
+                <input
+                  class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
+                  v-model="settings.settings.manualCollectionPath"
+                  placeholder="{storageRoot}/_rekordbox_sync/manual_collection"
+                />
+              </label>
             </div>
           </section>
         </div>

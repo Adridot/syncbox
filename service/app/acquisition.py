@@ -578,6 +578,7 @@ def deemix_event_settings(audio_dir: Path) -> dict[str, Any]:
         "createSinglesStructure": False,
         "overwriteFiles": "rename",
         "bitrateFallback": True,
+        "trackNameTemplate": "%artist% - %title%",
     }
 
 

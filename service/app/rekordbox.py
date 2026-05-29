@@ -23,9 +23,17 @@ EVENT_MY_TAG_CATEGORY_NAME = "Situation"
 
 
 class RekordboxAdapter:
-    def __init__(self, database_dir: Path, storage_root: Path) -> None:
+    def __init__(
+        self,
+        database_dir: Path,
+        storage_root: Path,
+        permanent_path: str = "",
+        manual_collection_path: str = "",
+    ) -> None:
         self.database_dir = database_dir.expanduser()
         self.storage_root = storage_root.expanduser()
+        self._permanent_path = permanent_path.strip()
+        self._manual_collection_path = manual_collection_path.strip()
 
     @property
     def database_file(self) -> Path:
@@ -51,12 +59,14 @@ class RekordboxAdapter:
 
     def storage_layout(self) -> StorageLayout:
         root = self.managed_root
+        permanent = self._permanent_path or str(root / "permanent")
+        manual_collection = self._manual_collection_path or str(root / "manual_collection")
         return StorageLayout(
             root=str(root),
             inbox=str(root / "inbox"),
-            permanent=str(root / "permanent"),
+            permanent=permanent,
             events=str(root / "events"),
-            manualCollection=str(root / "manual_collection"),
+            manualCollection=manual_collection,
             backups=str(root / "backups"),
         )
 

@@ -12,6 +12,8 @@ export const useSettingsStore = defineStore("settings", () => {
     storageRoot:
       "/Users/adriendidot/Library/CloudStorage/Dropbox-CloudOptionDJteam/Jockey Tricolore/Musique",
     apiPort: 8765,
+    permanentPath: "",
+    manualCollectionPath: "",
   });
   const storage = ref<StorageLayout | null>(null);
 

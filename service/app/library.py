@@ -704,18 +704,13 @@ def mark_library_ready_after_scan(
                     error=None,
                 )
 
-    # Phase 3: Force-match tracks with manual Deezer jobs using ISRC or low-threshold title match.
-    # This covers classical/foreign titles where the MP3 title differs from the Spotify title.
+    # Phase 3: Force-assign for manual Deezer downloads via pre/post diff.
+    # No metadata matching — the user's explicit choice is trusted 100%.
     review = require_library_review(database, source_id)
     claimed = {
         track.staging_file_path
         for track in review.tracks
         if track.staging_file_path and track.status in {"ready", "imported"}
-    }
-    isrc_to_file = {
-        f["isrc"]: f
-        for f in audio_files
-        if f.get("isrc") and f["file_path"] not in claimed
     }
     for track in review.tracks:
         if track.status not in {"new", "missing"}:
@@ -725,29 +720,23 @@ def mark_library_ready_after_scan(
             continue
         if job.status not in {"downloaded", "resolved", "queued", "downloading", "ready"}:
             continue
-        # Try ISRC from job payload first
+
+        pre = set(job.payload.get("pre_download_files", []) if isinstance(job.payload, dict) else [])
         job_isrc = job.payload.get("isrc") if isinstance(job.payload, dict) else None
+
+        new_files = [
+            f for f in audio_files
+            if f["file_path"] not in pre and f["file_path"] not in claimed
+        ]
+
         matched_file = None
-        if job_isrc and job_isrc in isrc_to_file:
-            matched_file = isrc_to_file[job_isrc]
-        else:
-            # Fall back to lower-confidence title matching (50%) for manually selected tracks
-            available = [f for f in audio_files if f["file_path"] not in claimed]
-            spotify_track = library_track_to_spotify_track(track)
-            for f in available:
-                candidate = RekordboxTrack(
-                    contentId=f["file_path"],
-                    title=f["title"],
-                    artist=f["artist"],
-                    durationMs=f["duration_ms"],
-                    isrc=f["isrc"],
-                    filePath=f["file_path"],
-                )
-                result = match_spotify_track(spotify_track, [candidate], minimum_confidence=50)
-                if result.status == "matched":
-                    matched_file = f
-                    break
-        if matched_file and matched_file["file_path"] not in claimed:
+        if len(new_files) == 1:
+            matched_file = new_files[0]
+        elif len(new_files) > 1 and job_isrc:
+            matched_file = next((f for f in new_files if f.get("isrc") == job_isrc), None)
+        # If 0 new files: download not yet visible → skip, retry on next refresh cycle
+
+        if matched_file:
             claimed.add(matched_file["file_path"])
             database.update_library_track(
                 source_id,
@@ -756,7 +745,7 @@ def mark_library_ready_after_scan(
                 staging_file_path=matched_file["file_path"],
                 match_method="manual_deezer",
                 confidence=100,
-                reason="Manually selected Deezer track downloaded and matched.",
+                reason="Manually selected Deezer track, file assigned by download diff.",
             )
             if job.status != "ready":
                 database.update_library_acquisition_job(
@@ -848,6 +837,7 @@ def deemix_permanent_settings(audio_dir: Path) -> dict[str, Any]:
         "createSinglesStructure": False,
         "overwriteFiles": "rename",
         "bitrateFallback": True,
+        "trackNameTemplate": "%artist% - %title%",
     }
 
 

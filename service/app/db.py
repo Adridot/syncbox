@@ -344,6 +344,10 @@ class LocalDatabase:
             ),
             storageRoot=self.get_setting("storage_root", defaults.storage_root),
             apiPort=int(self.get_setting("api_port", str(defaults.api_port))),
+            permanentPath=self.get_setting("permanent_path", defaults.permanent_path),
+            manualCollectionPath=self.get_setting(
+                "manual_collection_path", defaults.manual_collection_path
+            ),
         )
 
     def save_app_settings(self, settings: AppSettings) -> AppSettings:
@@ -353,6 +357,8 @@ class LocalDatabase:
             "rekordbox_database_dir": settings.rekordbox_database_dir,
             "storage_root": settings.storage_root,
             "api_port": str(settings.api_port),
+            "permanent_path": settings.permanent_path,
+            "manual_collection_path": settings.manual_collection_path,
         }
         with self.connect() as connection:
             connection.executemany(
