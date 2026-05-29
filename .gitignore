@@ -1,0 +1,29 @@
+node_modules/
+dist/
+dist-electron/
+out/
+release/
+.vite/
+.DS_Store
+
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+.ruff_cache/
+.mypy_cache/
+.playwright-mcp/
+
+.env
+.env.local
+.local/
+.references/
+
+rekordbox_bak_*.zip
+*.backup.db
+*.bak
+*.log
+
+# Personal Rekordbox collection export
+"rkb collection.xml"
+rkb\ collection.xml

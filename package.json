@@ -1,0 +1,35 @@
+{
+  "name": "rekordbox-sync-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local desktop app for controlled Spotify to Rekordbox synchronization.",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:service\" \"npm:dev:desktop\"",
+    "dev:desktop": "electron-vite dev",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:service": "cd service && uv run --group dev uvicorn app.main:app --reload --host 127.0.0.1 --port 8765",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "npm run test:service && npm run typecheck",
+    "test:service": "cd service && uv run --group dev pytest"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.16.0",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^22.10.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "concurrently": "^9.1.0",
+    "electron": "^42.3.0",
+    "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.3",
+    "vue-tsc": "^3.3.2"
+  }
+}
