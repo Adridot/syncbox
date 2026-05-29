@@ -220,7 +220,7 @@ async def download_library_track_files(request: LibraryTrackDownloadRequest) -> 
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@app.post("/api/library/search-deezer", response_model=list[DeezerSearchResult])
+@app.get("/api/library/search-deezer", response_model=list[DeezerSearchResult])
 async def search_deezer(query: str = Query(..., min_length=1)) -> list[dict[str, Any]]:
     resolver = DeezerResolver()
     try:

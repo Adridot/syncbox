@@ -356,7 +356,6 @@ function removeDrawerTag(tagName: string): void {
                   <th class="px-4 py-3">Requested Track</th>
                   <th class="px-4 py-3">Rekordbox / File</th>
                   <th class="px-4 py-3">Status</th>
-                  <th class="px-4 py-3">Tags</th>
                   <th class="px-4 py-3"></th>
                 </tr>
               </thead>
@@ -399,15 +398,6 @@ function removeDrawerTag(tagName: string): void {
                     </StatusBadge>
                   </td>
                   <td class="px-4 py-3 align-top">
-                    <input
-                      class="w-64 rounded border border-outline bg-surface-container px-3 py-2 text-xs text-on-surface focus:border-primary focus:outline-none"
-                      :value="track.tags.join(', ')"
-                      list="library-review-tags"
-                      placeholder="Existing MyTags"
-                      @change="library.updateTrackTags(track, ($event.target as HTMLInputElement).value)"
-                    />
-                  </td>
-                  <td class="px-4 py-3 align-top">
                     <div v-if="track.status === 'new' || track.status === 'missing'" class="flex gap-1.5">
                       <button
                         class="inline-flex items-center gap-1 rounded border border-outline bg-surface-container px-2 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
@@ -431,15 +421,12 @@ function removeDrawerTag(tagName: string): void {
                   </td>
                 </tr>
                 <tr v-if="filteredTracks.length === 0">
-                  <td class="px-4 py-6 text-on-surface-variant" colspan="6">
+                  <td class="px-4 py-6 text-on-surface-variant" colspan="5">
                     No tracks for this filter.
                   </td>
                 </tr>
               </tbody>
             </table>
-            <datalist id="library-review-tags">
-              <option v-for="tagItem in spotify.rekordboxTags" :key="tagItem.id" :value="tagItem.name" />
-            </datalist>
           </div>
 
           <div v-if="pendingLibraryProposals.length > 0" class="mt-6 rounded-lg border border-tertiary/30 bg-tertiary/5 p-4">
