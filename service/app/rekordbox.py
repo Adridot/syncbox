@@ -740,19 +740,47 @@ def generated_rekordbox_id(database: Any, table: Any) -> str:
     return str(database.generate_unused_id(table))
 
 
+def _find_artist_by_name(database: Any, name: str) -> Any | None:
+    from pyrekordbox.db6 import tables
+
+    # Exact match first.
+    for row in database.query(tables.DjmdArtist).filter(tables.DjmdArtist.Name == name):
+        if not is_rekordbox_row_deleted(row):
+            return row
+    # Fallback: case/whitespace-insensitive scan. Rekordbox's add_artist refuses
+    # duplicates by a normalized key, so existing artists may differ only by
+    # trailing spaces or casing (e.g. "Alan Walker   ").
+    target = name.strip().casefold()
+    for row in database.query(tables.DjmdArtist):
+        if is_rekordbox_row_deleted(row):
+            continue
+        if str(getattr(row, "Name", "") or "").strip().casefold() == target:
+            return row
+    return None
+
+
 def ensure_artist(database: Any, name: str) -> Any | None:
-    """Return an existing (active) DjmdArtist by name, creating one if needed."""
+    """Return an existing (active) DjmdArtist by exact name, creating if needed."""
     name = (name or "").strip()
     if not name:
         return None
+    existing = _find_artist_by_name(database, name)
+    if existing is not None:
+        return existing
     try:
-        existing = database.get_artist(Name=name)
-        row = existing.first() if hasattr(existing, "first") else None
-        if row is not None and not is_rekordbox_row_deleted(row):
+        return database.add_artist(name)
+    except ValueError:
+        # add_artist's duplicate check counts soft-deleted rows too, so a
+        # rb_local_deleted artist with this exact name is blocking creation.
+        # Reactivate and reuse it.
+        from pyrekordbox.db6 import tables
+
+        row = database.query(tables.DjmdArtist).filter_by(Name=name).first()
+        if row is not None:
+            if is_rekordbox_row_deleted(row):
+                reactivate_rekordbox_row(row)
             return row
-    except Exception:
-        pass
-    return database.add_artist(name)
+        return None
 
 
 def add_rekordbox_content(
