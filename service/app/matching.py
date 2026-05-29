@@ -50,6 +50,20 @@ def duration_score(left_ms: int | None, right_ms: int | None) -> int:
     return 0
 
 
+# Two recordings can legitimately share an ISRC across releases, but a real
+# ISRC match should still have a comparable runtime. A large gap means the ISRC
+# is wrong/colliding (e.g. a different song tagged with the same code), so we
+# refuse the blind ISRC match and fall back to metadata scoring.
+ISRC_DURATION_TOLERANCE_MS = 15000
+
+
+def isrc_durations_compatible(left_ms: int | None, right_ms: int | None) -> bool:
+    if not left_ms or not right_ms:
+        # Cannot verify — trust the ISRC.
+        return True
+    return abs(left_ms - right_ms) <= ISRC_DURATION_TOLERANCE_MS
+
+
 def match_spotify_track(
     spotify_track: SpotifyTrack,
     candidates: list[RekordboxTrack],
@@ -58,6 +72,12 @@ def match_spotify_track(
     if spotify_track.isrc:
         for candidate in candidates:
             if candidate.isrc and candidate.isrc.upper() == spotify_track.isrc.upper():
+                if not isrc_durations_compatible(
+                    spotify_track.duration_ms, candidate.duration_ms
+                ):
+                    # ISRC collision: same code, very different runtime. Skip this
+                    # candidate and let metadata scoring decide instead.
+                    continue
                 return MatchResult(
                     status="matched",
                     method="isrc",

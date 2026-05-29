@@ -33,6 +33,59 @@ def test_match_by_isrc_wins() -> None:
     assert result.confidence == 100
 
 
+def test_isrc_match_rejected_when_durations_differ_wildly() -> None:
+    # Real-world bug: Spotify "Alicante" (3:13) carried the same ISRC as the
+    # Rekordbox track "Le Sang de la veine" (4:30). Different songs, so the
+    # blind ISRC match must be refused and fall through to metadata (-> missing).
+    spotify = SpotifyTrack(
+        id="sp1",
+        uri="spotify:track:sp1",
+        title="Alicante",
+        artists=["Gambino"],
+        durationMs=193777,
+        isrc="TCACT1688684",
+    )
+    rekordbox = [
+        RekordboxTrack(
+            contentId="rb1",
+            title="Le Sang de la veine",
+            artist="Gambino",
+            durationMs=270000,
+            isrc="TCACT1688684",
+        )
+    ]
+
+    result = match_spotify_track(spotify, rekordbox)
+
+    assert result.method != "isrc"
+    assert result.status == "missing"
+
+
+def test_isrc_match_kept_when_duration_unknown() -> None:
+    spotify = SpotifyTrack(
+        id="sp1",
+        uri="spotify:track:sp1",
+        title="Whatever",
+        artists=["Artist"],
+        durationMs=200000,
+        isrc="FR1234567890",
+    )
+    rekordbox = [
+        RekordboxTrack(
+            contentId="rb1",
+            title="Whatever",
+            artist="Artist",
+            durationMs=None,
+            isrc="FR1234567890",
+        )
+    ]
+
+    result = match_spotify_track(spotify, rekordbox)
+
+    assert result.status == "matched"
+    assert result.method == "isrc"
+
+
 def test_metadata_ambiguous_when_candidates_are_too_close() -> None:
     spotify = SpotifyTrack(
         id="sp1",
