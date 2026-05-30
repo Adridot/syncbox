@@ -3,6 +3,27 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
+/**
+ * Auto-update is scaffolded but dormant: it only runs in a packaged build when
+ * RBSYNC_ENABLE_UPDATES=1 AND a publish provider is configured (package.json
+ * build.publish -> generates app-update.yml). Until then we skip it so the app
+ * never errors looking for a non-existent update feed. To enable: set
+ * build.publish (e.g. GitHub/generic), sign + notarize, then flip the env flag.
+ */
+async function checkForUpdates(): Promise<void> {
+  if (!app.isPackaged || process.env.RBSYNC_ENABLE_UPDATES !== "1") {
+    return;
+  }
+  try {
+    const { autoUpdater } = await import("electron-updater");
+    autoUpdater.logger = console;
+    autoUpdater.autoDownload = true;
+    await autoUpdater.checkForUpdatesAndNotify();
+  } catch (error) {
+    console.warn("[updater] skipped:", (error as Error).message);
+  }
+}
+
 let mainWindow: BrowserWindow | null = null;
 let serviceProcess: ChildProcessWithoutNullStreams | null = null;
 
@@ -187,6 +208,7 @@ app.whenReady().then(() => {
   buildAppMenu();
   startPythonService();
   createWindow();
+  void checkForUpdates();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
