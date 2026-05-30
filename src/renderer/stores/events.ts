@@ -209,9 +209,11 @@ export const useEventsStore = defineStore("events", () => {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api) return;
-    const eventName = importForm.eventName.trim();
+    // Prefer the event currently open in the workspace; fall back to the
+    // create-form name when preparing a standalone live import.
+    const eventName = (activeEvent.value?.eventName ?? importForm.eventName).trim();
     if (!eventName) {
-      ui.setMessage("error", "Event name is required for live import.");
+      ui.setMessage("error", "Open an event or enter a name for the live import.");
       return;
     }
     await ui.withLoading(async () => {

@@ -64,14 +64,39 @@ async function openDesktopPath(path: string): Promise<void> {
 
       <!-- Live Import (M3U8) -->
       <div class="border-t border-outline-variant p-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <FileAudio class="text-secondary" :size="15" aria-hidden="true" />
-            <span class="text-xs font-bold text-on-surface">Live Import (M3U8)</span>
-          </div>
+        <div class="mb-2 flex items-center gap-2">
+          <FileAudio class="text-secondary" :size="15" aria-hidden="true" />
+          <span class="text-xs font-bold text-on-surface">Live Import (M3U8)</span>
+        </div>
+        <p class="mb-2 text-[11px] text-on-surface-variant">
+          Generates a Rekordbox playlist file (no <code>master.db</code> write) — works while Rekordbox is open.
+        </p>
+        <!-- An event is open: target it directly, no name to retype. -->
+        <div v-if="events.activeEvent" class="flex items-center gap-2">
+          <span class="min-w-0 flex-1 truncate text-[11px] text-on-surface">
+            For <strong>{{ events.activeEvent.eventName }}</strong>
+          </span>
           <button
-            class="rounded border border-outline bg-surface px-2.5 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
+            class="shrink-0 rounded border border-outline bg-surface px-2.5 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
             type="button"
+            @click="events.createLiveImportPackage()"
+          >
+            Prepare
+          </button>
+        </div>
+        <!-- No event open: standalone live import needs a name. -->
+        <div v-else class="flex gap-2">
+          <input
+            class="min-w-0 flex-1 rounded border border-outline bg-surface-container-high px-2.5 py-1 text-[11px] text-on-surface focus:border-primary focus:outline-none"
+            v-model="events.importForm.eventName"
+            type="text"
+            placeholder="Event name"
+            @keyup.enter="events.createLiveImportPackage()"
+          />
+          <button
+            class="shrink-0 rounded border border-outline bg-surface px-2.5 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            :disabled="!events.importForm.eventName.trim()"
             @click="events.createLiveImportPackage()"
           >
             Prepare
