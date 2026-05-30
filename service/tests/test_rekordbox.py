@@ -13,7 +13,35 @@ from app.rekordbox import (
     path_is_under_roots,
     reactivate_rekordbox_row,
     rekordbox_smartlist_reference_id,
+    resolve_volume_path,
+    to_volume_relative,
 )
+
+
+STORAGE_ROOT = "/Users/x/Library/CloudStorage/Dropbox/Jockey Tricolore/Musique"
+
+
+def test_to_volume_relative_under_root() -> None:
+    full = STORAGE_ROOT + "/rekordbox/Collection/ABBA - Dancing Queen.mp3"
+    assert to_volume_relative(full, STORAGE_ROOT) == "/Musique/rekordbox/Collection/ABBA - Dancing Queen.mp3"
+
+
+def test_to_volume_relative_leaves_outside_paths() -> None:
+    outside = "/Users/x/Music/foo.mp3"
+    assert to_volume_relative(outside, STORAGE_ROOT) == outside
+
+
+def test_resolve_volume_path_roundtrip() -> None:
+    full = STORAGE_ROOT + "/rekordbox/Collection/x.mp3"
+    rel = to_volume_relative(full, STORAGE_ROOT)
+    assert rel == "/Musique/rekordbox/Collection/x.mp3"
+    assert resolve_volume_path(rel, STORAGE_ROOT) == full
+
+
+def test_resolve_volume_path_leaves_full_paths() -> None:
+    full = STORAGE_ROOT + "/_rekordbox_sync/permanent/y.mp3"
+    assert resolve_volume_path(full, STORAGE_ROOT) == full
+    assert resolve_volume_path("/Users/x/Music/z.mp3", STORAGE_ROOT) == "/Users/x/Music/z.mp3"
 
 
 def test_content_path_lookup_matches_resolved_paths(tmp_path: Path) -> None:

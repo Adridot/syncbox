@@ -132,7 +132,10 @@ class RekordboxAdapter:
                             "title": str(getattr(content, "Title", "") or ""),
                             "artist": str(getattr(content, "ArtistName", "") or ""),
                             "durationMs": content_length_ms(content),
-                            "filePath": str(getattr(content, "FolderPath", "") or ""),
+                            "filePath": resolve_volume_path(
+                                str(getattr(content, "FolderPath", "") or ""),
+                                self.storage_root,
+                            ),
                             "isrc": str(getattr(content, "ISRC", "") or "") or None,
                         }
                     )
@@ -333,6 +336,7 @@ class RekordboxAdapter:
                                 tables,
                                 str(file_path),
                                 artist=", ".join(track.artists),
+                                storage_root=self.storage_root,
                                 Title=track.title,
                                 ISRC=track.isrc or "",
                                 Length=max(1, round(track.duration_ms / 1000)),
@@ -573,6 +577,7 @@ class RekordboxAdapter:
                                 tables,
                                 str(file_path),
                                 artist=", ".join(track.artists),
+                                storage_root=self.storage_root,
                                 Title=track.title,
                                 ISRC=track.isrc or "",
                                 Length=max(1, round(track.duration_ms / 1000)),
@@ -617,6 +622,43 @@ def safe_timestamp() -> str:
     from datetime import datetime
 
     return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+# --- Rekordbox volume-relative path handling -------------------------------
+# Rekordbox stores collection paths relative to a named volume, e.g.
+# "/Musique/rekordbox/Collection/x.mp3" where the volume "Musique" maps to the
+# storage root (".../Jockey Tricolore/Musique"). Keeping app-managed files in
+# this same format makes them uniform with Rekordbox's native entries.
+
+
+def volume_name(storage_root: Path | str) -> str:
+    return Path(str(storage_root)).name
+
+
+def to_volume_relative(path: Path | str, storage_root: Path | str) -> str:
+    """Convert a full path under storage_root to "/<volume>/<rest>"; otherwise
+    return it unchanged."""
+    full = str(Path(str(path)))
+    root = str(Path(str(storage_root)))
+    if full == root:
+        return "/" + volume_name(storage_root)
+    prefix = root.rstrip("/") + "/"
+    if full.startswith(prefix):
+        return "/" + volume_name(storage_root) + "/" + full[len(prefix):]
+    return full
+
+
+def resolve_volume_path(folder_path: str, storage_root: Path | str) -> str:
+    """Resolve a stored "/<volume>/<rest>" path back to the real full path under
+    storage_root; otherwise return it unchanged."""
+    if not folder_path:
+        return folder_path
+    marker = "/" + volume_name(storage_root)
+    if folder_path == marker:
+        return str(Path(str(storage_root)))
+    if folder_path.startswith(marker + "/"):
+        return str(Path(str(storage_root))) + folder_path[len(marker):]
+    return folder_path
 
 
 def content_length_ms(content: Any) -> int | None:
@@ -874,15 +916,25 @@ def ensure_artist(database: Any, name: str) -> Any | None:
 
 
 def add_rekordbox_content(
-    database: Any, tables: Any, path: str, *, artist: str = "", **kwargs: Any
+    database: Any,
+    tables: Any,
+    path: str,
+    *,
+    artist: str = "",
+    storage_root: Path | str | None = None,
+    **kwargs: Any,
 ) -> Any:
     from datetime import date
     from uuid import uuid4
 
     from pyrekordbox.db6.tables import FileType
 
-    file_path = Path(path)
-    path_string = str(file_path)
+    file_path = Path(path)  # real, full path on disk
+    # Store the path volume-relative ("/Musique/…") when under the storage root,
+    # to stay uniform with Rekordbox's native collection entries.
+    path_string = (
+        to_volume_relative(file_path, storage_root) if storage_root else str(file_path)
+    )
     existing = database.query(tables.DjmdContent).filter_by(FolderPath=path_string)
     if existing.count() > 0:
         raise ValueError(f"Track with path '{file_path}' already exists in database")
