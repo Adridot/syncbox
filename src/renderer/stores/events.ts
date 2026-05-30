@@ -19,6 +19,10 @@ import { useProposalsStore } from "./proposals";
 export const useEventsStore = defineStore("events", () => {
   const summaries = ref<EventSummary[]>([]);
   const activeEvent = ref<EventReview | null>(null);
+  // The event the user last asked to view. Async loads/refreshes only apply
+  // their result if it still matches, so rapid switching between events can't
+  // be flipped back by a slow, out-of-order response.
+  const requestedEventId = ref<number | null>(null);
   const acquisitionJobs = ref<AcquisitionJob[]>([]);
   const globalAcquisitionJobs = ref<GlobalAcquisitionJob[]>([]);
   const deezerSearchTrack = ref<TrackReview | null>(null);
@@ -67,43 +71,58 @@ export const useEventsStore = defineStore("events", () => {
     const system = useSystemStore();
     if (!system.api || !activeEvent.value) return;
     const eventId = activeEvent.value.id;
-    [activeEvent.value, acquisitionJobs.value, summaries.value, globalAcquisitionJobs.value] =
-      await Promise.all([
-        system.api.getEventReview(eventId),
-        system.api.listAcquisitionJobs(eventId),
-        system.api.listEvents(),
-        system.api.listGlobalAcquisitionJobs(),
-      ]);
+    const [review, jobs, sums, globals] = await Promise.all([
+      system.api.getEventReview(eventId),
+      system.api.listAcquisitionJobs(eventId),
+      system.api.listEvents(),
+      system.api.listGlobalAcquisitionJobs(),
+    ]);
+    summaries.value = sums;
+    globalAcquisitionJobs.value = globals;
+    // Drop the result if the user navigated to another event meanwhile.
+    if (requestedEventId.value !== eventId) return;
+    activeEvent.value = review;
+    acquisitionJobs.value = jobs;
   }
 
   async function scanStaging(): Promise<void> {
     const system = useSystemStore();
     if (!system.api || !activeEvent.value) return;
     const eventId = activeEvent.value.id;
-    [activeEvent.value, acquisitionJobs.value, summaries.value, globalAcquisitionJobs.value] =
-      await Promise.all([
-        system.api.scanEventStaging(eventId),
-        system.api.listAcquisitionJobs(eventId),
-        system.api.listEvents(),
-        system.api.listGlobalAcquisitionJobs(),
-      ]);
+    const [review, jobs, sums, globals] = await Promise.all([
+      system.api.scanEventStaging(eventId),
+      system.api.listAcquisitionJobs(eventId),
+      system.api.listEvents(),
+      system.api.listGlobalAcquisitionJobs(),
+    ]);
+    summaries.value = sums;
+    globalAcquisitionJobs.value = globals;
+    if (requestedEventId.value !== eventId) return;
+    activeEvent.value = review;
+    acquisitionJobs.value = jobs;
   }
 
   async function openEvent(summary: EventSummary): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api) return;
+    requestedEventId.value = summary.id;
     await ui.withLoading(async () => {
-      [activeEvent.value, acquisitionJobs.value] = await Promise.all([
+      const [review, jobs] = await Promise.all([
         system.api!.getEventReview(summary.id),
         system.api!.listAcquisitionJobs(summary.id),
       ]);
-      ui.setMessage("success", `"${activeEvent.value!.eventName}" loaded.`);
+      // A newer click superseded this load — discard the stale result.
+      if (requestedEventId.value !== summary.id) return;
+      activeEvent.value = review;
+      acquisitionJobs.value = jobs;
+      ui.setMessage("success", `"${review.eventName}" loaded.`);
     });
   }
 
   // Deselect the active event to return to the creation screen.
   function closeActiveEvent(): void {
+    requestedEventId.value = null;
     activeEvent.value = null;
     acquisitionJobs.value = [];
   }
@@ -113,11 +132,13 @@ export const useEventsStore = defineStore("events", () => {
     const ui = useUiStore();
     if (!system.api) return;
     await ui.withLoading(async () => {
-      activeEvent.value = await system.api!.analyzeSpotifyEvent(importForm);
+      const review = await system.api!.analyzeSpotifyEvent(importForm);
+      requestedEventId.value = review.id;
+      activeEvent.value = review;
       summaries.value = await system.api!.listEvents();
       ui.navigateTo("events");
-      ui.setMessage("success", `${activeEvent.value!.totalTracks} Spotify tracks analyzed.`);
-      await autoDownload(activeEvent.value!.id);
+      ui.setMessage("success", `${review.totalTracks} Spotify tracks analyzed.`);
+      await autoDownload(review.id);
     });
   }
 
@@ -132,6 +153,7 @@ export const useEventsStore = defineStore("events", () => {
     }
     const review = await ui.withLoading(async () => {
       const created = await system.api!.createManualEvent({ eventName: name });
+      requestedEventId.value = created.id;
       activeEvent.value = created;
       acquisitionJobs.value = await system.api!.listAcquisitionJobs(created.id);
       summaries.value = await system.api!.listEvents();
@@ -146,6 +168,7 @@ export const useEventsStore = defineStore("events", () => {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api) return;
+    requestedEventId.value = eventId;
     await ui.withLoading(async () => {
       activeEvent.value = await system.api!.addEventSpotifyTrack(eventId, trackUrl.trim());
       summaries.value = await system.api!.listEvents();
@@ -203,10 +226,16 @@ export const useEventsStore = defineStore("events", () => {
     if (!system.api || !activeEvent.value) return;
     await ui.withLoading(async () => {
       const eventId = activeEvent.value!.id;
-      activeEvent.value = await system.api!.scanEventStaging(eventId);
-      acquisitionJobs.value = await system.api!.listAcquisitionJobs(eventId);
-      summaries.value = await system.api!.listEvents();
-      ui.setMessage("success", `Folder refreshed. ${activeEvent.value!.stagingFiles.length} staged file(s) found.`);
+      const [review, jobs, sums] = await Promise.all([
+        system.api!.scanEventStaging(eventId),
+        system.api!.listAcquisitionJobs(eventId),
+        system.api!.listEvents(),
+      ]);
+      summaries.value = sums;
+      if (requestedEventId.value !== eventId) return;
+      activeEvent.value = review;
+      acquisitionJobs.value = jobs;
+      ui.setMessage("success", `Folder refreshed. ${review.stagingFiles.length} staged file(s) found.`);
     });
   }
 
@@ -228,10 +257,11 @@ export const useEventsStore = defineStore("events", () => {
     const ui = useUiStore();
     if (!system.api) return;
     const result = await system.api.runAutoAcquisition(eventId);
-    activeEvent.value = result.review;
-    acquisitionJobs.value = result.jobs;
     summaries.value = await system.api.listEvents();
     globalAcquisitionJobs.value = await system.api.listGlobalAcquisitionJobs();
+    if (requestedEventId.value !== eventId) return;
+    activeEvent.value = result.review;
+    acquisitionJobs.value = result.jobs;
     if (result.failed > 0) {
       ui.setMessage(
         "error",
@@ -271,6 +301,7 @@ export const useEventsStore = defineStore("events", () => {
       );
       if (!confirmed) return;
       const result = await system.api!.deleteEvent(eventId);
+      requestedEventId.value = null;
       activeEvent.value = null;
       acquisitionJobs.value = [];
       summaries.value = await system.api!.listEvents();
