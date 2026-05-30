@@ -916,18 +916,32 @@ class LocalDatabase:
             tracks=tracks,
         )
 
-    def upsert_library_acquisition_job(
-        self,
-        source_id: int,
-        job: dict[str, Any],
+    # --- Shared acquisition-job CRUD ------------------------------------
+    # library_acquisition_jobs and event_acquisition_jobs are structurally
+    # identical apart from their foreign-key column. These private helpers own
+    # the SQL so the library/event public APIs below can't drift apart.
+
+    _JOB_UPDATABLE = {
+        "deezer_track_id",
+        "status",
+        "confidence",
+        "match_method",
+        "download_id",
+        "output_dir",
+        "error",
+        "payload_json",
+    }
+
+    def _upsert_job(
+        self, table: str, fk_col: str, fk_value: int, job: dict[str, Any]
     ) -> AcquisitionJob:
         now = utc_now()
         payload = job.get("payload", {})
         with self.connect() as connection:
             cursor = connection.execute(
-                """
-                INSERT INTO library_acquisition_jobs (
-                    source_id,
+                f"""
+                INSERT INTO {table} (
+                    {fk_col},
                     spotify_track_id,
                     provider,
                     deezer_track_id,
@@ -942,7 +956,7 @@ class LocalDatabase:
                     updated_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(source_id, spotify_track_id, provider) DO UPDATE SET
+                ON CONFLICT({fk_col}, spotify_track_id, provider) DO UPDATE SET
                     deezer_track_id = excluded.deezer_track_id,
                     status = excluded.status,
                     confidence = excluded.confidence,
@@ -955,7 +969,7 @@ class LocalDatabase:
                 RETURNING *
                 """,
                 (
-                    source_id,
+                    fk_value,
                     job["spotify_track_id"],
                     job.get("provider", "deemix"),
                     job.get("deezer_track_id"),
@@ -971,26 +985,82 @@ class LocalDatabase:
                 ),
             )
             row = cursor.fetchone()
-        return acquisition_job_from_row(row, source_key="source_id")
+        return acquisition_job_from_row(row, source_key=fk_col)
 
-    def list_library_acquisition_jobs(
-        self,
-        source_id: int,
-        provider: str | None = None,
+    def _list_jobs(
+        self, table: str, fk_col: str, fk_value: int, provider: str | None
     ) -> list[AcquisitionJob]:
-        query = """
-            SELECT *
-            FROM library_acquisition_jobs
-            WHERE source_id = ?
-        """
-        params: list[Any] = [source_id]
+        query = f"SELECT * FROM {table} WHERE {fk_col} = ?"
+        params: list[Any] = [fk_value]
         if provider:
             query += " AND provider = ?"
             params.append(provider)
         query += " ORDER BY id"
         with self.connect() as connection:
             rows = connection.execute(query, params).fetchall()
-        return [acquisition_job_from_row(row, source_key="source_id") for row in rows]
+        return [acquisition_job_from_row(row, source_key=fk_col) for row in rows]
+
+    def _get_job(
+        self,
+        table: str,
+        fk_col: str,
+        fk_value: int,
+        spotify_track_id: str,
+        provider: str,
+    ) -> AcquisitionJob | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                f"""
+                SELECT * FROM {table}
+                WHERE {fk_col} = ? AND spotify_track_id = ? AND provider = ?
+                """,
+                (fk_value, spotify_track_id, provider),
+            ).fetchone()
+        return acquisition_job_from_row(row, source_key=fk_col) if row else None
+
+    def _update_job(
+        self,
+        table: str,
+        fk_col: str,
+        fk_value: int,
+        spotify_track_id: str,
+        provider: str,
+        values: dict[str, Any],
+    ) -> None:
+        values = dict(values)
+        if "payload" in values:
+            payload = values.pop("payload")
+            values["payload_json"] = json.dumps(
+                payload if isinstance(payload, dict) else {}
+            )
+        updates = {k: v for k, v in values.items() if k in self._JOB_UPDATABLE}
+        if not updates:
+            return
+        updates["updated_at"] = utc_now()
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        params = [*updates.values(), fk_value, spotify_track_id, provider]
+        with self.connect() as connection:
+            connection.execute(
+                f"""
+                UPDATE {table} SET {assignments}
+                WHERE {fk_col} = ? AND spotify_track_id = ? AND provider = ?
+                """,
+                params,
+            )
+
+    # --- Library acquisition jobs ---------------------------------------
+
+    def upsert_library_acquisition_job(
+        self, source_id: int, job: dict[str, Any]
+    ) -> AcquisitionJob:
+        return self._upsert_job("library_acquisition_jobs", "source_id", source_id, job)
+
+    def list_library_acquisition_jobs(
+        self,
+        source_id: int,
+        provider: str | None = None,
+    ) -> list[AcquisitionJob]:
+        return self._list_jobs("library_acquisition_jobs", "source_id", source_id, provider)
 
     def get_library_acquisition_job(
         self,
@@ -998,18 +1068,9 @@ class LocalDatabase:
         spotify_track_id: str,
         provider: str = "deemix",
     ) -> AcquisitionJob | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT *
-                FROM library_acquisition_jobs
-                WHERE source_id = ?
-                  AND spotify_track_id = ?
-                  AND provider = ?
-                """,
-                (source_id, spotify_track_id, provider),
-            ).fetchone()
-        return acquisition_job_from_row(row, source_key="source_id") if row else None
+        return self._get_job(
+            "library_acquisition_jobs", "source_id", source_id, spotify_track_id, provider
+        )
 
     def update_library_acquisition_job(
         self,
@@ -1018,36 +1079,14 @@ class LocalDatabase:
         provider: str = "deemix",
         **values: Any,
     ) -> None:
-        if "payload" in values:
-            payload = values.pop("payload")
-            values["payload_json"] = json.dumps(payload if isinstance(payload, dict) else {})
-        allowed = {
-            "deezer_track_id",
-            "status",
-            "confidence",
-            "match_method",
-            "download_id",
-            "output_dir",
-            "error",
-            "payload_json",
-        }
-        updates = {key: value for key, value in values.items() if key in allowed}
-        if not updates:
-            return
-        updates["updated_at"] = utc_now()
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        params = [*updates.values(), source_id, spotify_track_id, provider]
-        with self.connect() as connection:
-            connection.execute(
-                f"""
-                UPDATE library_acquisition_jobs
-                SET {assignments}
-                WHERE source_id = ?
-                  AND spotify_track_id = ?
-                  AND provider = ?
-                """,
-                params,
-            )
+        self._update_job(
+            "library_acquisition_jobs",
+            "source_id",
+            source_id,
+            spotify_track_id,
+            provider,
+            values,
+        )
 
     def list_global_acquisition_jobs(
         self,
@@ -1431,81 +1470,19 @@ class LocalDatabase:
                 )
         return len(rows)
 
+    # --- Event acquisition jobs -----------------------------------------
+
     def upsert_acquisition_job(
-        self,
-        event_id: int,
-        job: dict[str, Any],
+        self, event_id: int, job: dict[str, Any]
     ) -> AcquisitionJob:
-        now = utc_now()
-        payload = job.get("payload", {})
-        with self.connect() as connection:
-            cursor = connection.execute(
-                """
-                INSERT INTO event_acquisition_jobs (
-                    event_id,
-                    spotify_track_id,
-                    provider,
-                    deezer_track_id,
-                    status,
-                    confidence,
-                    match_method,
-                    download_id,
-                    output_dir,
-                    error,
-                    payload_json,
-                    created_at,
-                    updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(event_id, spotify_track_id, provider) DO UPDATE SET
-                    deezer_track_id = excluded.deezer_track_id,
-                    status = excluded.status,
-                    confidence = excluded.confidence,
-                    match_method = excluded.match_method,
-                    download_id = excluded.download_id,
-                    output_dir = excluded.output_dir,
-                    error = excluded.error,
-                    payload_json = excluded.payload_json,
-                    updated_at = excluded.updated_at
-                RETURNING *
-                """,
-                (
-                    event_id,
-                    job["spotify_track_id"],
-                    job.get("provider", "deemix"),
-                    job.get("deezer_track_id"),
-                    job["status"],
-                    int(job.get("confidence", 0)),
-                    job.get("match_method"),
-                    job.get("download_id"),
-                    job.get("output_dir"),
-                    job.get("error"),
-                    json.dumps(payload if isinstance(payload, dict) else {}),
-                    now,
-                    now,
-                ),
-            )
-            row = cursor.fetchone()
-        return acquisition_job_from_row(row)
+        return self._upsert_job("event_acquisition_jobs", "event_id", event_id, job)
 
     def list_acquisition_jobs(
         self,
         event_id: int,
         provider: str | None = None,
     ) -> list[AcquisitionJob]:
-        query = """
-            SELECT *
-            FROM event_acquisition_jobs
-            WHERE event_id = ?
-        """
-        params: list[Any] = [event_id]
-        if provider:
-            query += " AND provider = ?"
-            params.append(provider)
-        query += " ORDER BY id"
-        with self.connect() as connection:
-            rows = connection.execute(query, params).fetchall()
-        return [acquisition_job_from_row(row) for row in rows]
+        return self._list_jobs("event_acquisition_jobs", "event_id", event_id, provider)
 
     def get_acquisition_job(
         self,
@@ -1513,18 +1490,9 @@ class LocalDatabase:
         spotify_track_id: str,
         provider: str = "deemix",
     ) -> AcquisitionJob | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT *
-                FROM event_acquisition_jobs
-                WHERE event_id = ?
-                  AND spotify_track_id = ?
-                  AND provider = ?
-                """,
-                (event_id, spotify_track_id, provider),
-            ).fetchone()
-        return acquisition_job_from_row(row) if row else None
+        return self._get_job(
+            "event_acquisition_jobs", "event_id", event_id, spotify_track_id, provider
+        )
 
     def update_acquisition_job(
         self,
@@ -1533,37 +1501,14 @@ class LocalDatabase:
         provider: str = "deemix",
         **values: Any,
     ) -> None:
-        if "payload" in values:
-            payload = values.pop("payload")
-            values["payload_json"] = json.dumps(payload if isinstance(payload, dict) else {})
-
-        allowed = {
-            "deezer_track_id",
-            "status",
-            "confidence",
-            "match_method",
-            "download_id",
-            "output_dir",
-            "error",
-            "payload_json",
-        }
-        updates = {key: value for key, value in values.items() if key in allowed}
-        if not updates:
-            return
-        updates["updated_at"] = utc_now()
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        params = [*updates.values(), event_id, spotify_track_id, provider]
-        with self.connect() as connection:
-            connection.execute(
-                f"""
-                UPDATE event_acquisition_jobs
-                SET {assignments}
-                WHERE event_id = ?
-                  AND spotify_track_id = ?
-                  AND provider = ?
-                """,
-                params,
-            )
+        self._update_job(
+            "event_acquisition_jobs",
+            "event_id",
+            event_id,
+            spotify_track_id,
+            provider,
+            values,
+        )
 
     def update_event_track(self, event_id: int, spotify_track_id: str, **values: Any) -> None:
         allowed = {
