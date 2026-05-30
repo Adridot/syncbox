@@ -14,6 +14,7 @@ from ..models import (
     RekordboxTag,
     StorageLayout,
 )
+from ..logging_setup import get_logger
 from ..safety import assert_rekordbox_can_mutate, find_rekordbox_processes
 from .paths import (
     content_path_lookup,
@@ -40,6 +41,8 @@ from .content import (
 
 
 """RekordboxAdapter + its private read/cache/XML helpers."""
+
+logger = get_logger("rekordbox")
 
 # Reading the whole Rekordbox collection (open SQLCipher + iterate ~1.5k rows)
 # costs ~0.4-0.9s and was happening on *every* event-review load and refresh.
@@ -170,15 +173,28 @@ class RekordboxAdapter:
         return target
 
     def list_backups(self) -> list[dict[str, Any]]:
-        """Timestamped Rekordbox DB backups, newest first."""
+        """Timestamped Rekordbox DB backups, newest first.
+
+        The backups directory may live under cloud storage where macOS TCC can
+        deny directory listing from a terminal-spawned process; treat any OS
+        error as "no readable backups" rather than failing the request.
+        """
         backup_root = Path(self.storage_layout().backups)
-        if not backup_root.exists():
+        try:
+            if not backup_root.exists():
+                return []
+            entries = list(backup_root.iterdir())
+        except OSError as exc:
+            logger.warning("Cannot list backups in %s: %s", backup_root, exc)
             return []
         backups: list[dict[str, Any]] = []
-        for entry in backup_root.iterdir():
-            if not entry.is_dir() or not entry.name.startswith("rekordbox-db-"):
+        for entry in entries:
+            try:
+                if not entry.is_dir() or not entry.name.startswith("rekordbox-db-"):
+                    continue
+                files = [child for child in entry.iterdir() if child.is_file()]
+            except OSError:
                 continue
-            files = [child for child in entry.iterdir() if child.is_file()]
             if not any(child.name == "master.db" for child in files):
                 continue
             try:
