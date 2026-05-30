@@ -5,13 +5,16 @@ import {
   LayoutDashboard,
   Library,
   ListChecks,
+  Loader2,
 } from "@lucide/vue";
 import type { ViewKey } from "../types/ui";
+import { useEventsStore } from "../stores/events";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
 
 const ui = useUiStore();
 const system = useSystemStore();
+const events = useEventsStore();
 
 const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -72,6 +75,29 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
           <Cog :size="20" aria-hidden="true" />
           <span>Settings</span>
         </button>
+        <button
+          v-if="events.globalJobStats.inProgress > 0 || events.globalJobStats.failed > 0"
+          type="button"
+          class="mb-4 flex w-full items-center gap-2 rounded border border-outline-variant bg-surface-container-high px-3 py-2 text-left transition-colors hover:border-primary"
+          @click="ui.navigateTo('downloadCenter')"
+        >
+          <Loader2
+            v-if="events.globalJobStats.inProgress > 0"
+            :size="14"
+            class="shrink-0 animate-spin text-primary"
+            aria-hidden="true"
+          />
+          <ListChecks v-else :size="14" class="shrink-0 text-tertiary" aria-hidden="true" />
+          <span class="min-w-0 flex-1 truncate text-xs text-on-surface-variant">
+            <template v-if="events.globalJobStats.inProgress > 0">
+              {{ events.globalJobStats.inProgress }} downloading…
+            </template>
+            <template v-else>
+              {{ events.globalJobStats.failed }} download(s) failed
+            </template>
+          </span>
+        </button>
+
         <div class="mb-4 flex items-center gap-2">
           <div
             class="h-2 w-2 rounded-full"

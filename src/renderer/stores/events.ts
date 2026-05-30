@@ -40,6 +40,17 @@ export const useEventsStore = defineStore("events", () => {
     return activeEvent.value.matchedTracks + activeEvent.value.readyTracks > 0;
   });
 
+  // App-wide download activity, surfaced in the sidebar.
+  const globalJobStats = computed(() => {
+    const stats = { inProgress: 0, failed: 0, total: 0 };
+    for (const job of globalAcquisitionJobs.value) {
+      stats.total += 1;
+      if (job.status === "queued" || job.status === "downloading") stats.inProgress += 1;
+      if (job.status === "acquisition_failed") stats.failed += 1;
+    }
+    return stats;
+  });
+
   const acquisitionCounts = computed(() => {
     const counts = { queued: 0, downloading: 0, downloaded: 0, ready: 0, failed: 0, ambiguous: 0 };
     for (const job of acquisitionJobs.value) {
@@ -432,6 +443,7 @@ export const useEventsStore = defineStore("events", () => {
     deezerSearchLoading,
     readyToApply,
     acquisitionCounts,
+    globalJobStats,
     refreshSummaries,
     refreshGlobalJobs,
     refreshActiveEvent,
