@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Disc3, Download, Loader2, Pause, Play, Search, X } from "@lucide/vue";
-import { onUnmounted, ref, watch } from "vue";
+import { watch } from "vue";
 import type { DeezerSearchResult, TrackReview } from "../lib/api";
+import { useAudioPreview } from "../composables/useAudioPreview";
 
 const props = defineProps<{
   track: TrackReview;
@@ -17,42 +18,18 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const audioEl = ref<HTMLAudioElement | null>(null);
-const playingId = ref<string | null>(null);
+const { playingId, toggle, stop: stopPreview } = useAudioPreview();
 
 function togglePreview(result: DeezerSearchResult): void {
-  const audio = audioEl.value;
-  if (!audio || !result.previewUrl) return;
-  if (playingId.value === result.id) {
-    audio.pause();
-    playingId.value = null;
-    return;
-  }
-  audio.src = result.previewUrl;
-  audio.play().then(() => {
-    playingId.value = result.id;
-  }).catch(() => {
-    playingId.value = null;
-  });
-}
-
-function stopPreview(): void {
-  const audio = audioEl.value;
-  if (audio) {
-    audio.pause();
-    audio.currentTime = 0;
-  }
-  playingId.value = null;
+  toggle(result.id, result.previewUrl);
 }
 
 // Stop playback when the panel switches to another track or closes
 watch(() => props.track?.spotifyTrackId, () => stopPreview());
-onUnmounted(() => stopPreview());
 </script>
 
 <template>
   <aside class="flex h-full w-[420px] shrink-0 flex-col border-l border-outline-variant bg-surface-container shadow-2xl">
-    <audio ref="audioEl" class="hidden" @ended="playingId = null" />
     <div class="flex items-center justify-between border-b border-outline-variant p-4">
       <div>
         <h2 class="text-base font-bold text-on-surface">Search Deezer</h2>

@@ -14,6 +14,11 @@ import os
 def main() -> None:
     import uvicorn
 
+    from app.logging_setup import configure_logging, log_file_path
+
+    logger = configure_logging()
+    logger.info("Frozen service entry point; logs at %s", log_file_path())
+
     from app.main import app
 
     port = int(os.environ.get("RBSYNC_SERVICE_PORT", "8765"))

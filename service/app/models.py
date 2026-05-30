@@ -223,6 +223,42 @@ class RekordboxCollectionStats(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class RekordboxBackup(BaseModel):
+    name: str
+    path: str
+    created_at: float = Field(alias="createdAt")
+    size_bytes: int = Field(alias="sizeBytes")
+    file_count: int = Field(alias="fileCount")
+
+    model_config = {"populate_by_name": True}
+
+
+class BackupRestoreResponse(BaseModel):
+    restored: str
+    restored_files: int = Field(alias="restoredFiles")
+    safety_backup_path: str = Field(alias="safetyBackupPath")
+
+    model_config = {"populate_by_name": True}
+
+
+class DiagnosticCheck(BaseModel):
+    key: str
+    label: str
+    status: Literal["ok", "warn", "error"]
+    detail: str = ""
+    hint: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class DiagnosticsReport(BaseModel):
+    status: Literal["ok", "warn", "error"]
+    generated_at: str = Field(alias="generatedAt")
+    checks: list[DiagnosticCheck]
+
+    model_config = {"populate_by_name": True}
+
+
 class RekordboxTag(BaseModel):
     id: str
     name: str

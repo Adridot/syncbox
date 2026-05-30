@@ -1,5 +1,6 @@
 import { useDocumentVisibility, useIntervalFn } from "@vueuse/core";
 import { watch } from "vue";
+import { useAcquisitionStream } from "./useAcquisitionStream";
 import { useEventsStore } from "../stores/events";
 import { useLibraryStore } from "../stores/library";
 import { useProposalsStore } from "../stores/proposals";
@@ -15,6 +16,14 @@ export function useRefreshManager() {
   const spotify = useSpotifyStore();
   const proposals = useProposalsStore();
   const visibility = useDocumentVisibility();
+
+  // SSE stream pushes global acquisition jobs; when live we skip the redundant
+  // poll-based job refreshes below.
+  const { connected: streamConnected } = useAcquisitionStream();
+  const refreshGlobalJobs = async () => {
+    if (streamConnected.value) return;
+    await events.refreshGlobalJobs();
+  };
 
   async function runBackground(task: () => Promise<void>): Promise<void> {
     try {
@@ -32,11 +41,15 @@ export function useRefreshManager() {
     await runBackground(async () => {
       await system.refreshStatus();
       if (ui.activeView === "library" && library.activeReview) {
-        await Promise.all([library.refreshActiveReview(), library.refreshSources(), library.refreshGlobalJobs()]);
+        await Promise.all([
+          library.refreshActiveReview(),
+          library.refreshSources(),
+          streamConnected.value ? Promise.resolve() : library.refreshGlobalJobs(),
+        ]);
       }
       if (ui.activeView === "events" || ui.activeView === "downloadCenter") {
         await events.refreshSummaries();
-        await events.refreshGlobalJobs();
+        await refreshGlobalJobs();
       }
     });
   }, 5000);
@@ -52,7 +65,7 @@ export function useRefreshManager() {
         events.refreshSummaries(),
         library.refreshMappings(),
         spotify.refreshRekordboxTags(),
-        events.refreshGlobalJobs(),
+        refreshGlobalJobs(),
       ]);
     });
   }, 30000);

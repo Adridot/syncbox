@@ -2,18 +2,38 @@ import { defineStore } from "pinia";
 import { ref, computed, type Ref } from "vue";
 import type { ViewKey } from "../types/ui";
 
+export type ToastKind = "success" | "error" | "info";
+
+export interface Toast {
+  id: number;
+  kind: ToastKind;
+  message: string;
+}
+
+const DEFAULT_TIMEOUTS: Record<ToastKind, number> = {
+  success: 4000,
+  info: 5000,
+  error: 8000,
+};
+
 export const useUiStore = defineStore("ui", () => {
   const activeView = ref<ViewKey>("dashboard");
   const loading = ref(false);
+  // errorMessage/successMessage are kept for back-compat: several views branch
+  // on `if (!ui.errorMessage)` right after an awaited action.
   const errorMessage = ref("");
   const successMessage = ref("");
   const searchQuery = ref("");
+
+  const toasts = ref<Toast[]>([]);
+  let nextToastId = 1;
 
   const pageTitle = computed(() => {
     if (activeView.value === "dashboard") return "Dashboard";
     if (activeView.value === "library") return "My Library";
     if (activeView.value === "events") return "Events";
     if (activeView.value === "downloadCenter") return "Download & Match Center";
+    if (activeView.value === "doctor") return "Doctor";
     return "Settings";
   });
 
@@ -21,9 +41,28 @@ export const useUiStore = defineStore("ui", () => {
     activeView.value = view;
   }
 
+  function dismissToast(id: number): void {
+    toasts.value = toasts.value.filter((toast) => toast.id !== id);
+  }
+
+  function pushToast(kind: ToastKind, message: string, timeout?: number): number {
+    const id = nextToastId++;
+    toasts.value = [...toasts.value, { id, kind, message }];
+    const ms = timeout ?? DEFAULT_TIMEOUTS[kind];
+    if (ms > 0) {
+      setTimeout(() => dismissToast(id), ms);
+    }
+    return id;
+  }
+
+  function notify(kind: ToastKind, message: string): void {
+    pushToast(kind, message);
+  }
+
   function setMessage(kind: "success" | "error", message: string): void {
     successMessage.value = kind === "success" ? message : "";
     errorMessage.value = kind === "error" ? message : "";
+    pushToast(kind, message);
   }
 
   function clearMessages(): void {
@@ -59,10 +98,14 @@ export const useUiStore = defineStore("ui", () => {
     errorMessage,
     successMessage,
     searchQuery,
+    toasts,
     pageTitle,
     navigateTo,
     setMessage,
     clearMessages,
+    notify,
+    pushToast,
+    dismissToast,
     withLoading,
     withLoadingFlag,
   };

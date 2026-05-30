@@ -204,6 +204,36 @@ export type GlobalAcquisitionJob = {
   updatedAt: string;
 };
 
+export type RekordboxBackup = {
+  name: string;
+  path: string;
+  createdAt: number;
+  sizeBytes: number;
+  fileCount: number;
+};
+
+export type BackupRestoreResponse = {
+  restored: string;
+  restoredFiles: number;
+  safetyBackupPath: string;
+};
+
+export type DiagnosticStatus = "ok" | "warn" | "error";
+
+export type DiagnosticCheck = {
+  key: string;
+  label: string;
+  status: DiagnosticStatus;
+  detail: string;
+  hint?: string | null;
+};
+
+export type DiagnosticsReport = {
+  status: DiagnosticStatus;
+  generatedAt: string;
+  checks: DiagnosticCheck[];
+};
+
 export type AuthUrlResponse = {
   authorizationUrl: string;
   state: string;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { AlertTriangle, CheckCircle2 } from "@lucide/vue";
 import { onMounted } from "vue";
 import AppShell from "./components/AppShell.vue";
+import ToastCenter from "./components/ToastCenter.vue";
 import DashboardView from "./views/DashboardView.vue";
+import DoctorView from "./views/DoctorView.vue";
 import DownloadMatchCenterView from "./views/DownloadMatchCenterView.vue";
 import EventsView from "./views/EventsView.vue";
 import LibraryView from "./views/LibraryView.vue";
@@ -45,25 +46,13 @@ onMounted(async () => {
 
 <template>
   <AppShell>
-    <div
-      v-if="ui.errorMessage"
-      class="absolute bottom-4 right-4 z-50 flex min-h-11 max-w-xl items-center gap-3 rounded border border-error/30 bg-error-container px-4 text-sm text-on-error-container shadow-xl"
-    >
-      <AlertTriangle :size="18" aria-hidden="true" />
-      <span>{{ ui.errorMessage }}</span>
-    </div>
-    <div
-      v-if="ui.successMessage"
-      class="absolute bottom-4 right-4 z-50 flex min-h-11 max-w-xl items-center gap-3 rounded border border-secondary/30 bg-secondary/10 px-4 text-sm text-secondary shadow-xl"
-    >
-      <CheckCircle2 :size="18" aria-hidden="true" />
-      <span>{{ ui.successMessage }}</span>
-    </div>
+    <ToastCenter />
 
     <DashboardView v-if="ui.activeView === 'dashboard'" />
     <LibraryView v-else-if="ui.activeView === 'library'" />
     <EventsView v-else-if="ui.activeView === 'events'" />
     <DownloadMatchCenterView v-else-if="ui.activeView === 'downloadCenter'" />
+    <DoctorView v-else-if="ui.activeView === 'doctor'" />
     <SettingsView v-else />
   </AppShell>
 </template>

@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import unicodedata
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .config import load_config
+from .diagnostics import run_diagnostics
+from .logging_setup import configure_logging
+from .version import app_version
 from .acquisition import (
     DeemixClient,
     DeezerResolver,
     DeezerResolveResult,
     acquisition_job_payload,
-    deezer_candidate_from_payload,
     get_deemix_status,
     queue_event_manual_deezer,
     refresh_acquisition_jobs,
@@ -25,8 +30,10 @@ from .db import LocalDatabase
 from .models import (
     AcquisitionJob,
     AppSettings,
+    BackupRestoreResponse,
     DeemixStatus,
     DeezerSearchResult,
+    DiagnosticsReport,
     EventAcquisitionResponse,
     EventApplyResponse,
     EventDeletePreview,
@@ -47,6 +54,7 @@ from .models import (
     LibraryTrackUpdateRequest,
     LiveImportPackage,
     LiveImportRequest,
+    RekordboxBackup,
     RekordboxCollectionStats,
     RekordboxTrack,
     RekordboxPlaylist,
@@ -93,25 +101,34 @@ from .spotify import (
 from .sync import generate_bidirectional_proposals
 
 
+logger = configure_logging()
 config = load_config()
 database = LocalDatabase(config.app_database_path)
-app = FastAPI(title="Syncbox API", version="0.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
-@app.on_event("startup")
-def startup() -> None:
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info("Syncbox service starting (version %s)", app_version())
     database.migrate()
     defaults = default_settings()
     current = database.get_app_settings(defaults)
     database.save_app_settings(current)
+    logger.info("Database ready at %s", database.path)
+    yield
+    logger.info("Syncbox service shutting down")
+
+
+app = FastAPI(title="Syncbox API", version=app_version(), lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    # Local renderer in dev (Vite may pick 5173/5174); packaged app loads from
+    # file:// and is not CORS-restricted by Chromium for same-host loopback.
+    allow_origin_regex=r"http://(127\.0\.0\.1|localhost):\d+",
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/api/health", response_model=HealthResponse)
@@ -142,6 +159,30 @@ def rekordbox_status() -> Any:
 @app.get("/api/rekordbox/collection-stats", response_model=RekordboxCollectionStats)
 def rekordbox_collection_stats() -> RekordboxCollectionStats:
     return RekordboxCollectionStats(**build_rekordbox_adapter().collection_stats())
+
+
+@app.get("/api/diagnostics", response_model=DiagnosticsReport)
+async def diagnostics() -> DiagnosticsReport:
+    return await run_diagnostics(database, build_rekordbox_adapter())
+
+
+@app.get("/api/rekordbox/backups", response_model=list[RekordboxBackup])
+def list_rekordbox_backups() -> list[dict[str, Any]]:
+    return build_rekordbox_adapter().list_backups()
+
+
+@app.post("/api/rekordbox/backups/{name}/restore", response_model=BackupRestoreResponse)
+def restore_rekordbox_backup(name: str) -> dict[str, Any]:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.restore_backup(name)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        # e.g. RekordboxRunningError — cannot mutate while RB is open.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    logger.info("Restored Rekordbox backup %s (%s files)", name, result["restoredFiles"])
+    return result
 
 
 @app.post("/api/storage/ensure", response_model=StorageLayout)
@@ -220,12 +261,22 @@ async def sync_all_library_sources() -> list[LibraryReview]:
     adapter = build_rekordbox_adapter()
     client = SpotifyClient(database)
     results: list[LibraryReview] = []
+    failures: list[str] = []
     for source in sources:
         try:
             review = await sync_library_source(database, adapter, client, source.id)
             results.append(review)
-        except Exception:
-            pass
+        except Exception as exc:
+            failures.append(source.spotify_playlist_name)
+            logger.warning(
+                "sync-all: source %s (%s) failed: %s",
+                source.id, source.spotify_playlist_name, exc,
+            )
+    if failures and not results:
+        raise HTTPException(
+            status_code=503,
+            detail=f"All sources failed to sync: {', '.join(failures)}",
+        )
     return results
 
 
@@ -259,25 +310,7 @@ async def download_library_track_files(request: LibraryTrackDownloadRequest) -> 
 
 @app.get("/api/library/search-deezer", response_model=list[DeezerSearchResult])
 async def search_deezer(query: str = Query(..., min_length=1)) -> list[dict[str, Any]]:
-    resolver = DeezerResolver()
-    try:
-        payload = await resolver._get("/search", params={"q": query.strip(), "limit": 15})
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Deezer search failed: {exc}") from exc
-    results = []
-    for item in payload.get("data") or []:
-        candidate = deezer_candidate_from_payload(item)
-        if candidate:
-            results.append({
-                "id": candidate.id,
-                "title": candidate.title,
-                "artist": candidate.artist,
-                "album": candidate.album,
-                "durationMs": candidate.duration_ms,
-                "coverUrl": candidate.cover_url,
-                "previewUrl": candidate.preview_url,
-            })
-    return results
+    return await deezer_search_results(query)
 
 
 @app.post("/api/library/sources/{source_id}/tracks/{spotify_track_id}/queue-deezer")
@@ -297,8 +330,7 @@ async def queue_library_deezer_track(
 
     resolver = DeezerResolver()
     try:
-        payload = await resolver._get(f"/track/{deezer_track_id}")
-        candidate = deezer_candidate_from_payload(payload)
+        candidate, payload = await resolver.fetch_track(deezer_track_id)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Deezer lookup failed: {exc}") from exc
 
@@ -434,6 +466,47 @@ async def list_global_acquisition_jobs(
 def clear_acquisition_jobs(scope: str | None = Query(default=None)) -> dict[str, int]:
     cleared = database.clear_completed_acquisition_jobs(scope=scope)
     return {"cleared": cleared}
+
+
+ACQUISITION_STREAM_INTERVAL_S = 4.0
+
+
+@app.get("/api/acquisition/stream")
+async def stream_acquisition_jobs(request: Request) -> StreamingResponse:
+    """Server-Sent Events stream of global acquisition jobs.
+
+    The server drives the refresh loop (scan staging + poll Deemix) and pushes
+    the job list whenever it changes, so a connected client gets near-real-time
+    updates from a single connection instead of polling every few seconds.
+    """
+
+    async def event_generator() -> AsyncIterator[str]:
+        last_payload: str | None = None
+        # Emit immediately on connect, then refresh-and-diff on each tick.
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                await refresh_global_acquisition_state()
+                jobs = database.list_global_acquisition_jobs()
+                payload = json.dumps(
+                    [job.model_dump(by_alias=True, mode="json") for job in jobs]
+                )
+            except Exception as exc:  # keep the stream alive on transient errors
+                logger.warning("acquisition stream refresh failed: %s", exc)
+                payload = last_payload or "[]"
+            if payload != last_payload:
+                last_payload = payload
+                yield f"event: jobs\ndata: {payload}\n\n"
+            else:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(ACQUISITION_STREAM_INTERVAL_S)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/sync/proposals", response_model=list[SyncProposal])
@@ -712,25 +785,7 @@ def repair_event_rekordbox_structure(event_id: int) -> dict[str, Any]:
 
 @app.get("/api/events/{event_id}/search-deezer", response_model=list[DeezerSearchResult])
 async def search_event_deezer(event_id: int, query: str = Query(..., min_length=1)) -> list[dict[str, Any]]:
-    resolver = DeezerResolver()
-    try:
-        payload = await resolver._get("/search", params={"q": query.strip(), "limit": 15})
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Deezer search failed: {exc}") from exc
-    results = []
-    for item in payload.get("data") or []:
-        candidate = deezer_candidate_from_payload(item)
-        if candidate:
-            results.append({
-                "id": candidate.id,
-                "title": candidate.title,
-                "artist": candidate.artist,
-                "album": candidate.album,
-                "durationMs": candidate.duration_ms,
-                "coverUrl": candidate.cover_url,
-                "previewUrl": candidate.preview_url,
-            })
-    return results
+    return await deezer_search_results(query)
 
 
 @app.post("/api/events/{event_id}/tracks/{spotify_track_id}/queue-deezer")
@@ -754,6 +809,27 @@ def create_live_import(request: LiveImportRequest) -> dict[str, object]:
     adapter = build_rekordbox_adapter()
     layout = adapter.ensure_storage_layout()
     return build_live_import_package(Path(layout.events), request.event_name)
+
+
+async def deezer_search_results(query: str) -> list[dict[str, Any]]:
+    """Shared Deezer free-text search used by library and event endpoints."""
+    try:
+        candidates = await DeezerResolver().search(query)
+    except Exception as exc:
+        logger.warning("Deezer search failed for %r: %s", query, exc)
+        raise HTTPException(status_code=503, detail=f"Deezer search failed: {exc}") from exc
+    return [
+        {
+            "id": candidate.id,
+            "title": candidate.title,
+            "artist": candidate.artist,
+            "album": candidate.album,
+            "durationMs": candidate.duration_ms,
+            "coverUrl": candidate.cover_url,
+            "previewUrl": candidate.preview_url,
+        }
+        for candidate in candidates
+    ]
 
 
 def default_settings() -> AppSettings:
