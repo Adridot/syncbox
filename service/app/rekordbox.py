@@ -561,10 +561,11 @@ class RekordboxAdapter:
                 if track.rekordbox_content_id:
                     content = content_by_id.get(str(track.rekordbox_content_id))
                 if content is None and track.staging_file_path:
-                    file_path = move_to_permanent(
-                        Path(track.staging_file_path),
-                        Path(self.storage_layout().permanent),
-                    )
+                    # The app never moves files: macOS TCC blocks file operations
+                    # on Dropbox/iCloud CloudStorage from this process. Reference
+                    # the downloaded file where it already is; consolidation into
+                    # the canonical Collection is done by migrate_collection.py.
+                    file_path = Path(track.staging_file_path)
                     content = find_content_by_path(content_by_path, file_path)
                     if content is None:
                         content = find_content_by_path(deleted_content_by_path, file_path)

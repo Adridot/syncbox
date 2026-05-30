@@ -239,15 +239,15 @@ export const useEventsStore = defineStore("events", () => {
     });
   }
 
-  // Titles of tracks that could not be acquired (not found on Deemix).
-  function notFoundTitles(result: EventAcquisitionResponse): string {
+  // Tracks that genuinely failed to acquire: a failed job AND still missing.
+  // A failed job left over on a track that is now matched/ready is ignored.
+  function unresolvedFailures(result: EventAcquisitionResponse): string[] {
     const failedIds = new Set(
       result.jobs.filter((job) => job.status === "acquisition_failed").map((job) => job.spotifyTrackId)
     );
-    const titles = result.review.tracks
-      .filter((track) => failedIds.has(track.spotifyTrackId))
+    return result.review.tracks
+      .filter((track) => failedIds.has(track.spotifyTrackId) && track.status === "missing")
       .map((track) => track.title);
-    return titles.slice(0, 6).join(", ") + (titles.length > 6 ? "…" : "");
   }
 
   // Auto-acquire missing tracks for an event. Downloads happen silently; the
@@ -262,11 +262,10 @@ export const useEventsStore = defineStore("events", () => {
     if (requestedEventId.value !== eventId) return;
     activeEvent.value = result.review;
     acquisitionJobs.value = result.jobs;
-    if (result.failed > 0) {
-      ui.setMessage(
-        "error",
-        `${result.failed} titre(s) introuvable(s) sur Deemix : ${notFoundTitles(result)}`
-      );
+    const failures = unresolvedFailures(result);
+    if (failures.length > 0) {
+      const shown = failures.slice(0, 6).join(", ") + (failures.length > 6 ? "…" : "");
+      ui.setMessage("error", `${failures.length} titre(s) introuvable(s) sur Deemix : ${shown}`);
     }
   }
 

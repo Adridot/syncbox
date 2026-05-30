@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Database, ExternalLink, FileAudio, FolderOpen, Key, Save, Settings2 } from "@lucide/vue";
+import { AlertTriangle, CheckCircle2, Database, ExternalLink, FileAudio, FolderOpen, Key, Save, Settings2 } from "@lucide/vue";
 import { useSettingsStore } from "../stores/settings";
 
 const settings = useSettingsStore();
@@ -92,7 +92,21 @@ const settings = useSettingsStore();
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
                   v-model="settings.settings.permanentPath"
                   placeholder="{storageRoot}/_rekordbox_sync/permanent"
+                  @blur="settings.validatePaths()"
                 />
+                <small v-if="settings.pathChecks.permanent" class="flex items-center gap-1.5 text-xs">
+                  <template v-if="!settings.pathChecks.permanent.configured">
+                    <span class="text-on-surface-variant">Using default folder.</span>
+                  </template>
+                  <template v-else-if="settings.pathChecks.permanent.isDir">
+                    <CheckCircle2 :size="13" class="text-secondary" aria-hidden="true" />
+                    <span class="text-secondary">Folder found.</span>
+                  </template>
+                  <template v-else>
+                    <AlertTriangle :size="13" class="text-error" aria-hidden="true" />
+                    <span class="text-error">Folder not found — check the path.</span>
+                  </template>
+                </small>
               </label>
               <label class="grid gap-2">
                 <span class="text-sm font-bold text-on-surface">
@@ -103,7 +117,21 @@ const settings = useSettingsStore();
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
                   v-model="settings.settings.manualCollectionPath"
                   placeholder="{storageRoot}/_rekordbox_sync/manual_collection"
+                  @blur="settings.validatePaths()"
                 />
+                <small v-if="settings.pathChecks.manual" class="flex items-center gap-1.5 text-xs">
+                  <template v-if="!settings.pathChecks.manual.configured">
+                    <span class="text-on-surface-variant">Using default folder.</span>
+                  </template>
+                  <template v-else-if="settings.pathChecks.manual.isDir">
+                    <CheckCircle2 :size="13" class="text-secondary" aria-hidden="true" />
+                    <span class="text-secondary">Folder found.</span>
+                  </template>
+                  <template v-else>
+                    <AlertTriangle :size="13" class="text-error" aria-hidden="true" />
+                    <span class="text-error">Folder not found — check the path.</span>
+                  </template>
+                </small>
               </label>
             </div>
           </section>

@@ -149,6 +149,32 @@ def ensure_storage() -> StorageLayout:
     return build_rekordbox_adapter().ensure_storage_layout()
 
 
+@app.get("/api/storage/layout", response_model=StorageLayout)
+def storage_layout() -> StorageLayout:
+    # Read-only: resolves the configured paths without creating any folder.
+    return build_rekordbox_adapter().storage_layout()
+
+
+@app.get("/api/storage/validate-path")
+def validate_path(path: str = Query(default="")) -> dict[str, Any]:
+    """Report whether a configured path exists and is a directory.
+
+    Works on a specific cloud path (Dropbox/Google Drive) even though listing
+    the parent is blocked. An empty path means "use the default" — not an error.
+    """
+    trimmed = path.strip()
+    if not trimmed:
+        return {"path": path, "configured": False, "exists": False, "isDir": False}
+    target = Path(trimmed).expanduser()
+    try:
+        exists = target.exists()
+        is_dir = target.is_dir() if exists else False
+    except OSError:
+        exists = False
+        is_dir = False
+    return {"path": path, "configured": True, "exists": exists, "isDir": is_dir}
+
+
 @app.get("/api/tag-rules", response_model=list[TagRule])
 def list_tag_rules() -> list[TagRule]:
     return database.list_tag_rules()

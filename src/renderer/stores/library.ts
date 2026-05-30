@@ -226,15 +226,19 @@ export const useLibraryStore = defineStore("library", () => {
     });
   }
 
-  // Titles of tracks that could not be acquired (not found on Deemix).
-  function notFoundTitles(result: LibraryDownloadResponse): string {
+  // Tracks that genuinely failed to acquire: a failed job AND still unacquired.
+  // A failed job left over on a track that is now matched/imported is ignored.
+  function unresolvedFailures(result: LibraryDownloadResponse): string[] {
     const failedIds = new Set(
       result.jobs.filter((job) => job.status === "acquisition_failed").map((job) => job.spotifyTrackId)
     );
-    const titles = result.review.tracks
-      .filter((track) => failedIds.has(track.spotifyTrackId))
+    return result.review.tracks
+      .filter(
+        (track) =>
+          failedIds.has(track.spotifyTrackId) &&
+          (track.status === "new" || track.status === "missing")
+      )
       .map((track) => track.title);
-    return titles.slice(0, 6).join(", ") + (titles.length > 6 ? "…" : "");
   }
 
   // Auto-acquire missing tracks for a source. Downloads happen silently; the
@@ -247,11 +251,10 @@ export const useLibraryStore = defineStore("library", () => {
     activeReview.value = result.review;
     sources.value = await system.api.listLibrarySources();
     globalAcquisitionJobs.value = await system.api.listGlobalAcquisitionJobs();
-    if (result.failed > 0) {
-      ui.setMessage(
-        "error",
-        `${result.failed} titre(s) introuvable(s) sur Deemix : ${notFoundTitles(result)}`
-      );
+    const failures = unresolvedFailures(result);
+    if (failures.length > 0) {
+      const shown = failures.slice(0, 6).join(", ") + (failures.length > 6 ? "…" : "");
+      ui.setMessage("error", `${failures.length} titre(s) introuvable(s) sur Deemix : ${shown}`);
     }
   }
 

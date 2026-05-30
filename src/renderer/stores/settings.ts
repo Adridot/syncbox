@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { reactive, ref } from "vue";
-import type { AppSettings, StorageLayout } from "../lib/api";
+import type { AppSettings, PathValidation, StorageLayout } from "../lib/api";
 import { useSystemStore } from "./system";
 import { useUiStore } from "./ui";
 
@@ -16,11 +16,34 @@ export const useSettingsStore = defineStore("settings", () => {
     manualCollectionPath: "",
   });
   const storage = ref<StorageLayout | null>(null);
+  // Folder-exists status for the two configurable path fields.
+  const pathChecks = reactive<{ permanent: PathValidation | null; manual: PathValidation | null }>({
+    permanent: null,
+    manual: null,
+  });
+
+  // Read-only refresh of the resolved storage layout (no folder creation).
+  async function loadStorage(): Promise<void> {
+    const system = useSystemStore();
+    if (!system.api) return;
+    storage.value = await system.api.getStorageLayout();
+  }
+
+  // Validate that the configured Permanent / Manual collection folders exist.
+  async function validatePaths(): Promise<void> {
+    const system = useSystemStore();
+    if (!system.api) return;
+    [pathChecks.permanent, pathChecks.manual] = await Promise.all([
+      system.api.validatePath(settings.permanentPath),
+      system.api.validatePath(settings.manualCollectionPath),
+    ]);
+  }
 
   async function load(): Promise<void> {
     const system = useSystemStore();
     if (!system.api) return;
     Object.assign(settings, await system.api.getSettings());
+    await Promise.all([loadStorage(), validatePaths()]);
   }
 
   async function save(): Promise<void> {
@@ -29,6 +52,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (!system.api) return;
     await ui.withLoading(async () => {
       Object.assign(settings, await system.api!.saveSettings(settings));
+      await Promise.all([loadStorage(), validatePaths()]);
       ui.setMessage("success", "Settings saved.");
     });
   }
@@ -61,5 +85,15 @@ export const useSettingsStore = defineStore("settings", () => {
     });
   }
 
-  return { settings, storage, load, save, ensureStorage, openSpotifyAuth };
+  return {
+    settings,
+    storage,
+    pathChecks,
+    load,
+    save,
+    loadStorage,
+    validatePaths,
+    ensureStorage,
+    openSpotifyAuth,
+  };
 });

@@ -53,6 +53,13 @@ export type StorageLayout = {
   backups: string;
 };
 
+export type PathValidation = {
+  path: string;
+  configured: boolean;
+  exists: boolean;
+  isDir: boolean;
+};
+
 export type TagRule = {
   id: number;
   sourcePlaylistId: string;
@@ -408,6 +415,14 @@ export class ApiClient {
 
   async ensureStorage(): Promise<StorageLayout> {
     return this.post("/api/storage/ensure", {});
+  }
+
+  async getStorageLayout(): Promise<StorageLayout> {
+    return this.get("/api/storage/layout");
+  }
+
+  async validatePath(path: string): Promise<PathValidation> {
+    return this.get(`/api/storage/validate-path?path=${encodeURIComponent(path)}`);
   }
 
   async listTagRules(): Promise<TagRule[]> {
