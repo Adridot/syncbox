@@ -30,7 +30,8 @@
     "mac": {
       "target": ["dir"],
       "identity": null,
-      "category": "public.app-category.music"
+      "category": "public.app-category.music",
+      "icon": "build/icon.icns"
     }
   },
   "dependencies": {

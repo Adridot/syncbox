@@ -64,6 +64,21 @@ body {
   background: var(--color-background);
 }
 
+/* Native desktop feel: text isn't selectable like a web page. Form fields
+   (and anything explicitly opted in) stay selectable so typing still works. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 button,
 input,
 select {
