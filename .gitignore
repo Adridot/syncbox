@@ -27,3 +27,7 @@ rekordbox_bak_*.zip
 # Personal Rekordbox collection export
 "rkb collection.xml"
 rkb\ collection.xml
+
+# PyInstaller (service bundling)
+service/build/
+service/syncbox-service.spec

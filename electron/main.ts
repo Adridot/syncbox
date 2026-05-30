@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 let mainWindow: BrowserWindow | null = null;
@@ -17,33 +17,57 @@ function getServiceCwd(): string {
   return join(app.getAppPath(), "service");
 }
 
+function seedDatabaseIfNeeded(dataDir: string): void {
+  // First run of the packaged app: copy the snapshot of the library DB bundled
+  // at build time so sources/events/settings are present immediately. Later
+  // runs keep the live DB under userData untouched.
+  if (!app.isPackaged) {
+    return;
+  }
+  const target = join(dataDir, "syncbox.sqlite3");
+  const seed = join(process.resourcesPath, "seed", "syncbox.sqlite3");
+  if (!existsSync(target) && existsSync(seed)) {
+    mkdirSync(dataDir, { recursive: true });
+    copyFileSync(seed, target);
+    console.log(`[seed] copied bundled DB -> ${target}`);
+  }
+}
+
 function startPythonService(): void {
   if (process.env.RBSYNC_EXTERNAL_SERVICE === "1" || serviceProcess) {
     return;
   }
 
-  const cwd = getServiceCwd();
-  serviceProcess = spawn(
-    "uv",
-    [
-      "run",
-      "--group",
-      "dev",
-      "uvicorn",
-      "app.main:app",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(servicePort)
-    ],
-    {
-      cwd,
-      env: {
-        ...process.env,
-        RBSYNC_DATA_DIR: app.getPath("userData")
-      }
-    }
-  );
+  const dataDir = app.getPath("userData");
+  seedDatabaseIfNeeded(dataDir);
+  const env = {
+    ...process.env,
+    RBSYNC_DATA_DIR: dataDir,
+    RBSYNC_SERVICE_PORT: String(servicePort)
+  };
+
+  if (app.isPackaged) {
+    // Standalone PyInstaller binary bundled under Resources/syncbox-service.
+    const bin = join(process.resourcesPath, "syncbox-service", "syncbox-service");
+    serviceProcess = spawn(bin, [], { env });
+  } else {
+    // Dev: run the service from source via uv.
+    serviceProcess = spawn(
+      "uv",
+      [
+        "run",
+        "--group",
+        "dev",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(servicePort)
+      ],
+      { cwd: getServiceCwd(), env }
+    );
+  }
 
   serviceProcess.stdout.on("data", (chunk) => {
     console.log(`[service] ${chunk.toString().trimEnd()}`);

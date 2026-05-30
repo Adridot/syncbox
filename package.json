@@ -4,17 +4,34 @@
   "private": true,
   "type": "module",
   "description": "Syncbox — DJ playlist sync for Rekordbox. Local desktop app for controlled Spotify to Rekordbox synchronization.",
-  "main": "dist/main/main.js",
+  "main": "out/main/main.js",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:service\" \"npm:dev:desktop\"",
     "dev:desktop": "electron-vite dev",
     "dev:renderer": "vite --host 127.0.0.1",
     "dev:service": "cd service && uv run --group dev uvicorn app.main:app --reload --host 127.0.0.1 --port 8765",
     "build": "npm run typecheck && electron-vite build",
+    "build:service": "cd service && rm -rf build dist && rm -f syncbox-service.spec && uv run --with pyinstaller pyinstaller --noconfirm --onedir --name syncbox-service --collect-all pyrekordbox --collect-all sqlcipher3 --collect-all uvicorn --collect-all mutagen --collect-all pydantic --collect-submodules app run_service.py",
+    "dist": "npm run build && npm run build:service && electron-builder --mac --dir",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "npm run test:service && npm run typecheck",
     "test:service": "cd service && uv run --group dev pytest"
+  },
+  "build": {
+    "appId": "com.syncbox.app",
+    "productName": "Syncbox",
+    "directories": { "output": "release" },
+    "files": ["out/**/*", "package.json"],
+    "extraResources": [
+      { "from": "service/dist/syncbox-service", "to": "syncbox-service" },
+      { "from": "service/.local/syncbox.sqlite3", "to": "seed/syncbox.sqlite3" }
+    ],
+    "mac": {
+      "target": ["dir"],
+      "identity": null,
+      "category": "public.app-category.music"
+    }
   },
   "dependencies": {
     "@lucide/vue": "^1.16.0",
@@ -28,6 +45,7 @@
     "@vitejs/plugin-vue": "^6.0.7",
     "concurrently": "^9.1.0",
     "electron": "^42.3.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^5.0.0",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
