@@ -171,7 +171,7 @@ def apply(config) -> None:
     move_ids = {cid for cid, _ in to_move}
 
     db = _open_db(config.rekordbox_database_dir)
-    moved, missing = 0, []
+    moved, missing, denied = 0, [], []
     try:
         for c in db.get_content():
             if is_rekordbox_row_deleted(c) or str(c.ID) not in move_ids:
@@ -180,7 +180,14 @@ def apply(config) -> None:
             if not source.exists():
                 missing.append((str(c.ID), str(source)))
                 continue
-            target = move_to_permanent(source, new_permanent)  # handles name clashes
+            try:
+                target = move_to_permanent(source, new_permanent)  # handles name clashes
+            except PermissionError:
+                # macOS TCC blocks reading/moving existing files inside the
+                # Dropbox CloudStorage folder unless the process has Full Disk
+                # Access. Skip + relink nothing for this file.
+                denied.append((str(c.ID), str(source)))
+                continue
             c.FolderPath = to_volume_relative(target, storage_root)
             c.FileNameL = Path(target).name
             moved += 1
@@ -193,9 +200,17 @@ def apply(config) -> None:
     else:
         db.close()
 
+    if denied:
+        print(
+            f"\n⚠️  {len(denied)} fichier(s) non déplacés : accès disque refusé (macOS TCC).\n"
+            "    Le process ne peut pas lire les fichiers dans le dossier Dropbox.\n"
+            "    → Réglages système ▸ Confidentialité et sécurité ▸ Accès complet au disque\n"
+            "      ajoute ton Terminal, puis relance: uv run python3 scripts/migrate_collection.py --apply"
+        )
+
     report = {
         "timestamp": safe_timestamp(), "backup": str(backup),
-        "moved": moved, "missing": missing,
+        "moved": moved, "missing": missing, "permission_denied": denied,
         "permanent_path": str(new_permanent), "manual_collection_path": str(new_manual),
     }
     out = Path(".local") / f"collection-migration-report-{report['timestamp']}.json"
