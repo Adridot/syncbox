@@ -1,15 +1,34 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { type ApiClient, type DeemixStatus, type HealthResponse, type RekordboxStatus, createApiClient } from "../lib/api";
+import {
+  type ApiClient,
+  type DeemixStatus,
+  type HealthResponse,
+  type RekordboxCollectionStats,
+  type RekordboxStatus,
+  createApiClient,
+} from "../lib/api";
 
 export const useSystemStore = defineStore("system", () => {
   const api = ref<ApiClient | null>(null);
   const health = ref<HealthResponse | null>(null);
   const rekordboxStatus = ref<RekordboxStatus | null>(null);
   const deemixStatus = ref<DeemixStatus | null>(null);
+  const collectionStats = ref<RekordboxCollectionStats | null>(null);
 
   async function init(): Promise<void> {
     api.value = await createApiClient();
+  }
+
+  // Reading the Rekordbox collection is comparatively heavy, so it is loaded
+  // on demand (e.g. by the Dashboard) rather than with the lightweight status.
+  async function refreshCollectionStats(): Promise<void> {
+    if (!api.value) return;
+    try {
+      collectionStats.value = await api.value.getRekordboxCollectionStats();
+    } catch {
+      collectionStats.value = { available: false, total: 0, tagged: 0, untagged: 0, withoutIsrc: 0, withoutArtist: 0 };
+    }
   }
 
   async function refreshStatus(): Promise<void> {
@@ -24,5 +43,14 @@ export const useSystemStore = defineStore("system", () => {
     deemixStatus.value = nextDeemix;
   }
 
-  return { api, health, rekordboxStatus, deemixStatus, init, refreshStatus };
+  return {
+    api,
+    health,
+    rekordboxStatus,
+    deemixStatus,
+    collectionStats,
+    init,
+    refreshStatus,
+    refreshCollectionStats,
+  };
 });

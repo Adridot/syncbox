@@ -27,10 +27,17 @@ const proposals = useProposalsStore();
 
 const drawerTagInput = ref("");
 
+// Playlists not yet followed as a permanent source (already-selected ones are
+// hidden so you only see what you can still add).
+const availableSpotifyPlaylists = computed(() => {
+  const followedIds = new Set(library.sources.map((s) => s.spotifyPlaylistId));
+  return spotify.playlists.filter((p) => !followedIds.has(p.id));
+});
+
 const filteredSpotifyPlaylists = computed(() => {
   const query = ui.searchQuery.trim().toLowerCase();
-  if (!query) return spotify.playlists;
-  return spotify.playlists.filter((p) => p.name.toLowerCase().includes(query));
+  if (!query) return availableSpotifyPlaylists.value;
+  return availableSpotifyPlaylists.value.filter((p) => p.name.toLowerCase().includes(query));
 });
 
 const selectedTagNames = computed(() => {
@@ -99,7 +106,7 @@ function removeDrawerTag(tagName: string): void {
                 @change="library.selectTagRulePlaylist(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">Select a Spotify playlist</option>
-                <option v-for="playlist in spotify.playlists" :key="playlist.id" :value="playlist.id">
+                <option v-for="playlist in availableSpotifyPlaylists" :key="playlist.id" :value="playlist.id">
                   {{ playlist.name }} - {{ playlist.trackCount }} tracks
                 </option>
               </select>

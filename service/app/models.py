@@ -211,6 +211,18 @@ class AcquisitionJob(BaseModel):
     updated_at: str = Field(alias="updatedAt")
 
 
+class RekordboxCollectionStats(BaseModel):
+    available: bool
+    total: int = 0
+    tagged: int = 0
+    untagged: int = 0
+    without_isrc: int = Field(default=0, alias="withoutIsrc")
+    without_artist: int = Field(default=0, alias="withoutArtist")
+    reason: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
 class RekordboxTag(BaseModel):
     id: str
     name: str

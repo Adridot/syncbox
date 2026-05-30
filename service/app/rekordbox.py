@@ -22,6 +22,17 @@ EVENT_IMPORTS_PLAYLIST_FOLDER_NAME = "Event Imports"
 EVENT_MY_TAG_CATEGORY_NAME = "Situation"
 
 
+# Reading the whole Rekordbox collection (open SQLCipher + iterate ~1.5k rows)
+# costs ~0.4-0.9s and was happening on *every* event-review load and refresh.
+# Cache the snapshot, keyed on the master.db (+ -wal) mtime/size so it auto-
+# refreshes whenever the database changes (our writes or Rekordbox itself).
+_LIBRARY_SNAPSHOT_CACHE: dict[str, tuple[Any, dict[str, Any]]] = {}
+
+
+def invalidate_library_snapshot_cache() -> None:
+    _LIBRARY_SNAPSHOT_CACHE.clear()
+
+
 class RekordboxAdapter:
     def __init__(
         self,
@@ -98,7 +109,7 @@ class RekordboxAdapter:
 
         return target
 
-    def read_library_snapshot(self) -> dict[str, Any]:
+    def _read_library_snapshot_uncached(self) -> dict[str, Any]:
         try:
             from pyrekordbox import Rekordbox6Database
         except Exception as exc:
@@ -130,6 +141,80 @@ class RekordboxAdapter:
                 database.close()
         except Exception as exc:
             return {"available": False, "reason": str(exc), "tracks": []}
+
+    def _snapshot_cache_key(self) -> tuple[Any, ...]:
+        parts: list[Any] = []
+        for suffix in ("", "-wal"):
+            path = Path(f"{self.database_file}{suffix}")
+            try:
+                stat = path.stat()
+                parts.append((suffix, stat.st_mtime_ns, stat.st_size))
+            except OSError:
+                parts.append((suffix, 0, 0))
+        return tuple(parts)
+
+    def read_library_snapshot(self) -> dict[str, Any]:
+        """Rekordbox collection snapshot, memoised on the master.db mtime/size.
+
+        Reading the whole collection costs ~0.4-0.9s; repeated reads (event
+        loads, refreshes, matching) reuse the in-memory snapshot. It is
+        recomputed only when the database file changes (our writes invalidate
+        the cache; external Rekordbox edits bump the file mtime).
+        """
+        cache_id = str(self.database_file)
+        key = self._snapshot_cache_key()
+        cached = _LIBRARY_SNAPSHOT_CACHE.get(cache_id)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        snapshot = self._read_library_snapshot_uncached()
+        if snapshot.get("available"):
+            _LIBRARY_SNAPSHOT_CACHE[cache_id] = (key, snapshot)
+        return snapshot
+
+    def collection_stats(self) -> dict[str, Any]:
+        """Aggregate health metrics about the Rekordbox collection."""
+        try:
+            from pyrekordbox import Rekordbox6Database
+        except Exception as exc:
+            return {"available": False, "reason": f"pyrekordbox unavailable: {exc}"}
+
+        try:
+            database = Rekordbox6Database(db_dir=str(self.database_dir))
+            try:
+                contents = [
+                    content
+                    for content in database.get_content()
+                    if not is_rekordbox_row_deleted(content)
+                ]
+                tagged_ids = {
+                    str(song.ContentID)
+                    for song in database.get_my_tag_songs()
+                    if not is_rekordbox_row_deleted(song)
+                }
+                total = len(contents)
+                tagged = sum(1 for content in contents if str(content.ID) in tagged_ids)
+                without_isrc = sum(
+                    1
+                    for content in contents
+                    if not str(getattr(content, "ISRC", "") or "").strip()
+                )
+                without_artist = sum(
+                    1
+                    for content in contents
+                    if not str(getattr(content, "ArtistName", "") or "").strip()
+                )
+                return {
+                    "available": True,
+                    "total": total,
+                    "tagged": tagged,
+                    "untagged": total - tagged,
+                    "withoutIsrc": without_isrc,
+                    "withoutArtist": without_artist,
+                }
+            finally:
+                database.close()
+        except Exception as exc:
+            return {"available": False, "reason": str(exc)}
 
     def assert_mutation_ready(self) -> None:
         assert_rekordbox_can_mutate()
@@ -273,6 +358,7 @@ class RekordboxAdapter:
             event_playlist_name = str(getattr(playlist, "Name", event_playlist_name))
 
             database.commit()
+            invalidate_library_snapshot_cache()
 
             if xml_backup is not None:
                 xml_path.write_bytes(xml_backup)
@@ -389,6 +475,7 @@ class RekordboxAdapter:
             for row in plan["event_playlist_rows"]:
                 mark_rekordbox_row_deleted(row)
             database.commit()
+            invalidate_library_snapshot_cache()
 
             # Remove the event playlist from the exported XML. Cover both the
             # current name (event name) and the legacy "<name> - Smart".
@@ -504,6 +591,7 @@ class RekordboxAdapter:
 
             if imported > 0 or tagged > 0:
                 database.commit()
+                invalidate_library_snapshot_cache()
             else:
                 database.rollback()
 

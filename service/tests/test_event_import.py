@@ -28,6 +28,9 @@ class FakeAdapter:
     def read_library_snapshot(self):
         return {"available": True, "tracks": self._tracks}
 
+    def read_library_snapshot_cached(self):
+        return self.read_library_snapshot()
+
 
 class FakeSpotifyClient:
     def __init__(self, track_payload: dict) -> None:

@@ -24,6 +24,16 @@ export type RekordboxStatus = {
   runningProcesses: Array<{ pid: number; command: string }>;
 };
 
+export type RekordboxCollectionStats = {
+  available: boolean;
+  total: number;
+  tagged: number;
+  untagged: number;
+  withoutIsrc: number;
+  withoutArtist: number;
+  reason?: string | null;
+};
+
 export type AppSettings = {
   spotifyClientId: string;
   spotifyRedirectUri: string;
@@ -382,6 +392,10 @@ export class ApiClient {
 
   async getRekordboxStatus(): Promise<RekordboxStatus> {
     return this.get("/api/rekordbox/status");
+  }
+
+  async getRekordboxCollectionStats(): Promise<RekordboxCollectionStats> {
+    return this.get("/api/rekordbox/collection-stats");
   }
 
   async getSettings(): Promise<AppSettings> {

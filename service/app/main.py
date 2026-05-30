@@ -47,6 +47,7 @@ from .models import (
     LibraryTrackUpdateRequest,
     LiveImportPackage,
     LiveImportRequest,
+    RekordboxCollectionStats,
     RekordboxTrack,
     RekordboxPlaylist,
     RekordboxTag,
@@ -136,6 +137,11 @@ def save_settings(settings: AppSettings) -> AppSettings:
 @app.get("/api/rekordbox/status")
 def rekordbox_status() -> Any:
     return build_rekordbox_adapter().status()
+
+
+@app.get("/api/rekordbox/collection-stats", response_model=RekordboxCollectionStats)
+def rekordbox_collection_stats() -> RekordboxCollectionStats:
+    return RekordboxCollectionStats(**build_rekordbox_adapter().collection_stats())
 
 
 @app.post("/api/storage/ensure", response_model=StorageLayout)

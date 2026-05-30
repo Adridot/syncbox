@@ -406,6 +406,9 @@ class FakeRekordboxAdapter:
             ],
         }
 
+    def read_library_snapshot_cached(self) -> dict[str, Any]:
+        return self.read_library_snapshot()
+
     def storage_layout(self) -> Any:
         return type(
             "StorageLayout",
