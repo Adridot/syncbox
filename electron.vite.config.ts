@@ -20,6 +20,13 @@ export default defineConfig({
       rollupOptions: {
         input: {
           preload: resolve(__dirname, "electron/preload.ts")
+        },
+        // Sandboxed renderers (sandbox: true) cannot load an ESM preload.
+        // package.json has "type": "module", so emit CommonJS with a .cjs
+        // extension to force Node to treat it as CJS.
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].cjs"
         }
       }
     }
