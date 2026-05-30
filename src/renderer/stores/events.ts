@@ -94,8 +94,10 @@ export const useEventsStore = defineStore("events", () => {
     const ui = useUiStore();
     if (!system.api) return;
     await ui.withLoading(async () => {
-      activeEvent.value = await system.api!.getEventReview(summary.id);
-      acquisitionJobs.value = await system.api!.listAcquisitionJobs(summary.id);
+      [activeEvent.value, acquisitionJobs.value] = await Promise.all([
+        system.api!.getEventReview(summary.id),
+        system.api!.listAcquisitionJobs(summary.id),
+      ]);
       ui.setMessage("success", `"${activeEvent.value!.eventName}" loaded.`);
     });
   }
