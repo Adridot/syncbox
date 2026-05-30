@@ -236,6 +236,21 @@ class DeezerResolver:
             payload=best_payload,
         )
 
+    async def search(self, query: str, *, limit: int = 15) -> list[DeezerTrackCandidate]:
+        """Public free-text search returning parsed candidates."""
+        payload = await self._get("/search", params={"q": query.strip(), "limit": limit})
+        candidates: list[DeezerTrackCandidate] = []
+        for item in payload.get("data") or []:
+            candidate = deezer_candidate_from_payload(item)
+            if candidate:
+                candidates.append(candidate)
+        return candidates
+
+    async def fetch_track(self, deezer_track_id: str) -> tuple[DeezerTrackCandidate | None, dict[str, Any]]:
+        """Public single-track lookup; returns (candidate, raw payload)."""
+        payload = await self._get(f"/track/{deezer_track_id}")
+        return deezer_candidate_from_payload(payload), payload
+
     async def _get(
         self,
         path: str,

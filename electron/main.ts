@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -43,7 +43,11 @@ function startPythonService(): void {
   const env = {
     ...process.env,
     RBSYNC_DATA_DIR: dataDir,
-    RBSYNC_SERVICE_PORT: String(servicePort)
+    RBSYNC_SERVICE_PORT: String(servicePort),
+    // Single source of version (package.json) + shared log directory so the
+    // service writes where the "Open Logs" menu points.
+    RBSYNC_APP_VERSION: app.getVersion(),
+    RBSYNC_LOG_DIR: app.getPath("logs")
   };
 
   if (app.isPackaged) {
@@ -147,8 +151,40 @@ ipcMain.handle("app:open-path", async (_event, path: string) => {
     throw new Error(error);
   }
 });
+ipcMain.handle("app:open-logs", async () => {
+  const dir = app.getPath("logs");
+  mkdirSync(dir, { recursive: true });
+  await shell.openPath(dir);
+  return dir;
+});
+
+function buildAppMenu(): void {
+  const isMac = process.platform === "darwin";
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [{ role: "appMenu" as const }]
+      : []),
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    {
+      label: "Help",
+      submenu: [
+        {
+          label: "Open Logs",
+          click: async () => {
+            const dir = app.getPath("logs");
+            mkdirSync(dir, { recursive: true });
+            await shell.openPath(dir);
+          }
+        }
+      ]
+    }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 app.whenReady().then(() => {
+  buildAppMenu();
   startPythonService();
   createWindow();
 
