@@ -269,6 +269,11 @@ export class ApiClient {
     return this.post("/api/live-imports", input);
   }
 
+  /** Absolute URL for a path — used to open an EventSource (SSE) connection. */
+  streamUrl(path: string): string {
+    return `${this.baseUrl}${path}`;
+  }
+
   private async get<T>(path: string): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`);
     return this.parse<T>(response);

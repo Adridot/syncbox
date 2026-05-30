@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import unicodedata
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .config import load_config
 from .logging_setup import configure_logging
@@ -436,6 +438,47 @@ async def list_global_acquisition_jobs(
 def clear_acquisition_jobs(scope: str | None = Query(default=None)) -> dict[str, int]:
     cleared = database.clear_completed_acquisition_jobs(scope=scope)
     return {"cleared": cleared}
+
+
+ACQUISITION_STREAM_INTERVAL_S = 4.0
+
+
+@app.get("/api/acquisition/stream")
+async def stream_acquisition_jobs(request: Request) -> StreamingResponse:
+    """Server-Sent Events stream of global acquisition jobs.
+
+    The server drives the refresh loop (scan staging + poll Deemix) and pushes
+    the job list whenever it changes, so a connected client gets near-real-time
+    updates from a single connection instead of polling every few seconds.
+    """
+
+    async def event_generator() -> AsyncIterator[str]:
+        last_payload: str | None = None
+        # Emit immediately on connect, then refresh-and-diff on each tick.
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                await refresh_global_acquisition_state()
+                jobs = database.list_global_acquisition_jobs()
+                payload = json.dumps(
+                    [job.model_dump(by_alias=True, mode="json") for job in jobs]
+                )
+            except Exception as exc:  # keep the stream alive on transient errors
+                logger.warning("acquisition stream refresh failed: %s", exc)
+                payload = last_payload or "[]"
+            if payload != last_payload:
+                last_payload = payload
+                yield f"event: jobs\ndata: {payload}\n\n"
+            else:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(ACQUISITION_STREAM_INTERVAL_S)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/sync/proposals", response_model=list[SyncProposal])
