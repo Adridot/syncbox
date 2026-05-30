@@ -190,15 +190,8 @@ class RekordboxAdapter:
             return False
 
     def _read_library_snapshot_uncached(self) -> dict[str, Any]:
-        try:
-            pass
-        except Exception as exc:
-            return {
-                "available": False,
-                "reason": f"pyrekordbox is not installed or cannot be imported: {exc}",
-                "tracks": [],
-            }
-
+        # _read_rekordbox imports pyrekordbox and its try/except below turns any
+        # failure (incl. a missing pyrekordbox) into {available: False, reason}.
         def reader(database: Any) -> dict[str, Any]:
             tracks = []
             for content in database.get_content():
@@ -255,11 +248,9 @@ class RekordboxAdapter:
 
     def collection_stats(self) -> dict[str, Any]:
         """Aggregate health metrics about the Rekordbox collection."""
-        try:
-            pass
-        except Exception as exc:
-            return {"available": False, "reason": f"pyrekordbox unavailable: {exc}"}
 
+        # _read_rekordbox imports pyrekordbox; its try/except below degrades any
+        # failure (incl. a missing pyrekordbox) to {available: False, reason}.
         def reader(database: Any) -> dict[str, Any]:
             contents = [
                 content
