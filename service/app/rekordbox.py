@@ -33,6 +33,41 @@ def invalidate_library_snapshot_cache() -> None:
     _LIBRARY_SNAPSHOT_CACHE.clear()
 
 
+def _is_transient_db_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in ("disk i/o", "database is locked", "database is busy", "table is locked")
+    )
+
+
+def _read_rekordbox(database_dir: Any, reader: Any, *, attempts: int = 4, delay: float = 0.3):
+    """Open a fresh Rekordbox connection, run ``reader(db)``, and return its
+    result. Retries on *transient* SQLite errors — `disk I/O error` / `database
+    is locked` are raised when Rekordbox (or one of our migration scripts) writes
+    master.db at the same moment we read it. Non-transient errors propagate
+    immediately; the caller handles the final failure."""
+    import time
+
+    from pyrekordbox import Rekordbox6Database
+
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            database = Rekordbox6Database(db_dir=str(database_dir))
+            try:
+                return reader(database)
+            finally:
+                database.close()
+        except Exception as exc:
+            if attempt < attempts - 1 and _is_transient_db_error(exc):
+                last_exc = exc
+                time.sleep(delay * (attempt + 1))
+                continue
+            raise
+    raise last_exc  # pragma: no cover - loop always returns or raises
+
+
 class RekordboxAdapter:
     def __init__(
         self,
@@ -119,29 +154,28 @@ class RekordboxAdapter:
                 "tracks": [],
             }
 
+        def reader(database: Any) -> dict[str, Any]:
+            tracks = []
+            for content in database.get_content():
+                if getattr(content, "rb_local_deleted", 0):
+                    continue
+                tracks.append(
+                    {
+                        "contentId": str(content.ID),
+                        "title": str(getattr(content, "Title", "") or ""),
+                        "artist": str(getattr(content, "ArtistName", "") or ""),
+                        "durationMs": content_length_ms(content),
+                        "filePath": resolve_volume_path(
+                            str(getattr(content, "FolderPath", "") or ""),
+                            self.storage_root,
+                        ),
+                        "isrc": str(getattr(content, "ISRC", "") or "") or None,
+                    }
+                )
+            return {"available": True, "tracks": tracks}
+
         try:
-            database = Rekordbox6Database(db_dir=str(self.database_dir))
-            try:
-                tracks = []
-                for content in database.get_content():
-                    if getattr(content, "rb_local_deleted", 0):
-                        continue
-                    tracks.append(
-                        {
-                            "contentId": str(content.ID),
-                            "title": str(getattr(content, "Title", "") or ""),
-                            "artist": str(getattr(content, "ArtistName", "") or ""),
-                            "durationMs": content_length_ms(content),
-                            "filePath": resolve_volume_path(
-                                str(getattr(content, "FolderPath", "") or ""),
-                                self.storage_root,
-                            ),
-                            "isrc": str(getattr(content, "ISRC", "") or "") or None,
-                        }
-                    )
-                return {"available": True, "tracks": tracks}
-            finally:
-                database.close()
+            return _read_rekordbox(self.database_dir, reader)
         except Exception as exc:
             return {"available": False, "reason": str(exc), "tracks": []}
 
@@ -181,41 +215,36 @@ class RekordboxAdapter:
         except Exception as exc:
             return {"available": False, "reason": f"pyrekordbox unavailable: {exc}"}
 
+        def reader(database: Any) -> dict[str, Any]:
+            contents = [
+                content
+                for content in database.get_content()
+                if not is_rekordbox_row_deleted(content)
+            ]
+            tagged_ids = {
+                str(song.ContentID)
+                for song in database.get_my_tag_songs()
+                if not is_rekordbox_row_deleted(song)
+            }
+            total = len(contents)
+            tagged = sum(1 for content in contents if str(content.ID) in tagged_ids)
+            without_isrc = sum(
+                1 for content in contents if not str(getattr(content, "ISRC", "") or "").strip()
+            )
+            without_artist = sum(
+                1 for content in contents if not str(getattr(content, "ArtistName", "") or "").strip()
+            )
+            return {
+                "available": True,
+                "total": total,
+                "tagged": tagged,
+                "untagged": total - tagged,
+                "withoutIsrc": without_isrc,
+                "withoutArtist": without_artist,
+            }
+
         try:
-            database = Rekordbox6Database(db_dir=str(self.database_dir))
-            try:
-                contents = [
-                    content
-                    for content in database.get_content()
-                    if not is_rekordbox_row_deleted(content)
-                ]
-                tagged_ids = {
-                    str(song.ContentID)
-                    for song in database.get_my_tag_songs()
-                    if not is_rekordbox_row_deleted(song)
-                }
-                total = len(contents)
-                tagged = sum(1 for content in contents if str(content.ID) in tagged_ids)
-                without_isrc = sum(
-                    1
-                    for content in contents
-                    if not str(getattr(content, "ISRC", "") or "").strip()
-                )
-                without_artist = sum(
-                    1
-                    for content in contents
-                    if not str(getattr(content, "ArtistName", "") or "").strip()
-                )
-                return {
-                    "available": True,
-                    "total": total,
-                    "tagged": tagged,
-                    "untagged": total - tagged,
-                    "withoutIsrc": without_isrc,
-                    "withoutArtist": without_artist,
-                }
-            finally:
-                database.close()
+            return _read_rekordbox(self.database_dir, reader)
         except Exception as exc:
             return {"available": False, "reason": str(exc)}
 
