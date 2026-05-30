@@ -363,12 +363,16 @@ class RekordboxAdapter:
                 if not is_rekordbox_row_deleted(content)
             }
             content_by_path = content_path_lookup(
-                content
-                for content in all_content
-                if not is_rekordbox_row_deleted(content)
+                (
+                    content
+                    for content in all_content
+                    if not is_rekordbox_row_deleted(content)
+                ),
+                self.storage_root,
             )
             deleted_content_by_path = content_path_lookup(
-                content for content in all_content if is_rekordbox_row_deleted(content)
+                (content for content in all_content if is_rekordbox_row_deleted(content)),
+                self.storage_root,
             )
 
             for track in review.tracks:
@@ -379,9 +383,13 @@ class RekordboxAdapter:
                     content = content_by_id.get(str(track.rekordbox_content_id))
                 if content is None and track.staging_file_path:
                     file_path = Path(track.staging_file_path)
-                    content = find_content_by_path(content_by_path, file_path)
+                    content = find_content_by_path(
+                        content_by_path, file_path, self.storage_root
+                    )
                     if content is None:
-                        content = find_content_by_path(deleted_content_by_path, file_path)
+                        content = find_content_by_path(
+                            deleted_content_by_path, file_path, self.storage_root
+                        )
                         if content is not None:
                             reactivate_rekordbox_row(content)
                             imported += 1
@@ -398,7 +406,7 @@ class RekordboxAdapter:
                             )
                             imported += 1
                         content_by_id[str(content.ID)] = content
-                        for key in path_lookup_keys(file_path):
+                        for key in path_lookup_keys(file_path, self.storage_root):
                             content_by_path[key] = content
 
                 if content is None:
@@ -601,12 +609,16 @@ class RekordboxAdapter:
                 if not is_rekordbox_row_deleted(content)
             }
             content_by_path = content_path_lookup(
-                content
-                for content in all_content
-                if not is_rekordbox_row_deleted(content)
+                (
+                    content
+                    for content in all_content
+                    if not is_rekordbox_row_deleted(content)
+                ),
+                self.storage_root,
             )
             deleted_content_by_path = content_path_lookup(
-                content for content in all_content if is_rekordbox_row_deleted(content)
+                (content for content in all_content if is_rekordbox_row_deleted(content)),
+                self.storage_root,
             )
 
             for track in review.tracks:
@@ -621,9 +633,13 @@ class RekordboxAdapter:
                     # the downloaded file where it already is; consolidation into
                     # the canonical Collection is done by migrate_collection.py.
                     file_path = Path(track.staging_file_path)
-                    content = find_content_by_path(content_by_path, file_path)
+                    content = find_content_by_path(
+                        content_by_path, file_path, self.storage_root
+                    )
                     if content is None:
-                        content = find_content_by_path(deleted_content_by_path, file_path)
+                        content = find_content_by_path(
+                            deleted_content_by_path, file_path, self.storage_root
+                        )
                         if content is not None:
                             reactivate_rekordbox_row(content)
                             imported += 1
@@ -640,7 +656,7 @@ class RekordboxAdapter:
                             )
                             imported += 1
                         content_by_id[str(content.ID)] = content
-                        for key in path_lookup_keys(file_path):
+                        for key in path_lookup_keys(file_path, self.storage_root):
                             content_by_path[key] = content
 
                 if content is None:
@@ -1052,32 +1068,63 @@ def mark_rekordbox_row_deleted(row: Any) -> None:
         row.rb_local_data_status = 0
 
 
-def content_path_lookup(contents: Any) -> dict[str, Any]:
+def content_path_lookup(
+    contents: Any, storage_root: Path | str | None = None
+) -> dict[str, Any]:
     lookup = {}
     for content in contents:
-        for key in path_lookup_keys(getattr(content, "FolderPath", "")):
+        for key in path_lookup_keys(getattr(content, "FolderPath", ""), storage_root):
             lookup[key] = content
     return lookup
 
 
-def find_content_by_path(lookup: dict[str, Any], path: Path) -> Any | None:
-    for key in path_lookup_keys(path):
+def find_content_by_path(
+    lookup: dict[str, Any], path: Path, storage_root: Path | str | None = None
+) -> Any | None:
+    for key in path_lookup_keys(path, storage_root):
         content = lookup.get(key)
         if content is not None:
             return content
     return None
 
 
-def path_lookup_keys(path: Path | str) -> list[str]:
+def path_lookup_keys(
+    path: Path | str, storage_root: Path | str | None = None
+) -> list[str]:
+    """Return every equivalent string form of ``path`` used for content dedup.
+
+    Rekordbox stores ``FolderPath`` volume-relative (``/<volume>/rekordbox/…``)
+    while the app handles absolute staging paths (``/Users/…``). To make the two
+    dedup against each other, every key set includes BOTH the absolute form
+    (under ``storage_root``) and the volume-relative form when ``storage_root``
+    is provided.
+    """
     if not path:
         return []
-    path_object = Path(path).expanduser()
-    keys = [str(path_object)]
-    try:
-        keys.append(str(path_object.resolve()))
-    except OSError:
-        pass
-    return list(dict.fromkeys(keys))
+    raw = str(path)
+    keys: list[str] = []
+
+    def add(value: str) -> None:
+        if value and value not in keys:
+            keys.append(value)
+
+    candidates = [raw]
+    if storage_root is not None:
+        # A volume-relative input ("/<volume>/…") must be resolved to its real
+        # absolute path first; otherwise Path().resolve() treats it as a
+        # filesystem-root path and it never matches a staging file.
+        candidates.append(resolve_volume_path(raw, storage_root))
+
+    for candidate in candidates:
+        path_object = Path(candidate).expanduser()
+        add(str(path_object))
+        try:
+            add(str(path_object.resolve()))
+        except OSError:
+            pass
+        if storage_root is not None:
+            add(to_volume_relative(path_object, storage_root))
+    return keys
 
 
 def build_event_delete_plan(

@@ -85,6 +85,23 @@ def test_content_path_lookup_matches_resolved_paths(tmp_path: Path) -> None:
     assert find_content_by_path(lookup, tmp_path / "." / "Track.mp3") is content
 
 
+def test_content_path_lookup_dedups_volume_relative_against_absolute() -> None:
+    # Rekordbox stores FolderPath volume-relative; the app downloads to the
+    # absolute path under storage_root. Both must dedup to the same content.
+    absolute = STORAGE_ROOT + "/rekordbox/Collection/KourzaK - On est Breton.mp3"
+    volume_relative = "/Musique/rekordbox/Collection/KourzaK - On est Breton.mp3"
+    content = SimpleNamespace(FolderPath=volume_relative)
+
+    lookup = content_path_lookup([content], STORAGE_ROOT)
+
+    # A staging absolute path resolves to the volume-relative content.
+    assert find_content_by_path(lookup, Path(absolute), STORAGE_ROOT) is content
+    # And the reverse direction (content stored absolute, queried relative).
+    content_abs = SimpleNamespace(FolderPath=absolute)
+    lookup_abs = content_path_lookup([content_abs], STORAGE_ROOT)
+    assert find_content_by_path(lookup_abs, Path(volume_relative), STORAGE_ROOT) is content_abs
+
+
 def test_reactivate_rekordbox_row_clears_deleted_flags() -> None:
     row = SimpleNamespace(
         rb_local_deleted=1,
