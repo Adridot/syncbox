@@ -44,6 +44,36 @@ def test_resolve_volume_path_leaves_full_paths() -> None:
     assert resolve_volume_path("/Users/x/Music/z.mp3", STORAGE_ROOT) == "/Users/x/Music/z.mp3"
 
 
+def test_remove_event_directory_deletes_under_events_root(tmp_path: Path) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    event_dir = tmp_path / "store" / "_rekordbox_sync" / "events" / "my-event"
+    (event_dir / "audio").mkdir(parents=True)
+    (event_dir / "audio" / "x.mp3").write_bytes(b"a")
+
+    assert adapter.remove_event_directory(str(event_dir)) is True
+    assert not event_dir.exists()
+
+
+def test_remove_event_directory_refuses_paths_outside_events_root(tmp_path: Path) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    # Collection is NOT under the events root -> must never be deleted.
+    outside = tmp_path / "store" / "rekordbox" / "Collection"
+    outside.mkdir(parents=True)
+    (outside / "keep.mp3").write_bytes(b"a")
+
+    assert adapter.remove_event_directory(str(outside)) is False
+    assert (outside / "keep.mp3").exists()
+    # The events root itself must not be deletable either.
+    events_root = tmp_path / "store" / "_rekordbox_sync" / "events"
+    events_root.mkdir(parents=True)
+    assert adapter.remove_event_directory(str(events_root)) is False
+    assert events_root.exists()
+
+
 def test_content_path_lookup_matches_resolved_paths(tmp_path: Path) -> None:
     track_path = tmp_path / "Track.mp3"
     track_path.write_bytes(b"audio")

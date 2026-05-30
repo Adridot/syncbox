@@ -578,9 +578,12 @@ def delete_event(event_id: int) -> EventDeleteResponse:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    adapter = build_rekordbox_adapter()
+
     if event_matches_permanent_source(review):
         preview = permanent_source_event_delete_preview(review)
         database.delete_event_import(event_id)
+        adapter.remove_event_directory(review.event_dir)
         return EventDeleteResponse(
             **preview.model_dump(by_alias=True),
             backupPath=None,
@@ -590,10 +593,11 @@ def delete_event(event_id: int) -> EventDeleteResponse:
         )
 
     try:
-        result = build_rekordbox_adapter().delete_event_import(review)
+        result = adapter.delete_event_import(review)
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     database.delete_event_import(event_id)
+    adapter.remove_event_directory(review.event_dir)
     return result.model_copy(update={"local_event_deleted": True})
 
 

@@ -144,6 +144,32 @@ class RekordboxAdapter:
 
         return target
 
+    def remove_event_directory(self, event_dir: str | None) -> bool:
+        """Delete an event's on-disk folder when the event is deleted.
+
+        Safety: only removes a path strictly inside the managed events root.
+        Best-effort — cloud/permission errors are swallowed (the DB delete still
+        stands and the folder can be cleaned later).
+        """
+        if not event_dir:
+            return False
+        target = Path(event_dir).expanduser()
+        events_root = (self.managed_root / "events").expanduser()
+        try:
+            target_resolved = target.resolve()
+            root_resolved = events_root.resolve()
+        except OSError:
+            target_resolved, root_resolved = target, events_root
+        if root_resolved not in target_resolved.parents:
+            return False  # never delete outside the managed events root
+        if not target.exists():
+            return False
+        try:
+            shutil.rmtree(target)
+            return True
+        except OSError:
+            return False
+
     def _read_library_snapshot_uncached(self) -> dict[str, Any]:
         try:
             from pyrekordbox import Rekordbox6Database
