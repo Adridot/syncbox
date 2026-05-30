@@ -6,6 +6,7 @@ import {
   Library,
   ListChecks,
   Loader2,
+  Stethoscope,
 } from "@lucide/vue";
 import type { ViewKey } from "../types/ui";
 import { useEventsStore } from "../stores/events";
@@ -62,6 +63,19 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
       </div>
 
       <div class="mt-auto border-t border-outline-variant p-6">
+        <button
+          class="mb-1 flex w-full items-center gap-3 rounded-r p-3 text-sm font-medium transition-colors"
+          :class="
+            ui.activeView === 'doctor'
+              ? '-ml-[2px] border-l-2 border-primary bg-surface-container-high text-primary'
+              : 'text-on-surface-variant hover:text-on-surface'
+          "
+          type="button"
+          @click="ui.navigateTo('doctor')"
+        >
+          <Stethoscope :size="20" aria-hidden="true" />
+          <span>Doctor</span>
+        </button>
         <button
           class="mb-6 flex w-full items-center gap-3 rounded-r p-3 text-sm font-medium transition-colors"
           :class="

@@ -154,6 +154,12 @@ class RekordboxAdapter:
         backup_root = Path(layout.backups)
         timestamp = safe_timestamp()
         target = backup_root / f"rekordbox-db-{timestamp}"
+        # Timestamps have second resolution; disambiguate if two backups land in
+        # the same second (e.g. a restore snapshots right after a backup).
+        counter = 1
+        while target.exists():
+            target = backup_root / f"rekordbox-db-{timestamp}-{counter}"
+            counter += 1
         target.mkdir(parents=True, exist_ok=False)
 
         for suffix in ["", "-wal", "-shm"]:
@@ -162,6 +168,86 @@ class RekordboxAdapter:
                 shutil.copy2(source, target / source.name)
 
         return target
+
+    def list_backups(self) -> list[dict[str, Any]]:
+        """Timestamped Rekordbox DB backups, newest first."""
+        backup_root = Path(self.storage_layout().backups)
+        if not backup_root.exists():
+            return []
+        backups: list[dict[str, Any]] = []
+        for entry in backup_root.iterdir():
+            if not entry.is_dir() or not entry.name.startswith("rekordbox-db-"):
+                continue
+            files = [child for child in entry.iterdir() if child.is_file()]
+            if not any(child.name == "master.db" for child in files):
+                continue
+            try:
+                created = entry.stat().st_mtime
+            except OSError:
+                created = 0.0
+            size = 0
+            for child in files:
+                try:
+                    size += child.stat().st_size
+                except OSError:
+                    pass
+            backups.append(
+                {
+                    "name": entry.name,
+                    "path": str(entry),
+                    "createdAt": created,
+                    "sizeBytes": size,
+                    "fileCount": len(files),
+                }
+            )
+        backups.sort(key=lambda item: item["createdAt"], reverse=True)
+        return backups
+
+    def restore_backup(self, name: str) -> dict[str, Any]:
+        """Restore a previous Rekordbox DB backup over the live database.
+
+        Safety: refuses while Rekordbox runs, validates the name resolves
+        strictly inside the backups root, and snapshots the *current* DB first
+        so a restore is itself undoable.
+        """
+        # Validate input first (cheap, no mutation) so bad names fail fast even
+        # while Rekordbox is open.
+        if not name or "/" in name or "\\" in name or name in {".", ".."}:
+            raise ValueError("Invalid backup name.")
+
+        backup_root = Path(self.storage_layout().backups).resolve()
+        candidate = (backup_root / name).resolve()
+        if backup_root not in candidate.parents:
+            raise ValueError("Backup is outside the managed backups directory.")
+        if not candidate.is_dir():
+            raise FileNotFoundError(f"Backup not found: {name}")
+        master = candidate / "master.db"
+        if not master.exists():
+            raise FileNotFoundError(f"Backup is missing master.db: {name}")
+
+        assert_rekordbox_can_mutate()
+
+        # Snapshot the live DB before overwriting it.
+        safety_backup = self.backup_database()
+
+        self.database_dir.mkdir(parents=True, exist_ok=True)
+        # Clear stale WAL/SHM so the restored master.db is authoritative.
+        for suffix in ["-wal", "-shm"]:
+            live = Path(f"{self.database_file}{suffix}")
+            if live.exists():
+                live.unlink()
+        restored_files = 0
+        for child in candidate.iterdir():
+            if child.is_file():
+                shutil.copy2(child, self.database_dir / child.name)
+                restored_files += 1
+
+        invalidate_library_snapshot_cache()
+        return {
+            "restored": name,
+            "restoredFiles": restored_files,
+            "safetyBackupPath": str(safety_backup),
+        }
 
     def remove_event_directory(self, event_dir: str | None) -> bool:
         """Delete an event's on-disk folder when the event is deleted.

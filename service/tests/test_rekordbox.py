@@ -75,6 +75,48 @@ def test_remove_event_directory_refuses_paths_outside_events_root(tmp_path: Path
     assert events_root.exists()
 
 
+def test_backup_list_and_restore_roundtrip(tmp_path: Path, monkeypatch) -> None:
+    import app.rekordbox.adapter as adapter_module
+    from app.rekordbox import RekordboxAdapter
+
+    # The mutation guard depends on whether Rekordbox is running on the host;
+    # stub it so the test is deterministic.
+    monkeypatch.setattr(adapter_module, "assert_rekordbox_can_mutate", lambda: None)
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    adapter.database_file.parent.mkdir(parents=True, exist_ok=True)
+    adapter.database_file.write_bytes(b"ORIGINAL")
+
+    backup = adapter.backup_database()
+    assert (backup / "master.db").read_bytes() == b"ORIGINAL"
+
+    backups = adapter.list_backups()
+    assert len(backups) == 1
+    assert backups[0]["name"] == backup.name
+    assert backups[0]["fileCount"] >= 1
+
+    # Mutate the live DB, then restore the backup over it.
+    adapter.database_file.write_bytes(b"CORRUPTED")
+    result = adapter.restore_backup(backup.name)
+
+    assert result["restored"] == backup.name
+    assert adapter.database_file.read_bytes() == b"ORIGINAL"
+    # Restore snapshots the current DB first, so we now have two backups.
+    assert len(adapter.list_backups()) == 2
+
+
+def test_restore_backup_rejects_path_traversal(tmp_path: Path) -> None:
+    import pytest
+
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    with pytest.raises(ValueError):
+        adapter.restore_backup("../../etc")
+    with pytest.raises(FileNotFoundError):
+        adapter.restore_backup("rekordbox-db-does-not-exist")
+
+
 def test_content_path_lookup_matches_resolved_paths(tmp_path: Path) -> None:
     track_path = tmp_path / "Track.mp3"
     track_path.write_bytes(b"audio")

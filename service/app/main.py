@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .config import load_config
+from .diagnostics import run_diagnostics
 from .logging_setup import configure_logging
 from .version import app_version
 from .acquisition import (
@@ -29,8 +30,10 @@ from .db import LocalDatabase
 from .models import (
     AcquisitionJob,
     AppSettings,
+    BackupRestoreResponse,
     DeemixStatus,
     DeezerSearchResult,
+    DiagnosticsReport,
     EventAcquisitionResponse,
     EventApplyResponse,
     EventDeletePreview,
@@ -51,6 +54,7 @@ from .models import (
     LibraryTrackUpdateRequest,
     LiveImportPackage,
     LiveImportRequest,
+    RekordboxBackup,
     RekordboxCollectionStats,
     RekordboxTrack,
     RekordboxPlaylist,
@@ -155,6 +159,30 @@ def rekordbox_status() -> Any:
 @app.get("/api/rekordbox/collection-stats", response_model=RekordboxCollectionStats)
 def rekordbox_collection_stats() -> RekordboxCollectionStats:
     return RekordboxCollectionStats(**build_rekordbox_adapter().collection_stats())
+
+
+@app.get("/api/diagnostics", response_model=DiagnosticsReport)
+async def diagnostics() -> DiagnosticsReport:
+    return await run_diagnostics(database, build_rekordbox_adapter())
+
+
+@app.get("/api/rekordbox/backups", response_model=list[RekordboxBackup])
+def list_rekordbox_backups() -> list[dict[str, Any]]:
+    return build_rekordbox_adapter().list_backups()
+
+
+@app.post("/api/rekordbox/backups/{name}/restore", response_model=BackupRestoreResponse)
+def restore_rekordbox_backup(name: str) -> dict[str, Any]:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.restore_backup(name)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        # e.g. RekordboxRunningError — cannot mutate while RB is open.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    logger.info("Restored Rekordbox backup %s (%s files)", name, result["restoredFiles"])
+    return result
 
 
 @app.post("/api/storage/ensure", response_model=StorageLayout)

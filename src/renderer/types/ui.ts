@@ -5,6 +5,7 @@ export type ViewKey =
   | "library"
   | "events"
   | "downloadCenter"
+  | "doctor"
   | "settings";
 
 export type ImportFormState = {

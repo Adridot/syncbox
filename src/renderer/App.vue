@@ -3,6 +3,7 @@ import { onMounted } from "vue";
 import AppShell from "./components/AppShell.vue";
 import ToastCenter from "./components/ToastCenter.vue";
 import DashboardView from "./views/DashboardView.vue";
+import DoctorView from "./views/DoctorView.vue";
 import DownloadMatchCenterView from "./views/DownloadMatchCenterView.vue";
 import EventsView from "./views/EventsView.vue";
 import LibraryView from "./views/LibraryView.vue";
@@ -51,6 +52,7 @@ onMounted(async () => {
     <LibraryView v-else-if="ui.activeView === 'library'" />
     <EventsView v-else-if="ui.activeView === 'events'" />
     <DownloadMatchCenterView v-else-if="ui.activeView === 'downloadCenter'" />
+    <DoctorView v-else-if="ui.activeView === 'doctor'" />
     <SettingsView v-else />
   </AppShell>
 </template>

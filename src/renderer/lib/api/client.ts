@@ -2,8 +2,10 @@ import type {
   AcquisitionJob,
   AppSettings,
   AuthUrlResponse,
+  BackupRestoreResponse,
   DeemixStatus,
   DeezerSearchResult,
+  DiagnosticsReport,
   EventAcquisitionResponse,
   EventApplyResponse,
   EventDeletePreview,
@@ -18,6 +20,7 @@ import type {
   LibrarySource,
   LiveImportPackage,
   PathValidation,
+  RekordboxBackup,
   RekordboxCollectionStats,
   RekordboxPlaylist,
   RekordboxStatus,
@@ -42,6 +45,18 @@ export class ApiClient {
 
   async getRekordboxCollectionStats(): Promise<RekordboxCollectionStats> {
     return this.get("/api/rekordbox/collection-stats");
+  }
+
+  async getDiagnostics(): Promise<DiagnosticsReport> {
+    return this.get("/api/diagnostics");
+  }
+
+  async listBackups(): Promise<RekordboxBackup[]> {
+    return this.get("/api/rekordbox/backups");
+  }
+
+  async restoreBackup(name: string): Promise<BackupRestoreResponse> {
+    return this.post(`/api/rekordbox/backups/${encodeURIComponent(name)}/restore`, {});
   }
 
   async getSettings(): Promise<AppSettings> {
