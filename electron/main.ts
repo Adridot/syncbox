@@ -98,7 +98,11 @@ function createWindow(): void {
     show: false,
     title: "Syncbox",
     icon: join(app.getAppPath(), "public/favicon.png"),
-    backgroundColor: "#f7f8fb",
+    backgroundColor: "#0d0d0d",
+    // Hide the native title bar; keep the macOS traffic lights floating over
+    // the app's dark sidebar. The renderer marks its top areas as draggable.
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 18, y: 24 },
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
       contextIsolation: true,

@@ -27,8 +27,12 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
       class="hidden h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-outline-variant bg-background md:flex"
       aria-label="Primary"
     >
-      <div class="p-6">
-        <div class="mb-8 flex items-center gap-2.5">
+      <div class="px-6 pb-6 pt-12">
+        <!-- Draggable strip; sits below the floating macOS traffic lights. -->
+        <div
+          class="mb-8 flex items-center gap-2.5"
+          style="-webkit-app-region: drag"
+        >
           <img src="/favicon.png" alt="" class="h-9 w-9 shrink-0 rounded-lg" />
           <h1 class="text-xl font-bold leading-none tracking-tight">
             SYNC<span class="text-primary">BOX</span>
@@ -111,8 +115,10 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
     </nav>
 
     <div class="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+      <!-- Draggable: lets the window move from the title bar area. -->
       <header
         class="flex h-16 shrink-0 items-center justify-between border-b border-outline-variant bg-surface px-4 md:px-8"
+        style="-webkit-app-region: drag"
       >
         <div class="flex min-w-0 items-center gap-4">
           <h2 class="truncate text-lg font-bold text-on-surface md:text-xl">{{ ui.pageTitle }}</h2>
