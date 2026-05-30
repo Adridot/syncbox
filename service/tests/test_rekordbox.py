@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.rekordbox import (
+    CollectionPath,
     add_rekordbox_content,
     content_path_lookup,
     ensure_event_my_tag,
@@ -83,6 +84,21 @@ def test_content_path_lookup_matches_resolved_paths(tmp_path: Path) -> None:
 
     assert find_content_by_path(lookup, track_path) is content
     assert find_content_by_path(lookup, tmp_path / "." / "Track.mp3") is content
+
+
+def test_collection_path_equates_volume_relative_and_absolute() -> None:
+    absolute = STORAGE_ROOT + "/rekordbox/Collection/x.mp3"
+    volume_relative = "/Musique/rekordbox/Collection/x.mp3"
+    a = CollectionPath.of(absolute, STORAGE_ROOT)
+    b = CollectionPath.of(volume_relative, STORAGE_ROOT)
+    # Both forms resolve to the same absolute path and are equal / hash-equal.
+    assert a.absolute == b.absolute == absolute
+    assert a.volume_relative == b.volume_relative == volume_relative
+    assert a == b
+    assert len({a, b}) == 1
+    # lookup_keys covers both representations.
+    assert absolute in a.lookup_keys()
+    assert volume_relative in a.lookup_keys()
 
 
 def test_content_path_lookup_dedups_volume_relative_against_absolute() -> None:
