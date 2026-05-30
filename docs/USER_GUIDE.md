@@ -92,12 +92,18 @@ The app creates this structure under the configured Dropbox music root:
 
 ```text
 Jockey Tricolore/Musique/
-_rekordbox_sync/
-  inbox/
-  permanent/
-  events/
-  manual_collection/
-  backups/
+  rekordbox/
+    Collection/            # canonical permanent collection (permanentPath)
+    Collection manuelle/   # manual collection (manualCollectionPath), protected
+  _rekordbox_sync/
+    inbox/
+    events/
+    backups/
 ```
 
-Files in `manual_collection` are protected from automatic deletion proposals.
+Tracks in the manual collection are protected from automatic deletion proposals.
+
+> **Note:** Syncbox never *moves* audio files (macOS TCC blocks file operations
+> on Dropbox CloudStorage from the service). Apply references each downloaded
+> file where it already is; consolidating files into `rekordbox/Collection` is a
+> separate, explicit step run via `service/scripts/migrate_collection.py`.

@@ -26,6 +26,7 @@ Syncbox sits between three worlds — **Spotify** (where you discover and curate
 - **Rekordbox writes are guarded.** Any mutation of `master.db` is blocked while `rekordbox` or `rekordboxAgent` is running, and is always preceded by a timestamped backup.
 - **No silent deletions.** Destructive sync operations are never automatic — they are surfaced as *review proposals* you accept or reject.
 - **Soft-delete everywhere.** Removing a track from Rekordbox sets `rb_local_deleted` (reversible from a backup); audio files on disk are never touched by Syncbox.
+- **Files are never moved by the app.** macOS TCC blocks the service from moving/reading files inside Dropbox/iCloud CloudStorage. Apply references downloaded files in place; consolidation into `rekordbox/Collection` is a separate script (`migrate_collection.py`).
 - **Spotify auth is secret-less.** OAuth uses the PKCE flow — no client secret stored on disk.
 - **Legal acquisition only.** Downloads go through the local Deemix API; Syncbox never scrapes audio itself.
 - **Local-first.** All app state lives in a local SQLite database; there is no cloud backend.
@@ -60,7 +61,7 @@ Syncbox sits between three worlds — **Spotify** (where you discover and curate
 - **Desktop shell** — Electron + electron-vite.
 - **UI** — Vue 3 (`<script setup>`), Pinia stores, Tailwind CSS, Lucide icons.
 - **Service** — FastAPI (Python ≥3.12), run with `uv`. Lives in `service/app/`.
-- **App state** — SQLite at `service/.local/syncbox.sqlite3`, versioned via `schema_migrations`.
+- **App state** — SQLite at `service/.local/syncbox.sqlite3`. Schema is created idempotently (`CREATE TABLE IF NOT EXISTS`) with a `schema_migrations` marker row and additive `ALTER TABLE` steps for later columns.
 - **External** — Spotify Web API, Deezer public API (`https://api.deezer.com`) for search, Deemix local API (`http://127.0.0.1:6595`) for downloads, `pyrekordbox` for reading and (closed-app) writing `master.db`.
 
 ### Service modules (`service/app/`)
@@ -116,7 +117,7 @@ Both **My Library** and **Event Imports** share the same generic `TrackReviewTab
 3. **Analyze** → Syncbox matches each Spotify track against your Rekordbox collection (ISRC, then title/artist). Results become track reviews.
 4. For missing tracks: **Search Deezer** in the side panel, preview, and **Download** via Deemix. Syncbox records the pending Deezer track up-front so the finished download links back to the right Spotify track even across rapid downloads.
 5. Downloaded files are located on disk and the track flips to **ready**.
-6. **Apply to Rekordbox** (Rekordbox closed): files are added/reactivated in `master.db`, moved into the permanent folder, and tagged with the source's MyTags.
+6. **Apply to Rekordbox** (Rekordbox closed): files are added/reactivated in `master.db` **in place** and tagged with the source's MyTags. Syncbox **never moves audio files** itself — macOS TCC blocks file operations on Dropbox/iCloud CloudStorage from the service process — so a track is referenced where it was downloaded. Consolidating files into the canonical `rekordbox/Collection` folder is a separate, explicit step (`service/scripts/migrate_collection.py`), not part of apply.
 7. On later re-syncs, tracks removed from the Spotify playlist surface as `remove_from_rekordbox` **proposals** (never auto-applied). Tracks living in the protected manual collection generate `protect_manual_track` instead.
 
 ### B. Event import (Event Imports)
@@ -218,7 +219,8 @@ The renderer can be driven entirely in a browser at `:5173` (talking to the serv
 | Service logs | `service/.local/logs/` |
 | Cleanup manifest / reports | `service/.local/cleanup-*.{csv,json}` |
 | Rekordbox database | `~/Library/Pioneer/rekordbox/master.db` |
-| Managed storage tree | `<storageRoot>/_rekordbox_sync/` (`inbox`, `permanent`, `events`, `manual_collection`, `backups`) |
+| Managed storage tree | `<storageRoot>/_rekordbox_sync/` (`inbox`, `events`, `backups`; legacy `permanent`/`manual_collection`) |
+| Canonical collection | `<storageRoot>/rekordbox/Collection` (permanent) and `…/Collection manuelle` (manual) — where `permanentPath`/`manualCollectionPath` point after `migrate_collection.py` |
 
 Paths can be overridden with env vars: `RBSYNC_DATA_DIR`, `RBSYNC_SERVICE_PORT`, `RBSYNC_REKORDBOX_DATABASE_DIR`, `RBSYNC_STORAGE_ROOT`.
 

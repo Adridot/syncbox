@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { ref, computed, type Ref } from "vue";
 import type { ViewKey } from "../types/ui";
 
 export const useUiStore = defineStore("ui", () => {
@@ -32,7 +32,16 @@ export const useUiStore = defineStore("ui", () => {
   }
 
   async function withLoading<T>(task: () => Promise<T>): Promise<T | undefined> {
-    loading.value = true;
+    return withLoadingFlag(loading, task);
+  }
+
+  // Same error-surfacing contract as withLoading, but toggles a caller-provided
+  // flag (e.g. a panel-local `deezerSearchLoading`) instead of the global one.
+  async function withLoadingFlag<T>(
+    flag: Ref<boolean>,
+    task: () => Promise<T>
+  ): Promise<T | undefined> {
+    flag.value = true;
     clearMessages();
     try {
       return await task();
@@ -40,7 +49,7 @@ export const useUiStore = defineStore("ui", () => {
       setMessage("error", error instanceof Error ? error.message : String(error));
       return undefined;
     } finally {
-      loading.value = false;
+      flag.value = false;
     }
   }
 
@@ -55,5 +64,6 @@ export const useUiStore = defineStore("ui", () => {
     setMessage,
     clearMessages,
     withLoading,
+    withLoadingFlag,
   };
 });

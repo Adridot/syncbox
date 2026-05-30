@@ -367,17 +367,12 @@ export const useEventsStore = defineStore("events", () => {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api || !activeEvent.value || !deezerSearchQuery.value.trim()) return;
-    deezerSearchLoading.value = true;
-    try {
-      deezerSearchResults.value = await system.api.searchEventDeezer(
-        activeEvent.value.id,
+    await ui.withLoadingFlag(deezerSearchLoading, async () => {
+      deezerSearchResults.value = await system.api!.searchEventDeezer(
+        activeEvent.value!.id,
         deezerSearchQuery.value.trim()
       );
-    } catch (err) {
-      ui.setMessage("error", err instanceof Error ? err.message : String(err));
-    } finally {
-      deezerSearchLoading.value = false;
-    }
+    });
   }
 
   async function queueDeezerTrack(deezerTrackId: string): Promise<void> {
