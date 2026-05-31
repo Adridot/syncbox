@@ -308,8 +308,11 @@ export const useEventsStore = defineStore("events", () => {
       const details = preview.localOnly
         ? "This event matches a permanent playlist source. Only the temporary event entry will be removed from the app."
         : `This will remove ${preview.willRemoveEventTag} event tag link(s) and remove ${preview.willDeleteFromRekordbox} track(s) from the Rekordbox collection. ${preview.protectedTracks} track(s) will be kept because they have other tags or are stored as permanent/manual tracks.`;
+      const audioNote = preview.localOnly
+        ? "Audio files on disk will not be touched."
+        : "The event folder and its audio files will be deleted from disk. Tracks stored in your permanent/manual collection are kept.";
       const confirmed = window.confirm(
-        `Delete temporary event "${preview.eventName}"?\n\n${details}\n\nAudio files on disk will not be deleted.`
+        `Delete temporary event "${preview.eventName}"?\n\n${details}\n\n${audioNote}`
       );
       if (!confirmed) return;
       const result = await system.api!.deleteEvent(eventId);

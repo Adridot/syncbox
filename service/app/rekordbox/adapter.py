@@ -266,11 +266,15 @@ class RekordboxAdapter:
         }
 
     def remove_event_directory(self, event_dir: str | None) -> bool:
-        """Delete an event's on-disk folder when the event is deleted.
+        """Delete an event's on-disk folder (audio included) when the event is
+        deleted.
 
-        Safety: only removes a path strictly inside the managed events root.
-        Best-effort — cloud/permission errors are swallowed (the DB delete still
-        stands and the folder can be cleaned later).
+        Safety: only removes a path strictly inside the managed *events* root.
+        The permanent and manual_collection folders are siblings of events, so
+        they can never be reached here — only files that physically live inside
+        this event's folder are removed. Best-effort: cloud/permission errors
+        are swallowed (the DB delete still stands; the folder can be cleaned
+        later).
         """
         if not event_dir:
             return False
