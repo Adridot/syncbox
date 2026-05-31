@@ -52,11 +52,29 @@ def is_rekordbox_process_command(command: str) -> bool:
     )
 
 
+def process_display_name(command: str) -> str:
+    """Friendly name for a Rekordbox-family process command line."""
+    lowered = command.lower()
+    if "rekordboxagent" in lowered:
+        return "rekordboxAgent"
+    if "rekordbox" in lowered:
+        return "Rekordbox"
+    return command.split("/")[-1] or command
+
+
 def assert_rekordbox_can_mutate() -> None:
     processes = find_rekordbox_processes()
     if processes:
-        commands = ", ".join(f"{process.pid}:{process.command}" for process in processes)
+        names = sorted({process_display_name(process.command) for process in processes})
+        running = " and ".join(names)
+        hint = ""
+        if "rekordboxAgent" in names:
+            hint = (
+                " Note: rekordboxAgent keeps running in the background after you "
+                "close the Rekordbox window — quit it from the menu bar or via "
+                "Activity Monitor."
+            )
         raise RekordboxRunningError(
-            "Rekordbox mutations are blocked while these processes are running: "
-            f"{commands}"
+            f"Rekordbox is still running ({running}), so changes to the collection "
+            f"are blocked. Quit it completely and try again.{hint}"
         )

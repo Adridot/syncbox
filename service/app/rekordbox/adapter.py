@@ -601,7 +601,9 @@ class RekordboxAdapter:
             database.close()
 
     def preview_event_delete(self, review: EventReview) -> EventDeletePreview:
-        assert_rekordbox_can_mutate()
+        # Read-only: opens the DB to compute what *would* be deleted. It must
+        # work even while Rekordbox is running so the user can see the impact;
+        # only the actual delete (delete_event_import) requires mutation rights.
         try:
             from pyrekordbox import Rekordbox6Database
         except Exception as exc:
