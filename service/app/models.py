@@ -34,7 +34,6 @@ class AppSettings(BaseModel):
     )
     rekordbox_database_dir: str = Field(alias="rekordboxDatabaseDir")
     storage_root: str = Field(alias="storageRoot")
-    api_port: int = Field(default=8765, alias="apiPort")
     permanent_path: str = Field(default="", alias="permanentPath")
     manual_collection_path: str = Field(default="", alias="manualCollectionPath")
     backup_retention: int = Field(default=15, alias="backupRetention")

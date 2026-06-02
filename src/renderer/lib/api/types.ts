@@ -39,7 +39,6 @@ export type AppSettings = {
   spotifyRedirectUri: string;
   rekordboxDatabaseDir: string;
   storageRoot: string;
-  apiPort: number;
   permanentPath: string;
   manualCollectionPath: string;
   backupRetention: number;

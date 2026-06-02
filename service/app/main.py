@@ -1071,7 +1071,6 @@ def default_settings() -> AppSettings:
         spotifyRedirectUri=f"http://127.0.0.1:{config.api_port}/api/spotify/callback",
         rekordboxDatabaseDir=str(config.rekordbox_database_dir),
         storageRoot=str(config.storage_root),
-        apiPort=config.api_port,
     )
 
 

@@ -12,7 +12,6 @@ def test_database_migrates_and_stores_settings(tmp_path: Path) -> None:
         spotifyRedirectUri="http://127.0.0.1:8765/api/spotify/callback",
         rekordboxDatabaseDir="/tmp/rekordbox",
         storageRoot="/tmp/storage",
-        apiPort=8765,
     )
 
     database.save_app_settings(settings)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Archive, CheckCircle2, Database, Download, ExternalLink, FileAudio, FolderOpen, Key, Save, Settings2, Upload } from "@lucide/vue";
+import { AlertTriangle, Archive, CheckCircle2, Download, ExternalLink, FolderOpen, Key, Save, Settings2, Upload } from "@lucide/vue";
 import { ref } from "vue";
 import { useSettingsStore } from "../stores/settings";
 
@@ -241,18 +241,14 @@ async function onDataFile(event: Event): Promise<void> {
 
         <aside class="flex flex-col gap-6 lg:col-span-4">
           <section class="rounded-xl border border-outline-variant bg-surface-container-high p-6">
-            <h3 class="mb-4 flex items-center gap-2 text-lg font-bold text-on-surface">
+            <h3 class="mb-1 flex items-center gap-2 text-lg font-bold text-on-surface">
               <Settings2 class="text-on-surface-variant" :size="20" aria-hidden="true" />
-              Managed Storage
+              Storage locations
             </h3>
-            <button
-              class="mb-5 inline-flex w-full items-center justify-center gap-2 rounded border border-outline bg-surface px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary"
-              type="button"
-              @click="settings.ensureStorage()"
-            >
-              <FileAudio :size="17" aria-hidden="true" />
-              Ensure Folders
-            </button>
+            <p class="mb-4 text-xs text-on-surface-variant">
+              Where Syncbox keeps downloads under your storage root. These folders are
+              created automatically when you save settings or run your first download.
+            </p>
             <dl v-if="settings.storage" class="grid gap-3 text-xs">
               <div>
                 <dt class="font-bold text-on-surface">Inbox</dt>
@@ -272,7 +268,7 @@ async function onDataFile(event: Event): Promise<void> {
               </div>
             </dl>
             <p v-else class="text-xs text-on-surface-variant">
-              Storage folders have not been checked yet.
+              Save settings to resolve your storage folders.
             </p>
           </section>
 
@@ -282,18 +278,6 @@ async function onDataFile(event: Event): Promise<void> {
             <p class="text-xs text-on-surface-variant">
               Rekordbox writes stay blocked while Rekordbox is running. Destructive changes remain proposal-based.
             </p>
-          </section>
-
-          <section class="rounded-xl border border-outline-variant bg-surface-container p-6">
-            <h3 class="mb-3 flex items-center gap-2 text-base font-bold text-on-surface">
-              <Database class="text-primary" :size="18" aria-hidden="true" />
-              Local API Port
-            </h3>
-            <input
-              class="rounded border border-outline bg-surface-container-high px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
-              v-model.number="settings.settings.apiPort"
-              type="number"
-            />
           </section>
         </aside>
       </div>

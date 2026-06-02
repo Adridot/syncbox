@@ -11,7 +11,6 @@ export const useSettingsStore = defineStore("settings", () => {
     rekordboxDatabaseDir: "/Users/adriendidot/Library/Pioneer/rekordbox",
     storageRoot:
       "/Users/adriendidot/Library/CloudStorage/Dropbox-CloudOptionDJteam/Jockey Tricolore/Musique",
-    apiPort: 8765,
     permanentPath: "",
     manualCollectionPath: "",
     backupRetention: 15,
@@ -53,7 +52,10 @@ export const useSettingsStore = defineStore("settings", () => {
     if (!system.api) return;
     await ui.withLoading(async () => {
       Object.assign(settings, await system.api!.saveSettings(settings));
-      await Promise.all([loadStorage(), validatePaths()]);
+      // Create the managed storage folders on save so they always exist without
+      // a separate manual step, then refresh the resolved layout + path checks.
+      storage.value = await system.api!.ensureStorage();
+      await validatePaths();
       ui.setMessage("success", "Settings saved.");
     });
   }

@@ -73,7 +73,6 @@ class SettingsMixin:
                 "rekordbox_database_dir", defaults.rekordbox_database_dir
             ),
             storageRoot=self.get_setting("storage_root", defaults.storage_root),
-            apiPort=int(self.get_setting("api_port", str(defaults.api_port))),
             permanentPath=self.get_setting("permanent_path", defaults.permanent_path),
             manualCollectionPath=self.get_setting(
                 "manual_collection_path", defaults.manual_collection_path
@@ -89,7 +88,6 @@ class SettingsMixin:
             "spotify_redirect_uri": settings.spotify_redirect_uri,
             "rekordbox_database_dir": settings.rekordbox_database_dir,
             "storage_root": settings.storage_root,
-            "api_port": str(settings.api_port),
             "permanent_path": settings.permanent_path,
             "manual_collection_path": settings.manual_collection_path,
             "backup_retention": str(settings.backup_retention),
