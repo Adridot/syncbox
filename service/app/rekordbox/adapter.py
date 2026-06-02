@@ -23,6 +23,7 @@ from .paths import (
     path_lookup_keys,
     resolve_volume_path,
     safe_timestamp,
+    to_volume_relative,
 )
 from ..dedup import build_resolution_plan, find_duplicate_groups
 from .content import (
@@ -973,6 +974,222 @@ class RekordboxAdapter:
             "strategies": strategies,
             "groups": groups,
         }
+
+    def find_missing_files(self) -> dict[str, Any]:
+        """Collection rows whose audio file no longer exists on disk.
+
+        Rekordbox keeps the DjmdContent entry (and its cues, playlist slots,
+        tags) even after the underlying file is moved/renamed/deleted — the
+        equivalent of "Display All Missing Files". Read-only.
+        """
+        snapshot = self.read_dedup_snapshot()
+        if not snapshot.get("available"):
+            return {
+                "available": False,
+                "reason": snapshot.get("reason"),
+                "total": 0,
+                "missing": 0,
+                "tracks": [],
+            }
+        tracks = snapshot["tracks"]
+        missing = [
+            {
+                "contentId": t["contentId"],
+                "title": t["title"],
+                "artist": t["artist"],
+                "durationMs": t["durationMs"],
+                "isrc": t["isrc"],
+                "filePath": t["filePath"],
+                "fileName": t["fileName"],
+                "fileType": t["fileType"],
+                "playlistCount": t["playlistCount"],
+                "tagCount": t["tagCount"],
+                "protected": t["protected"],
+            }
+            for t in tracks
+            if t["fileMissing"]
+        ]
+        missing.sort(key=lambda t: (t["artist"].lower(), t["title"].lower()))
+        return {
+            "available": True,
+            "reason": None,
+            "total": len(tracks),
+            "missing": len(missing),
+            "tracks": missing,
+        }
+
+    def content_meta(self, content_id: str) -> dict[str, Any]:
+        """Read one content row's metadata (read-only) for missing-file actions."""
+        try:
+            from pyrekordbox import Rekordbox6Database
+            from pyrekordbox.db6 import tables
+        except Exception as exc:
+            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
+
+        database = Rekordbox6Database(db_dir=str(self.database_dir))
+        try:
+            content = (
+                database.query(tables.DjmdContent).filter_by(ID=str(content_id)).first()
+            )
+            if content is None:
+                raise KeyError(f"Content {content_id} not found.")
+            real_path = resolve_volume_path(
+                str(getattr(content, "FolderPath", "") or ""), self.storage_root
+            )
+            return {
+                "contentId": str(content.ID),
+                "title": str(getattr(content, "Title", "") or ""),
+                "artist": str(getattr(content, "ArtistName", "") or ""),
+                "isrc": str(getattr(content, "ISRC", "") or "") or None,
+                "filePath": real_path,
+                "fileName": str(getattr(content, "FileNameL", "") or ""),
+            }
+        finally:
+            database.close()
+
+    def relink_content(self, content_id: str, file_path: str) -> dict[str, Any]:
+        """Point a collection row at a new on-disk file (fixes a missing file).
+
+        Updates FolderPath/FileName/FileSize/FileType to the new location so the
+        existing cues, tags and playlist slots are preserved. Backs up first.
+        """
+        new_path = Path(file_path).expanduser()
+        if not new_path.exists() or not new_path.is_file():
+            raise FileNotFoundError(f"File does not exist: {file_path}")
+
+        self.assert_mutation_ready()
+        backup_path = self.backup_database()
+        try:
+            from pyrekordbox import Rekordbox6Database
+            from pyrekordbox.db6 import tables
+            from pyrekordbox.db6.tables import FileType
+        except Exception as exc:
+            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
+
+        database = Rekordbox6Database(db_dir=str(self.database_dir))
+        try:
+            content = (
+                database.query(tables.DjmdContent).filter_by(ID=str(content_id)).first()
+            )
+            if content is None:
+                raise KeyError(f"Content {content_id} not found.")
+            content.FolderPath = to_volume_relative(new_path, self.storage_root)
+            content.FileNameL = new_path.name
+            try:
+                content.FileSize = new_path.stat().st_size
+            except OSError:
+                pass
+            suffix = new_path.suffix.lstrip(".").upper()
+            if suffix and hasattr(FileType, suffix):
+                content.FileType = getattr(FileType, suffix).value
+            if hasattr(content, "rb_local_synced"):
+                content.rb_local_synced = 0
+            database.commit()
+            invalidate_library_snapshot_cache()
+            return {
+                "contentId": str(content_id),
+                "filePath": str(new_path),
+                "backupPath": str(backup_path),
+            }
+        except Exception:
+            if hasattr(database, "rollback"):
+                database.rollback()
+            raise
+        finally:
+            database.close()
+
+    def remove_content(self, content_id: str) -> dict[str, Any]:
+        """Soft-delete a collection row (for orphans with no recoverable file)."""
+        self.assert_mutation_ready()
+        backup_path = self.backup_database()
+        try:
+            from pyrekordbox import Rekordbox6Database
+            from pyrekordbox.db6 import tables
+        except Exception as exc:
+            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
+
+        database = Rekordbox6Database(db_dir=str(self.database_dir))
+        try:
+            content = (
+                database.query(tables.DjmdContent).filter_by(ID=str(content_id)).first()
+            )
+            if content is None:
+                raise KeyError(f"Content {content_id} not found.")
+            mark_rekordbox_row_deleted(content)
+            database.commit()
+            invalidate_library_snapshot_cache()
+            return {"contentId": str(content_id), "backupPath": str(backup_path)}
+        except Exception:
+            if hasattr(database, "rollback"):
+                database.rollback()
+            raise
+        finally:
+            database.close()
+
+    def find_relink_candidates(self, content_id: str, *, limit: int = 8) -> list[dict[str, Any]]:
+        """Search the managed storage tree for an existing file that matches a
+        missing collection row, so a moved/renamed file can be re-linked without
+        re-downloading. Matches by ISRC (tag) then by title/artist similarity.
+        """
+        from ..audio import read_audio_metadata
+        from ..live_import import SUPPORTED_AUDIO_EXTENSIONS
+        from ..matching import text_similarity
+
+        meta = self.content_meta(content_id)
+        target_isrc = (meta.get("isrc") or "").strip().upper()
+        target_title = meta.get("title") or ""
+        target_artist = meta.get("artist") or ""
+
+        candidates: list[dict[str, Any]] = []
+        roots = [
+            Path(self.storage_layout().permanent),
+            Path(self.storage_layout().manual_collection),
+            Path(self.storage_layout().events),
+            Path(self.storage_layout().inbox),
+            self.storage_root / "rekordbox" / "Collection",
+        ]
+        seen: set[str] = set()
+        for root in roots:
+            if not root.exists():
+                continue
+            try:
+                files = [
+                    p
+                    for p in root.rglob("*")
+                    if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+                ]
+            except OSError:
+                continue
+            for path in files:
+                key = str(path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                file_meta = read_audio_metadata(path)
+                file_isrc = (file_meta.get("isrc") or "").strip().upper()
+                score = 0
+                reason = ""
+                if target_isrc and file_isrc and file_isrc == target_isrc:
+                    score = 100
+                    reason = "ISRC match"
+                else:
+                    title_sim = text_similarity(target_title, file_meta.get("title") or "")
+                    name_sim = text_similarity(target_title, path.stem)
+                    best = max(title_sim, name_sim)
+                    if best >= 70:
+                        score = int(best)
+                        reason = "Title match"
+                if score:
+                    candidates.append(
+                        {
+                            "filePath": str(path),
+                            "fileName": path.name,
+                            "score": score,
+                            "reason": reason,
+                        }
+                    )
+        candidates.sort(key=lambda c: -c["score"])
+        return candidates[:limit]
 
     def resolve_duplicates(
         self,

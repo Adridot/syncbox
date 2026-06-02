@@ -58,6 +58,10 @@ from .models import (
     LibraryTrackUpdateRequest,
     LiveImportPackage,
     LiveImportRequest,
+    MissingActionResponse,
+    MissingFilesReport,
+    MissingRelinkRequest,
+    RelinkCandidate,
     RekordboxBackup,
     RekordboxBackupsResponse,
     RekordboxCollectionStats,
@@ -265,6 +269,82 @@ def resolve_duplicates(request: DuplicateResolutionRequest) -> DuplicateResoluti
             dismissed_count,
         )
     return DuplicateResolutionResponse(**result)
+
+
+@app.get("/api/rekordbox/missing", response_model=MissingFilesReport)
+def scan_missing_files() -> MissingFilesReport:
+    try:
+        result = build_rekordbox_adapter().find_missing_files()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return MissingFilesReport(**result)
+
+
+@app.post("/api/rekordbox/missing/{content_id}/remove", response_model=MissingActionResponse)
+def remove_missing_entry(content_id: str) -> MissingActionResponse:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.remove_content(content_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return MissingActionResponse(
+        contentId=content_id,
+        backupPath=result.get("backupPath"),
+        message="Removed the orphaned entry from the Rekordbox collection.",
+    )
+
+
+@app.get(
+    "/api/rekordbox/missing/{content_id}/relink-candidates",
+    response_model=list[RelinkCandidate],
+)
+def missing_relink_candidates(content_id: str) -> list[RelinkCandidate]:
+    adapter = build_rekordbox_adapter()
+    try:
+        candidates = adapter.find_relink_candidates(content_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return [RelinkCandidate(**c) for c in candidates]
+
+
+@app.post("/api/rekordbox/missing/{content_id}/relink", response_model=MissingActionResponse)
+def relink_missing_entry(content_id: str, request: MissingRelinkRequest) -> MissingActionResponse:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.relink_content(content_id, request.file_path)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return MissingActionResponse(
+        contentId=content_id,
+        filePath=result.get("filePath"),
+        backupPath=result.get("backupPath"),
+        message="Re-linked the collection entry to the existing file.",
+    )
+
+
+@app.post("/api/rekordbox/missing/{content_id}/redownload", response_model=MissingActionResponse)
+async def redownload_missing_entry(content_id: str) -> MissingActionResponse:
+    from .missing import redownload_missing_file
+
+    adapter = build_rekordbox_adapter()
+    try:
+        result = await redownload_missing_file(adapter, content_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, TimeoutError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    logger.info("Re-downloaded missing file for content %s", content_id)
+    return MissingActionResponse(**result)
 
 
 @app.post("/api/storage/ensure", response_model=StorageLayout)

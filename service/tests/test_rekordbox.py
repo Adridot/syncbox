@@ -154,6 +154,52 @@ def test_prune_backups_disabled_when_retention_zero(tmp_path: Path) -> None:
     assert len(adapter.list_backups()) == 4
 
 
+def test_find_missing_files_filters_snapshot(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+
+    def fake_snapshot() -> dict:
+        common = {
+            "durationMs": 1000,
+            "isrc": None,
+            "fileName": "x.mp3",
+            "fileType": "MP3",
+            "playlistCount": 0,
+            "tagCount": 0,
+            "protected": False,
+        }
+        return {
+            "available": True,
+            "tracks": [
+                {"contentId": "1", "title": "Present", "artist": "A", "filePath": "/x/a.mp3", "fileMissing": False, **common},
+                {"contentId": "2", "title": "Gone", "artist": "B", "filePath": "/x/b.mp3", "fileMissing": True, **common},
+                {"contentId": "3", "title": "Also Gone", "artist": "A", "filePath": "/x/c.mp3", "fileMissing": True, **common},
+            ],
+        }
+
+    monkeypatch.setattr(adapter, "read_dedup_snapshot", fake_snapshot)
+    report = adapter.find_missing_files()
+    assert report["total"] == 3
+    assert report["missing"] == 2
+    ids = {t["contentId"] for t in report["tracks"]}
+    assert ids == {"2", "3"}
+    # Sorted by artist then title: A/Also Gone before B/Gone.
+    assert report["tracks"][0]["contentId"] == "3"
+
+
+def test_find_missing_files_propagates_unavailable(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    monkeypatch.setattr(
+        adapter, "read_dedup_snapshot", lambda: {"available": False, "reason": "boom", "tracks": []}
+    )
+    report = adapter.find_missing_files()
+    assert report["available"] is False
+    assert report["reason"] == "boom"
+
+
 def test_restore_backup_rejects_path_traversal(tmp_path: Path) -> None:
     import pytest
 

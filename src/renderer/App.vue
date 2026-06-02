@@ -8,6 +8,7 @@ import DownloadMatchCenterView from "./views/DownloadMatchCenterView.vue";
 import DuplicatesView from "./views/DuplicatesView.vue";
 import EventsView from "./views/EventsView.vue";
 import LibraryView from "./views/LibraryView.vue";
+import MissingFilesView from "./views/MissingFilesView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import { useRefreshManager } from "./composables/useRefreshManager";
 import { useEventsStore } from "./stores/events";
@@ -54,6 +55,7 @@ onMounted(async () => {
     <EventsView v-else-if="ui.activeView === 'events'" />
     <DownloadMatchCenterView v-else-if="ui.activeView === 'downloadCenter'" />
     <DuplicatesView v-else-if="ui.activeView === 'duplicates'" />
+    <MissingFilesView v-else-if="ui.activeView === 'missing'" />
     <DoctorView v-else-if="ui.activeView === 'doctor'" />
     <SettingsView v-else />
   </AppShell>

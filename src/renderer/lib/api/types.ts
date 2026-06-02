@@ -300,6 +300,44 @@ export type DuplicateResolutionItem = {
   dismiss?: boolean;
 };
 
+export type MissingTrack = {
+  contentId: string;
+  title: string;
+  artist: string;
+  durationMs: number | null;
+  isrc: string | null;
+  filePath: string | null;
+  fileName: string | null;
+  fileType: string | null;
+  playlistCount: number;
+  tagCount: number;
+  protected: boolean;
+};
+
+export type MissingFilesReport = {
+  available: boolean;
+  reason: string | null;
+  total: number;
+  missing: number;
+  tracks: MissingTrack[];
+};
+
+export type RelinkCandidate = {
+  filePath: string;
+  fileName: string;
+  score: number;
+  reason: string;
+};
+
+export type MissingActionResponse = {
+  contentId: string;
+  filePath: string | null;
+  title: string | null;
+  artist: string | null;
+  backupPath: string | null;
+  message: string;
+};
+
 export type DuplicateResolutionResponse = {
   backupPath: string | null;
   removedFromRekordbox: number;

@@ -517,6 +517,61 @@ ProposalType = Literal[
 ]
 
 
+# --- Missing files ---------------------------------------------------------
+
+
+class MissingTrack(BaseModel):
+    content_id: str = Field(alias="contentId")
+    title: str
+    artist: str
+    duration_ms: int | None = Field(default=None, alias="durationMs")
+    isrc: str | None = None
+    file_path: str | None = Field(default=None, alias="filePath")
+    file_name: str | None = Field(default=None, alias="fileName")
+    file_type: str | None = Field(default=None, alias="fileType")
+    playlist_count: int = Field(default=0, alias="playlistCount")
+    tag_count: int = Field(default=0, alias="tagCount")
+    protected: bool = False
+
+    model_config = {"populate_by_name": True}
+
+
+class MissingFilesReport(BaseModel):
+    available: bool = True
+    reason: str | None = None
+    total: int = 0
+    missing: int = 0
+    tracks: list[MissingTrack] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
+class RelinkCandidate(BaseModel):
+    file_path: str = Field(alias="filePath")
+    file_name: str = Field(alias="fileName")
+    score: int = 0
+    reason: str = ""
+
+    model_config = {"populate_by_name": True}
+
+
+class MissingRelinkRequest(BaseModel):
+    file_path: str = Field(alias="filePath")
+
+    model_config = {"populate_by_name": True}
+
+
+class MissingActionResponse(BaseModel):
+    content_id: str = Field(alias="contentId")
+    file_path: str | None = Field(default=None, alias="filePath")
+    title: str | None = None
+    artist: str | None = None
+    backup_path: str | None = Field(default=None, alias="backupPath")
+    message: str = ""
+
+    model_config = {"populate_by_name": True}
+
+
 # --- Duplicate detection ---------------------------------------------------
 
 

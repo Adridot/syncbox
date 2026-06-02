@@ -23,7 +23,10 @@ import type {
   LibraryReview,
   LibrarySource,
   LiveImportPackage,
+  MissingActionResponse,
+  MissingFilesReport,
   PathValidation,
+  RelinkCandidate,
   RekordboxBackupsResponse,
   RekordboxCollectionStats,
   RekordboxPlaylist,
@@ -65,6 +68,26 @@ export class ApiClient {
 
   async restoreBackup(name: string): Promise<BackupRestoreResponse> {
     return this.post(`/api/rekordbox/backups/${encodeURIComponent(name)}/restore`, {});
+  }
+
+  async scanMissingFiles(): Promise<MissingFilesReport> {
+    return this.get("/api/rekordbox/missing");
+  }
+
+  async removeMissingEntry(contentId: string): Promise<MissingActionResponse> {
+    return this.post(`/api/rekordbox/missing/${encodeURIComponent(contentId)}/remove`, {});
+  }
+
+  async getRelinkCandidates(contentId: string): Promise<RelinkCandidate[]> {
+    return this.get(`/api/rekordbox/missing/${encodeURIComponent(contentId)}/relink-candidates`);
+  }
+
+  async relinkMissingEntry(contentId: string, filePath: string): Promise<MissingActionResponse> {
+    return this.post(`/api/rekordbox/missing/${encodeURIComponent(contentId)}/relink`, { filePath });
+  }
+
+  async redownloadMissingEntry(contentId: string): Promise<MissingActionResponse> {
+    return this.post(`/api/rekordbox/missing/${encodeURIComponent(contentId)}/redownload`, {});
   }
 
   async scanDuplicates(
