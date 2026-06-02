@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, reactive, ref } from "vue";
 import type { DuplicateGroup, DuplicateResolutionItem } from "../lib/api";
-import { useSystemStore } from "./system";
+import { useApiAction } from "../composables/useApiAction";
 import { useUiStore } from "./ui";
 
 export const useDuplicatesStore = defineStore("duplicates", () => {
@@ -21,6 +21,8 @@ export const useDuplicatesStore = defineStore("duplicates", () => {
   const keeperOverride = reactive<Record<string, string>>({});
   const deleteFiles = reactive<Record<string, boolean>>({});
 
+  const { run } = useApiAction();
+
   const groupCount = computed(() => groups.value.length);
   // Only high-confidence ISRC groups (titles agree) are eligible for the
   // one-click bulk action; mismatched-title ISRC groups (confidence 60) need
@@ -37,10 +39,30 @@ export const useDuplicatesStore = defineStore("duplicates", () => {
     keeperOverride[group.groupId] = contentId;
   }
 
+  function busyFlag(flag: typeof scanning) {
+    return () => {
+      flag.value = true;
+      return () => {
+        flag.value = false;
+      };
+    };
+  }
+
+  function lockGroup(groupId: string) {
+    return () => {
+      resolvingGroupId.value = groupId;
+      return () => {
+        resolvingGroupId.value = null;
+      };
+    };
+  }
+
+  function dropGroups(ids: Set<string>): void {
+    groups.value = groups.value.filter((g) => !ids.has(g.groupId));
+  }
+
   async function scan(): Promise<void> {
-    const system = useSystemStore();
     const ui = useUiStore();
-    if (!system.api) return;
     const strategies: string[] = [];
     if (useIsrc.value) strategies.push("isrc");
     if (useFuzzy.value) strategies.push("fuzzy");
@@ -48,27 +70,24 @@ export const useDuplicatesStore = defineStore("duplicates", () => {
       ui.setMessage("error", "Select at least one detection strategy.");
       return;
     }
-    scanning.value = true;
-    try {
-      const result = await system.api.scanDuplicates(strategies, fuzzyThreshold.value);
-      if (!result.available) {
-        unavailableReason.value = result.reason ?? "Rekordbox database unavailable.";
-        groups.value = [];
-      } else {
-        unavailableReason.value = null;
-        groups.value = result.groups;
-        totalTracks.value = result.totalTracks;
-      }
-      // Reset overrides for groups that no longer exist.
-      for (const key of Object.keys(keeperOverride)) {
-        if (!groups.value.some((g) => g.groupId === key)) delete keeperOverride[key];
-      }
-      scanned.value = true;
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      scanning.value = false;
-    }
+    await run((api) => api.scanDuplicates(strategies, fuzzyThreshold.value), {
+      busy: busyFlag(scanning),
+      onSuccess: (result) => {
+        if (!result.available) {
+          unavailableReason.value = result.reason ?? "Rekordbox database unavailable.";
+          groups.value = [];
+        } else {
+          unavailableReason.value = null;
+          groups.value = result.groups;
+          totalTracks.value = result.totalTracks;
+        }
+        // Reset overrides for groups that no longer exist.
+        for (const key of Object.keys(keeperOverride)) {
+          if (!groups.value.some((g) => g.groupId === key)) delete keeperOverride[key];
+        }
+        scanned.value = true;
+      },
+    });
   }
 
   function buildItem(group: DuplicateGroup, dismiss = false): DuplicateResolutionItem {
@@ -76,77 +95,52 @@ export const useDuplicatesStore = defineStore("duplicates", () => {
     return {
       groupId: group.groupId,
       keeperContentId: keeper,
-      removeContentIds: group.tracks
-        .map((t) => t.contentId)
-        .filter((id) => id !== keeper),
+      removeContentIds: group.tracks.map((t) => t.contentId).filter((id) => id !== keeper),
       deleteFiles: Boolean(deleteFiles[group.groupId]),
       dismiss,
     };
   }
 
   async function resolveGroup(group: DuplicateGroup): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api) return;
-    resolvingGroupId.value = group.groupId;
-    try {
-      const result = await system.api.resolveDuplicates([buildItem(group)]);
-      const parts = [`${result.removedFromRekordbox} removed from Rekordbox`];
-      if (result.filesDeleted) parts.push(`${result.filesDeleted} file(s) deleted`);
-      if (result.relinkedPlaylists || result.relinkedTags) {
-        parts.push(
-          `re-linked ${result.relinkedPlaylists} playlist + ${result.relinkedTags} tag membership(s)`
-        );
-      }
-      if (result.skippedProtected) {
-        parts.push(`${result.skippedProtected} protected file(s) kept on disk`);
-      }
-      ui.setMessage("success", `Resolved. ${parts.join(", ")}. A backup was made.`);
-      groups.value = groups.value.filter((g) => g.groupId !== group.groupId);
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      resolvingGroupId.value = null;
-    }
+    await run((api) => api.resolveDuplicates([buildItem(group)]), {
+      busy: lockGroup(group.groupId),
+      success: (result) => {
+        const parts = [`${result.removedFromRekordbox} removed from Rekordbox`];
+        if (result.filesDeleted) parts.push(`${result.filesDeleted} file(s) deleted`);
+        if (result.relinkedPlaylists || result.relinkedTags) {
+          parts.push(
+            `re-linked ${result.relinkedPlaylists} playlist + ${result.relinkedTags} tag membership(s)`
+          );
+        }
+        if (result.skippedProtected) {
+          parts.push(`${result.skippedProtected} protected file(s) kept on disk`);
+        }
+        return `Resolved. ${parts.join(", ")}. A backup was made.`;
+      },
+      onSuccess: () => dropGroups(new Set([group.groupId])),
+    });
   }
 
   async function dismissGroup(group: DuplicateGroup): Promise<void> {
-    const system = useSystemStore();
     const ui = useUiStore();
-    if (!system.api) return;
-    resolvingGroupId.value = group.groupId;
-    try {
-      await system.api.resolveDuplicates([buildItem(group, true)]);
-      ui.pushToast("info", "Marked as not a duplicate. It won't show up again.");
-      groups.value = groups.value.filter((g) => g.groupId !== group.groupId);
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      resolvingGroupId.value = null;
-    }
+    await run((api) => api.resolveDuplicates([buildItem(group, true)]), {
+      busy: lockGroup(group.groupId),
+      onSuccess: () => {
+        ui.pushToast("info", "Marked as not a duplicate. It won't show up again.");
+        dropGroups(new Set([group.groupId]));
+      },
+    });
   }
 
   async function resolveAllIsrc(): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api) return;
     const targets = groups.value.filter((g) => g.reason === "isrc" && g.confidence >= 99);
     if (targets.length === 0) return;
-    scanning.value = true;
-    try {
-      const items = targets.map((g) => buildItem(g));
-      const result = await system.api.resolveDuplicates(items);
-      ui.setMessage(
-        "success",
-        `Auto-resolved ${targets.length} ISRC group(s): ${result.removedFromRekordbox} removed, ${result.filesDeleted} file(s) deleted. Backup made.`
-      );
-      const done = new Set(targets.map((g) => g.groupId));
-      groups.value = groups.value.filter((g) => !done.has(g.groupId));
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      scanning.value = false;
-    }
+    await run((api) => api.resolveDuplicates(targets.map((g) => buildItem(g))), {
+      busy: busyFlag(scanning),
+      success: (result) =>
+        `Auto-resolved ${targets.length} ISRC group(s): ${result.removedFromRekordbox} removed, ${result.filesDeleted} file(s) deleted. Backup made.`,
+      onSuccess: () => dropGroups(new Set(targets.map((g) => g.groupId))),
+    });
   }
 
   return {

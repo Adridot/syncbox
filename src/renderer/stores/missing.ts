@@ -1,8 +1,7 @@
 import { defineStore } from "pinia";
 import { reactive, ref } from "vue";
 import type { MissingTrack, RelinkCandidate } from "../lib/api";
-import { useSystemStore } from "./system";
-import { useUiStore } from "./ui";
+import { useApiAction } from "../composables/useApiAction";
 
 export const useMissingStore = defineStore("missing", () => {
   const tracks = ref<MissingTrack[]>([]);
@@ -16,28 +15,22 @@ export const useMissingStore = defineStore("missing", () => {
   const busyAction = ref<"remove" | "redownload" | "relink" | null>(null);
   const candidates = reactive<Record<string, RelinkCandidate[]>>({});
   const candidatesLoading = ref<string | null>(null);
+  // Re-download is async (it enqueues an acquisition job visible in Download &
+  // Match); we lock the row as "queued" rather than dropping it.
+  const queued = ref<Set<string>>(new Set());
 
-  async function scan(): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api) return;
-    scanning.value = true;
-    try {
-      const report = await system.api.scanMissingFiles();
-      if (!report.available) {
-        unavailableReason.value = report.reason ?? "Rekordbox database unavailable.";
-        tracks.value = [];
-      } else {
-        unavailableReason.value = null;
-        tracks.value = report.tracks;
-        total.value = report.total;
-      }
-      scanned.value = true;
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      scanning.value = false;
-    }
+  const { run } = useApiAction();
+
+  /** Busy-flag cleanup for a per-track action. */
+  function lock(contentId: string, action: typeof busyAction.value) {
+    return () => {
+      busyId.value = contentId;
+      busyAction.value = action;
+      return () => {
+        busyId.value = null;
+        busyAction.value = null;
+      };
+    };
   }
 
   function drop(contentId: string): void {
@@ -45,77 +38,58 @@ export const useMissingStore = defineStore("missing", () => {
     delete candidates[contentId];
   }
 
+  async function scan(): Promise<void> {
+    scanning.value = true;
+    await run((api) => api.scanMissingFiles(), {
+      onSuccess: (report) => {
+        if (!report.available) {
+          unavailableReason.value = report.reason ?? "Rekordbox database unavailable.";
+          tracks.value = [];
+        } else {
+          unavailableReason.value = null;
+          tracks.value = report.tracks;
+          total.value = report.total;
+        }
+        scanned.value = true;
+      },
+    });
+    scanning.value = false;
+  }
+
   async function remove(track: MissingTrack): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api) return;
-    busyId.value = track.contentId;
-    busyAction.value = "remove";
-    try {
-      const result = await system.api.removeMissingEntry(track.contentId);
-      ui.setMessage("success", result.message + " A backup was made.");
-      drop(track.contentId);
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      busyId.value = null;
-      busyAction.value = null;
-    }
+    await run((api) => api.removeMissingEntry(track.contentId), {
+      busy: lock(track.contentId, "remove"),
+      success: (r) => `${r.message} A backup was made.`,
+      onSuccess: () => drop(track.contentId),
+    });
   }
 
   async function loadCandidates(track: MissingTrack): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api) return;
     candidatesLoading.value = track.contentId;
-    try {
-      candidates[track.contentId] = await system.api.getRelinkCandidates(track.contentId);
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      candidatesLoading.value = null;
-    }
+    await run((api) => api.getRelinkCandidates(track.contentId), {
+      onSuccess: (list) => {
+        candidates[track.contentId] = list;
+      },
+    });
+    candidatesLoading.value = null;
   }
 
   async function relink(track: MissingTrack, filePath: string): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api) return;
-    busyId.value = track.contentId;
-    busyAction.value = "relink";
-    try {
-      const result = await system.api.relinkMissingEntry(track.contentId, filePath);
-      ui.setMessage("success", result.message + " A backup was made.");
-      drop(track.contentId);
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      busyId.value = null;
-      busyAction.value = null;
-    }
+    await run((api) => api.relinkMissingEntry(track.contentId, filePath), {
+      busy: lock(track.contentId, "relink"),
+      success: (r) => `${r.message} A backup was made.`,
+      onSuccess: () => drop(track.contentId),
+    });
   }
 
-  // Re-download is async: it enqueues a real acquisition job (visible in
-  // Download & Match) that re-links the row when the file lands. We mark the
-  // row as queued locally rather than dropping it; a later re-scan clears it.
-  const queued = ref<Set<string>>(new Set());
-
   async function redownload(track: MissingTrack): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api) return;
-    busyId.value = track.contentId;
-    busyAction.value = "redownload";
-    try {
-      const result = await system.api.redownloadMissingEntry(track.contentId);
-      ui.setMessage("success", result.message);
-      queued.value = new Set(queued.value).add(track.contentId);
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      busyId.value = null;
-      busyAction.value = null;
-    }
+    await run((api) => api.redownloadMissingEntry(track.contentId), {
+      busy: lock(track.contentId, "redownload"),
+      success: (r) => r.message,
+      onSuccess: () => {
+        queued.value = new Set(queued.value).add(track.contentId);
+      },
+    });
   }
 
   return {
