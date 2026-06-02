@@ -72,18 +72,25 @@ class SpotifyClient:
         if not all([client_id, redirect_uri, verifier]):
             raise SpotifyAuthError("Spotify OAuth session is incomplete.")
 
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(
-                f"{SPOTIFY_ACCOUNTS_URL}/api/token",
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": redirect_uri,
-                    "client_id": client_id,
-                    "code_verifier": verifier,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    f"{SPOTIFY_ACCOUNTS_URL}/api/token",
+                    data={
+                        "grant_type": "authorization_code",
+                        "code": code,
+                        "redirect_uri": redirect_uri,
+                        "client_id": client_id,
+                        "code_verifier": verifier,
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+        except httpx.HTTPError as exc:
+            # Network/SSL failure reaching Spotify — surface a readable message
+            # instead of a bare 500 (e.g. missing CA bundle in a frozen build).
+            raise SpotifyAuthError(
+                f"Could not reach Spotify to complete sign-in: {exc}"
+            ) from exc
         if response.status_code >= 400:
             raise SpotifyAuthError(response.text)
 
@@ -196,13 +203,16 @@ class SpotifyClient:
 
         async with httpx.AsyncClient(timeout=30) as client:
             for attempt in range(4):
-                response = await client.request(
-                    method,
-                    f"{SPOTIFY_API_URL}{path}",
-                    params=params,
-                    json=json,
-                    headers=headers,
-                )
+                try:
+                    response = await client.request(
+                        method,
+                        f"{SPOTIFY_API_URL}{path}",
+                        params=params,
+                        json=json,
+                        headers=headers,
+                    )
+                except httpx.HTTPError as exc:
+                    raise SpotifyAuthError(f"Could not reach Spotify: {exc}") from exc
                 if response.status_code == 429:
                     retry_after = int(response.headers.get("Retry-After", "1"))
                     await sleep_seconds(retry_after + attempt)

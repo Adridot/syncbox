@@ -114,3 +114,40 @@ def test_playlist_items_to_tracks_skips_local_items() -> None:
 
     assert len(tracks) == 1
     assert tracks[0].isrc == "USRC17607839"
+
+
+def test_exchange_callback_wraps_transport_error(tmp_path, monkeypatch) -> None:
+    import asyncio
+
+    import httpx
+
+    from app.db import LocalDatabase
+    from app.spotify import SpotifyAuthError, SpotifyClient
+
+    db = LocalDatabase(tmp_path / "app.sqlite3")
+    db.migrate()
+    db.set_setting("spotify_oauth_state", "S")
+    db.set_setting("spotify_client_id", "cid")
+    db.set_setting("spotify_redirect_uri", "http://127.0.0.1:8765/api/spotify/callback")
+    db.set_setting("spotify_pkce_verifier", "v" * 60)
+
+    class BoomClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            raise httpx.ConnectError("certificate verify failed")
+
+    monkeypatch.setattr(httpx, "AsyncClient", BoomClient)
+
+    import pytest
+
+    with pytest.raises(SpotifyAuthError) as exc:
+        asyncio.run(SpotifyClient(db).exchange_callback("CODE", "S"))
+    assert "Could not reach Spotify" in str(exc.value)
