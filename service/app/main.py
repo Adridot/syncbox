@@ -332,19 +332,24 @@ def relink_missing_entry(content_id: str, request: MissingRelinkRequest) -> Miss
 
 @app.post("/api/rekordbox/missing/{content_id}/redownload", response_model=MissingActionResponse)
 async def redownload_missing_entry(content_id: str) -> MissingActionResponse:
-    from .missing import redownload_missing_file
+    from .collection_acquisition import enqueue_collection_redownload
 
     adapter = build_rekordbox_adapter()
     try:
-        result = await redownload_missing_file(adapter, content_id)
+        result = await enqueue_collection_redownload(database, adapter, content_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except (ValueError, TimeoutError) as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    logger.info("Re-downloaded missing file for content %s", content_id)
-    return MissingActionResponse(**result)
+    if result["status"] == "acquisition_failed":
+        raise HTTPException(status_code=502, detail=result["message"])
+    logger.info("Queued collection re-download for content %s", content_id)
+    return MissingActionResponse(
+        contentId=content_id,
+        title=result.get("title"),
+        artist=result.get("artist"),
+        message=result["message"],
+    )
 
 
 @app.post("/api/storage/ensure", response_model=StorageLayout)
@@ -1092,6 +1097,14 @@ async def refresh_global_acquisition_state(
                 await refresh_acquisition_jobs(database, event.id)
             except KeyError:
                 continue
+
+    if requested_scope in {"", "collection"}:
+        from .collection_acquisition import sync_collection_jobs
+
+        try:
+            await sync_collection_jobs(database, adapter)
+        except Exception as exc:  # never let one scope's failure break the others
+            logger.warning("collection job sync failed: %s", exc)
 
 
 def enrich_review_with_rekordbox_tracks(review: EventReview) -> EventReview:

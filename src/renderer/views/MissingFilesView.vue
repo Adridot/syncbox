@@ -25,7 +25,8 @@ function isBusy(track: MissingTrack, action: string): boolean {
 }
 
 function anyBusyFor(track: MissingTrack): boolean {
-  return missing.busyId === track.contentId;
+  // Locked while an action runs, or once a re-download has been queued for it.
+  return missing.busyId === track.contentId || missing.queued.has(track.contentId);
 }
 
 async function toggleRelink(track: MissingTrack): Promise<void> {
@@ -42,7 +43,7 @@ async function toggleRelink(track: MissingTrack): Promise<void> {
 async function confirmRedownload(track: MissingTrack): Promise<void> {
   if (
     window.confirm(
-      `Re-download “${track.artist} – ${track.title}” from Deezer into your permanent folder and re-link the collection entry to it?\n\nThis can take up to ~2 minutes. A database backup is made first.`
+      `Re-download “${track.artist} – ${track.title}” from Deezer into your permanent folder?\n\nThis is queued as a download job — watch its progress in Download & Match. When it finishes it automatically re-links the collection entry (Rekordbox must be closed for the re-link).`
     )
   ) {
     await missing.redownload(track);
@@ -157,6 +158,12 @@ async function confirmRemove(track: MissingTrack): Promise<void> {
                 class="rounded bg-error/15 px-1.5 py-0.5 text-[10px] font-semibold text-error"
               >
                 no ISRC
+              </span>
+              <span
+                v-if="missing.queued.has(track.contentId)"
+                class="inline-flex items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary"
+              >
+                <Loader2 :size="10" class="animate-spin" aria-hidden="true" /> Re-download queued
               </span>
             </div>
             <p class="truncate text-xs text-on-surface-variant">{{ track.artist || "—" }}</p>

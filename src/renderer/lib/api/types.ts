@@ -187,7 +187,7 @@ export type LibraryApplyResponse = {
 
 export type GlobalAcquisitionJob = {
   id?: number | null;
-  scope: "event" | "library";
+  scope: "event" | "library" | "collection";
   eventId?: number | null;
   sourceId?: number | null;
   sourceName: string;

@@ -253,6 +253,26 @@ class BaseRepository:
                     group_key TEXT PRIMARY KEY,
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS collection_acquisition_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    deezer_track_id TEXT,
+                    status TEXT NOT NULL,
+                    confidence INTEGER NOT NULL DEFAULT 0,
+                    match_method TEXT,
+                    download_id TEXT,
+                    output_dir TEXT,
+                    error TEXT,
+                    title TEXT NOT NULL DEFAULT '',
+                    artist TEXT NOT NULL DEFAULT '',
+                    isrc TEXT,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(content_id, provider)
+                );
                 """
             )
             now = utc_now()

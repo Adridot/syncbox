@@ -450,7 +450,7 @@ class LibraryApplyResponse(BaseModel):
 
 class GlobalAcquisitionJob(BaseModel):
     id: int | None = None
-    scope: Literal["event", "library"]
+    scope: Literal["event", "library", "collection"]
     event_id: int | None = Field(default=None, alias="eventId")
     source_id: int | None = Field(default=None, alias="sourceId")
     source_name: str = Field(alias="sourceName")

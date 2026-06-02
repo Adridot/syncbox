@@ -95,6 +95,11 @@ export const useMissingStore = defineStore("missing", () => {
     }
   }
 
+  // Re-download is async: it enqueues a real acquisition job (visible in
+  // Download & Match) that re-links the row when the file lands. We mark the
+  // row as queued locally rather than dropping it; a later re-scan clears it.
+  const queued = ref<Set<string>>(new Set());
+
   async function redownload(track: MissingTrack): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -103,8 +108,8 @@ export const useMissingStore = defineStore("missing", () => {
     busyAction.value = "redownload";
     try {
       const result = await system.api.redownloadMissingEntry(track.contentId);
-      ui.setMessage("success", result.message + " A backup was made.");
-      drop(track.contentId);
+      ui.setMessage("success", result.message);
+      queued.value = new Set(queued.value).add(track.contentId);
     } catch (error) {
       ui.setMessage("error", error instanceof Error ? error.message : String(error));
     } finally {
@@ -121,6 +126,7 @@ export const useMissingStore = defineStore("missing", () => {
     unavailableReason,
     busyId,
     busyAction,
+    queued,
     candidates,
     candidatesLoading,
     scan,
