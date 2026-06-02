@@ -56,13 +56,19 @@ DEFAULT_BACKUP_RETENTION = 15
 
 # Reading the whole Rekordbox collection (open SQLCipher + iterate ~1.5k rows)
 # costs ~0.4-0.9s and was happening on *every* event-review load and refresh.
-# Cache the snapshot, keyed on the master.db (+ -wal) mtime/size so it auto-
-# refreshes whenever the database changes (our writes or Rekordbox itself).
+# A single enriched snapshot now backs the library view, collection stats,
+# duplicate detection and missing-file detection — read once, cached, keyed on
+# the master.db (+ -wal) mtime/size so it auto-refreshes whenever the database
+# changes (our writes invalidate it; external Rekordbox edits bump the mtime).
 _LIBRARY_SNAPSHOT_CACHE: dict[str, tuple[Any, dict[str, Any]]] = {}
+# On-disk existence is the only expensive signal (it stats cloud-stored files),
+# so it is cached separately on the same key and computed lazily on first use.
+_FILE_MISSING_CACHE: dict[str, tuple[Any, dict[str, bool]]] = {}
 
 
 def invalidate_library_snapshot_cache() -> None:
     _LIBRARY_SNAPSHOT_CACHE.clear()
+    _FILE_MISSING_CACHE.clear()
 
 
 def _is_transient_db_error(exc: Exception) -> bool:
@@ -344,25 +350,75 @@ class RekordboxAdapter:
         except OSError:
             return False
 
-    def _read_library_snapshot_uncached(self) -> dict[str, Any]:
-        # _read_rekordbox imports pyrekordbox and its try/except below turns any
-        # failure (incl. a missing pyrekordbox) into {available: False, reason}.
+    def _read_collection_uncached(self) -> dict[str, Any]:
+        """Read the whole collection into enriched per-track dicts (one DB open).
+
+        Everything except on-disk existence (the only cloud-I/O signal, computed
+        lazily by ``_file_missing_map``) is gathered here: identity, audio
+        quality, and the cue/playlist/tag counts used for keeper scoring — via
+        one bulk pass over each side table. ``_read_rekordbox``'s try/except
+        degrades any failure (incl. missing pyrekordbox) to {available: False}.
+        """
+        protected_roots = self._protected_roots()
+
         def reader(database: Any) -> dict[str, Any]:
+            from pyrekordbox.db6 import tables
+
+            cue_counts: dict[str, int] = {}
+            for cue in database.get_cue():
+                if is_rekordbox_row_deleted(cue):
+                    continue
+                key = str(getattr(cue, "ContentID", "") or "")
+                cue_counts[key] = cue_counts.get(key, 0) + 1
+
+            playlist_counts: dict[str, int] = {}
+            for row in database.query(tables.DjmdSongPlaylist):
+                if is_rekordbox_row_deleted(row):
+                    continue
+                key = str(getattr(row, "ContentID", "") or "")
+                playlist_counts[key] = playlist_counts.get(key, 0) + 1
+
+            tag_counts: dict[str, int] = {}
+            for row in database.get_my_tag_songs():
+                if is_rekordbox_row_deleted(row):
+                    continue
+                key = str(getattr(row, "ContentID", "") or "")
+                tag_counts[key] = tag_counts.get(key, 0) + 1
+
             tracks = []
             for content in database.get_content():
-                if getattr(content, "rb_local_deleted", 0):
+                if is_rekordbox_row_deleted(content):
                     continue
+                cid = str(content.ID)
+                real_path = resolve_volume_path(
+                    str(getattr(content, "FolderPath", "") or ""),
+                    self.storage_root,
+                )
+                bpm_raw = getattr(content, "BPM", None)
                 tracks.append(
                     {
-                        "contentId": str(content.ID),
+                        "contentId": cid,
                         "title": str(getattr(content, "Title", "") or ""),
                         "artist": str(getattr(content, "ArtistName", "") or ""),
                         "durationMs": content_length_ms(content),
-                        "filePath": resolve_volume_path(
-                            str(getattr(content, "FolderPath", "") or ""),
-                            self.storage_root,
-                        ),
                         "isrc": str(getattr(content, "ISRC", "") or "") or None,
+                        "filePath": real_path,
+                        "fileName": str(getattr(content, "FileNameL", "") or "")
+                        or (Path(real_path).name if real_path else None),
+                        "fileType": _file_type_name(getattr(content, "FileType", None)),
+                        "bitRate": _int_or_none(getattr(content, "BitRate", None)),
+                        "sampleRate": _int_or_none(getattr(content, "SampleRate", None)),
+                        "bitDepth": _int_or_none(getattr(content, "BitDepth", None)),
+                        "fileSize": _int_or_none(getattr(content, "FileSize", None)),
+                        "bpm": (float(bpm_raw) / 100.0) if bpm_raw else None,
+                        "rating": _int_or_none(getattr(content, "Rating", None)),
+                        "cueCount": cue_counts.get(cid, 0),
+                        "playlistCount": playlist_counts.get(cid, 0),
+                        "tagCount": tag_counts.get(cid, 0),
+                        "analysed": bool(getattr(content, "Analysed", 0)),
+                        "protected": path_is_under_roots(real_path, protected_roots),
+                        "dateCreated": str(getattr(content, "DateCreated", "") or "")
+                        or None,
                     }
                 )
             return {"available": True, "tracks": tracks}
@@ -383,61 +439,66 @@ class RekordboxAdapter:
                 parts.append((suffix, 0, 0))
         return tuple(parts)
 
-    def read_library_snapshot(self) -> dict[str, Any]:
-        """Rekordbox collection snapshot, memoised on the master.db mtime/size.
+    def read_collection_snapshot(self) -> dict[str, Any]:
+        """Enriched collection snapshot, memoised on the master.db mtime/size.
 
-        Reading the whole collection costs ~0.4-0.9s; repeated reads (event
-        loads, refreshes, matching) reuse the in-memory snapshot. It is
-        recomputed only when the database file changes (our writes invalidate
-        the cache; external Rekordbox edits bump the file mtime).
+        Single source of truth for the library view, collection stats, duplicate
+        detection and missing-file detection. Recomputed only when the database
+        file changes (our writes invalidate the cache; external Rekordbox edits
+        bump the file mtime).
         """
         cache_id = str(self.database_file)
         key = self._snapshot_cache_key()
         cached = _LIBRARY_SNAPSHOT_CACHE.get(cache_id)
         if cached is not None and cached[0] == key:
             return cached[1]
-        snapshot = self._read_library_snapshot_uncached()
+        snapshot = self._read_collection_uncached()
         if snapshot.get("available"):
             _LIBRARY_SNAPSHOT_CACHE[cache_id] = (key, snapshot)
         return snapshot
 
+    # Back-compat alias: callers that only need identity/path fields.
+    read_library_snapshot = read_collection_snapshot
+
+    def _file_missing_map(self, tracks: list[dict[str, Any]]) -> dict[str, bool]:
+        """contentId -> "file is gone from disk", cached on the DB mtime.
+
+        This is the only signal that touches cloud-stored files, so it is split
+        out of the snapshot and computed once for Duplicates + Missing to share.
+        """
+        cache_id = str(self.database_file)
+        key = self._snapshot_cache_key()
+        cached = _FILE_MISSING_CACHE.get(cache_id)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        missing: dict[str, bool] = {}
+        for track in tracks:
+            path = track.get("filePath")
+            try:
+                missing[str(track["contentId"])] = bool(path) and not Path(path).exists()
+            except OSError:
+                missing[str(track["contentId"])] = False
+        _FILE_MISSING_CACHE[cache_id] = (key, missing)
+        return missing
+
     def collection_stats(self) -> dict[str, Any]:
-        """Aggregate health metrics about the Rekordbox collection."""
-
-        # _read_rekordbox imports pyrekordbox; its try/except below degrades any
-        # failure (incl. a missing pyrekordbox) to {available: False, reason}.
-        def reader(database: Any) -> dict[str, Any]:
-            contents = [
-                content
-                for content in database.get_content()
-                if not is_rekordbox_row_deleted(content)
-            ]
-            tagged_ids = {
-                str(song.ContentID)
-                for song in database.get_my_tag_songs()
-                if not is_rekordbox_row_deleted(song)
-            }
-            total = len(contents)
-            tagged = sum(1 for content in contents if str(content.ID) in tagged_ids)
-            without_isrc = sum(
-                1 for content in contents if not str(getattr(content, "ISRC", "") or "").strip()
-            )
-            without_artist = sum(
-                1 for content in contents if not str(getattr(content, "ArtistName", "") or "").strip()
-            )
-            return {
-                "available": True,
-                "total": total,
-                "tagged": tagged,
-                "untagged": total - tagged,
-                "withoutIsrc": without_isrc,
-                "withoutArtist": without_artist,
-            }
-
-        try:
-            return _read_rekordbox(self.database_dir, reader)
-        except Exception as exc:
-            return {"available": False, "reason": str(exc)}
+        """Aggregate health metrics, derived from the shared cached snapshot."""
+        snapshot = self.read_collection_snapshot()
+        if not snapshot.get("available"):
+            return {"available": False, "reason": snapshot.get("reason")}
+        contents = snapshot["tracks"]
+        total = len(contents)
+        tagged = sum(1 for t in contents if t["tagCount"] > 0)
+        without_isrc = sum(1 for t in contents if not (t.get("isrc") or "").strip())
+        without_artist = sum(1 for t in contents if not (t.get("artist") or "").strip())
+        return {
+            "available": True,
+            "total": total,
+            "tagged": tagged,
+            "untagged": total - tagged,
+            "withoutIsrc": without_isrc,
+            "withoutArtist": without_artist,
+        }
 
     def assert_mutation_ready(self) -> None:
         assert_rekordbox_can_mutate()
@@ -830,87 +891,19 @@ class RekordboxAdapter:
         return [Path(layout.permanent), Path(layout.manual_collection)]
 
     def read_dedup_snapshot(self) -> dict[str, Any]:
-        """Heavier collection read enriched with the signals needed for
-        duplicate detection and keeper scoring (format, bitrate, cues, playlist
-        memberships, tag counts, on-disk existence). Not cached: only run on
-        demand from the Duplicates view, never on the hot refresh path.
+        """Enriched snapshot + on-disk existence, for duplicate / missing-file
+        detection. Derives from the shared cached collection snapshot and only
+        adds the lazily-computed (and separately cached) ``fileMissing`` flag.
         """
-        protected_roots = self._protected_roots()
-
-        def reader(database: Any) -> dict[str, Any]:
-            from pyrekordbox.db6 import tables
-
-            # Per-content aggregate counts (one pass each).
-            cue_counts: dict[str, int] = {}
-            for cue in database.get_cue():
-                if is_rekordbox_row_deleted(cue):
-                    continue
-                key = str(getattr(cue, "ContentID", "") or "")
-                cue_counts[key] = cue_counts.get(key, 0) + 1
-
-            playlist_counts: dict[str, int] = {}
-            for row in database.query(tables.DjmdSongPlaylist):
-                if is_rekordbox_row_deleted(row):
-                    continue
-                key = str(getattr(row, "ContentID", "") or "")
-                playlist_counts[key] = playlist_counts.get(key, 0) + 1
-
-            tag_counts: dict[str, int] = {}
-            for row in database.get_my_tag_songs():
-                if is_rekordbox_row_deleted(row):
-                    continue
-                key = str(getattr(row, "ContentID", "") or "")
-                tag_counts[key] = tag_counts.get(key, 0) + 1
-
-            tracks = []
-            for content in database.get_content():
-                if is_rekordbox_row_deleted(content):
-                    continue
-                cid = str(content.ID)
-                real_path = resolve_volume_path(
-                    str(getattr(content, "FolderPath", "") or ""),
-                    self.storage_root,
-                )
-                missing = False
-                if real_path:
-                    try:
-                        missing = not Path(real_path).exists()
-                    except OSError:
-                        missing = False
-                bpm_raw = getattr(content, "BPM", None)
-                tracks.append(
-                    {
-                        "contentId": cid,
-                        "title": str(getattr(content, "Title", "") or ""),
-                        "artist": str(getattr(content, "ArtistName", "") or ""),
-                        "durationMs": content_length_ms(content),
-                        "isrc": str(getattr(content, "ISRC", "") or "") or None,
-                        "filePath": real_path,
-                        "fileName": str(getattr(content, "FileNameL", "") or "")
-                        or (Path(real_path).name if real_path else None),
-                        "fileType": _file_type_name(getattr(content, "FileType", None)),
-                        "bitRate": _int_or_none(getattr(content, "BitRate", None)),
-                        "sampleRate": _int_or_none(getattr(content, "SampleRate", None)),
-                        "bitDepth": _int_or_none(getattr(content, "BitDepth", None)),
-                        "fileSize": _int_or_none(getattr(content, "FileSize", None)),
-                        "bpm": (float(bpm_raw) / 100.0) if bpm_raw else None,
-                        "rating": _int_or_none(getattr(content, "Rating", None)),
-                        "cueCount": cue_counts.get(cid, 0),
-                        "playlistCount": playlist_counts.get(cid, 0),
-                        "tagCount": tag_counts.get(cid, 0),
-                        "analysed": bool(getattr(content, "Analysed", 0)),
-                        "protected": path_is_under_roots(real_path, protected_roots),
-                        "fileMissing": missing,
-                        "dateCreated": str(getattr(content, "DateCreated", "") or "")
-                        or None,
-                    }
-                )
-            return {"available": True, "tracks": tracks}
-
-        try:
-            return _read_rekordbox(self.database_dir, reader)
-        except Exception as exc:
-            return {"available": False, "reason": str(exc), "tracks": []}
+        snapshot = self.read_collection_snapshot()
+        if not snapshot.get("available"):
+            return {"available": False, "reason": snapshot.get("reason"), "tracks": []}
+        missing = self._file_missing_map(snapshot["tracks"])
+        tracks = [
+            {**track, "fileMissing": missing.get(str(track["contentId"]), False)}
+            for track in snapshot["tracks"]
+        ]
+        return {"available": True, "tracks": tracks}
 
     def scan_duplicates(
         self,

@@ -154,6 +154,56 @@ def test_prune_backups_disabled_when_retention_zero(tmp_path: Path) -> None:
     assert len(adapter.list_backups()) == 4
 
 
+def test_collection_stats_derive_from_shared_snapshot(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    monkeypatch.setattr(
+        adapter,
+        "read_collection_snapshot",
+        lambda: {
+            "available": True,
+            "tracks": [
+                {"contentId": "1", "isrc": "X", "artist": "A", "tagCount": 2},
+                {"contentId": "2", "isrc": "", "artist": "", "tagCount": 0},
+                {"contentId": "3", "isrc": None, "artist": "B", "tagCount": 1},
+            ],
+        },
+    )
+    stats = adapter.collection_stats()
+    assert stats == {
+        "available": True,
+        "total": 3,
+        "tagged": 2,
+        "untagged": 1,
+        "withoutIsrc": 2,
+        "withoutArtist": 1,
+    }
+
+
+def test_read_dedup_snapshot_adds_file_missing(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    present = tmp_path / "here.mp3"
+    present.write_bytes(b"x")
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    monkeypatch.setattr(
+        adapter,
+        "read_collection_snapshot",
+        lambda: {
+            "available": True,
+            "tracks": [
+                {"contentId": "1", "filePath": str(present)},
+                {"contentId": "2", "filePath": str(tmp_path / "gone.mp3")},
+            ],
+        },
+    )
+    snap = adapter.read_dedup_snapshot()
+    by_id = {t["contentId"]: t for t in snap["tracks"]}
+    assert by_id["1"]["fileMissing"] is False
+    assert by_id["2"]["fileMissing"] is True
+
+
 def test_find_missing_files_filters_snapshot(tmp_path: Path, monkeypatch) -> None:
     from app.rekordbox import RekordboxAdapter
 
