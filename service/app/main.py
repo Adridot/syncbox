@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from .config import load_config
 from .diagnostics import run_diagnostics
@@ -30,10 +30,15 @@ from .db import LocalDatabase
 from .models import (
     AcquisitionJob,
     AppSettings,
+    BackupPruneResponse,
     BackupRestoreResponse,
+    DataImportResponse,
     DeemixStatus,
     DeezerSearchResult,
     DiagnosticsReport,
+    DuplicateResolutionRequest,
+    DuplicateResolutionResponse,
+    DuplicateScanResult,
     EventAcquisitionResponse,
     EventApplyResponse,
     EventDeletePreview,
@@ -54,8 +59,15 @@ from .models import (
     LibraryTrackUpdateRequest,
     LiveImportPackage,
     LiveImportRequest,
+    MissingActionResponse,
+    MissingFilesReport,
+    MissingRelinkRequest,
+    RelinkCandidate,
     RekordboxBackup,
+    RekordboxBackupsResponse,
     RekordboxCollectionStats,
+    SettingsBackup,
+    SettingsImportResponse,
     RekordboxTrack,
     RekordboxPlaylist,
     RekordboxTag,
@@ -151,6 +163,69 @@ def save_settings(settings: AppSettings) -> AppSettings:
     return database.save_app_settings(settings)
 
 
+@app.get("/api/settings/export", response_model=SettingsBackup)
+def export_settings() -> SettingsBackup:
+    from datetime import datetime, timezone
+
+    return SettingsBackup(
+        exportedAt=datetime.now(timezone.utc).isoformat(),
+        settings=database.export_settings(),
+    )
+
+
+@app.post("/api/settings/import", response_model=SettingsImportResponse)
+def import_settings(backup: SettingsBackup) -> SettingsImportResponse:
+    if backup.type != "syncbox-settings":
+        raise HTTPException(status_code=400, detail="Not a Syncbox settings backup.")
+    applied = database.import_settings(backup.settings)
+    logger.info("Imported %s setting(s) from backup", applied)
+    return SettingsImportResponse(
+        applied=applied,
+        settings=database.get_app_settings(default_settings()),
+    )
+
+
+@app.get("/api/data/export")
+def export_data() -> FileResponse:
+    from datetime import datetime
+
+    snapshot_dir = Path(config.data_dir) / "exports"
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    snapshot = database.snapshot_to(snapshot_dir / f"syncbox-data-{stamp}.sqlite3")
+    return FileResponse(
+        str(snapshot),
+        media_type="application/octet-stream",
+        filename=f"syncbox-data-{stamp}.sqlite3",
+    )
+
+
+@app.post("/api/data/import", response_model=DataImportResponse)
+async def import_data(request: Request) -> DataImportResponse:
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="No file uploaded.")
+    temp = database.write_temp_upload(body)
+    try:
+        if not database.is_valid_app_database(temp):
+            raise HTTPException(
+                status_code=400,
+                detail="That file is not a valid Syncbox data backup.",
+            )
+        safety = database.replace_with(temp)
+        database.migrate()
+    finally:
+        try:
+            temp.unlink()
+        except OSError:
+            pass
+    logger.info("Imported full app database (safety backup: %s)", safety)
+    return DataImportResponse(
+        restored=True,
+        safetyBackupPath=str(safety),
+        message="All data restored. A safety backup of the previous data was made.",
+    )
+
+
 @app.get("/api/rekordbox/status")
 def rekordbox_status() -> Any:
     return build_rekordbox_adapter().status()
@@ -166,9 +241,29 @@ async def diagnostics() -> DiagnosticsReport:
     return await run_diagnostics(database, build_rekordbox_adapter())
 
 
-@app.get("/api/rekordbox/backups", response_model=list[RekordboxBackup])
-def list_rekordbox_backups() -> list[dict[str, Any]]:
-    return build_rekordbox_adapter().list_backups()
+@app.get("/api/rekordbox/backups", response_model=RekordboxBackupsResponse)
+def list_rekordbox_backups() -> RekordboxBackupsResponse:
+    adapter = build_rekordbox_adapter()
+    backups = adapter.list_backups()
+    return RekordboxBackupsResponse(
+        backups=[RekordboxBackup(**b) for b in backups],
+        readable=adapter._backups_readable,
+        retention=adapter._backup_retention,
+        totalSizeBytes=sum(int(b.get("sizeBytes", 0) or 0) for b in backups),
+    )
+
+
+@app.post("/api/rekordbox/backups/prune", response_model=BackupPruneResponse)
+def prune_rekordbox_backups() -> BackupPruneResponse:
+    report = build_rekordbox_adapter().prune_backups()
+    if report["removed"]:
+        logger.info("Pruned %s old backup(s)", report["removed"])
+    return BackupPruneResponse(
+        removed=report["removed"],
+        kept=report["kept"],
+        freedBytes=report["freedBytes"],
+        readable=report["readable"],
+    )
 
 
 @app.post("/api/rekordbox/backups/{name}/restore", response_model=BackupRestoreResponse)
@@ -183,6 +278,144 @@ def restore_rekordbox_backup(name: str) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info("Restored Rekordbox backup %s (%s files)", name, result["restoredFiles"])
     return result
+
+
+@app.get("/api/rekordbox/duplicates", response_model=DuplicateScanResult)
+def scan_duplicates(
+    strategies: str = Query(default="isrc,fuzzy"),
+    fuzzyThreshold: float = Query(default=0.87, ge=0.5, le=1.0),
+) -> DuplicateScanResult:
+    selected = [s.strip() for s in strategies.split(",") if s.strip() in {"isrc", "fuzzy"}]
+    if not selected:
+        selected = ["isrc"]
+    dismissed = database.get_dismissed_dedup_keys()
+    try:
+        result = build_rekordbox_adapter().scan_duplicates(
+            strategies=selected,
+            fuzzy_threshold=fuzzyThreshold,
+            dismissed=dismissed,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return DuplicateScanResult(**result)
+
+
+@app.post("/api/rekordbox/duplicates/resolve", response_model=DuplicateResolutionResponse)
+def resolve_duplicates(request: DuplicateResolutionRequest) -> DuplicateResolutionResponse:
+    # Persist "not a duplicate" dismissals first (cheap, local DB only).
+    dismissed_count = 0
+    actionable = []
+    for item in request.items:
+        if item.dismiss:
+            key = item.group_id or "|".join(
+                sorted({item.keeper_content_id, *item.remove_content_ids})
+            )
+            database.add_dismissed_dedup_key(key)
+            dismissed_count += 1
+        else:
+            actionable.append(item)
+
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.resolve_duplicates(actionable, dry_run=request.dry_run)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        # e.g. RekordboxRunningError — cannot mutate while RB is open.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    result["dismissed"] = dismissed_count
+    if not request.dry_run:
+        logger.info(
+            "Resolved duplicates: removed=%s files=%s relinked_pl=%s relinked_tag=%s dismissed=%s",
+            result["removedFromRekordbox"],
+            result["filesDeleted"],
+            result["relinkedPlaylists"],
+            result["relinkedTags"],
+            dismissed_count,
+        )
+    return DuplicateResolutionResponse(**result)
+
+
+@app.get("/api/rekordbox/missing", response_model=MissingFilesReport)
+def scan_missing_files() -> MissingFilesReport:
+    try:
+        result = build_rekordbox_adapter().find_missing_files()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return MissingFilesReport(**result)
+
+
+@app.post("/api/rekordbox/missing/{content_id}/remove", response_model=MissingActionResponse)
+def remove_missing_entry(content_id: str) -> MissingActionResponse:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.remove_content(content_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return MissingActionResponse(
+        contentId=content_id,
+        backupPath=result.get("backupPath"),
+        message="Removed the orphaned entry from the Rekordbox collection.",
+    )
+
+
+@app.get(
+    "/api/rekordbox/missing/{content_id}/relink-candidates",
+    response_model=list[RelinkCandidate],
+)
+def missing_relink_candidates(content_id: str) -> list[RelinkCandidate]:
+    adapter = build_rekordbox_adapter()
+    try:
+        candidates = adapter.find_relink_candidates(content_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return [RelinkCandidate(**c) for c in candidates]
+
+
+@app.post("/api/rekordbox/missing/{content_id}/relink", response_model=MissingActionResponse)
+def relink_missing_entry(content_id: str, request: MissingRelinkRequest) -> MissingActionResponse:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.relink_content(content_id, request.file_path)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return MissingActionResponse(
+        contentId=content_id,
+        filePath=result.get("filePath"),
+        backupPath=result.get("backupPath"),
+        message="Re-linked the collection entry to the existing file.",
+    )
+
+
+@app.post("/api/rekordbox/missing/{content_id}/redownload", response_model=MissingActionResponse)
+async def redownload_missing_entry(content_id: str) -> MissingActionResponse:
+    from .collection_acquisition import enqueue_collection_redownload
+
+    adapter = build_rekordbox_adapter()
+    try:
+        result = await enqueue_collection_redownload(database, adapter, content_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result["status"] == "acquisition_failed":
+        raise HTTPException(status_code=502, detail=result["message"])
+    logger.info("Queued collection re-download for content %s", content_id)
+    return MissingActionResponse(
+        contentId=content_id,
+        title=result.get("title"),
+        artist=result.get("artist"),
+        message=result["message"],
+    )
 
 
 @app.post("/api/storage/ensure", response_model=StorageLayout)
@@ -838,7 +1071,6 @@ def default_settings() -> AppSettings:
         spotifyRedirectUri=f"http://127.0.0.1:{config.api_port}/api/spotify/callback",
         rekordboxDatabaseDir=str(config.rekordbox_database_dir),
         storageRoot=str(config.storage_root),
-        apiPort=config.api_port,
     )
 
 
@@ -849,6 +1081,7 @@ def build_rekordbox_adapter() -> RekordboxAdapter:
         storage_root=Path(settings.storage_root),
         permanent_path=settings.permanent_path,
         manual_collection_path=settings.manual_collection_path,
+        backup_retention=settings.backup_retention,
     )
 
 
@@ -929,6 +1162,14 @@ async def refresh_global_acquisition_state(
                 await refresh_acquisition_jobs(database, event.id)
             except KeyError:
                 continue
+
+    if requested_scope in {"", "collection"}:
+        from .collection_acquisition import sync_collection_jobs
+
+        try:
+            await sync_collection_jobs(database, adapter)
+        except Exception as exc:  # never let one scope's failure break the others
+            logger.warning("collection job sync failed: %s", exc)
 
 
 def enrich_review_with_rekordbox_tracks(review: EventReview) -> EventReview:

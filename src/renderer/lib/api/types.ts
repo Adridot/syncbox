@@ -39,9 +39,27 @@ export type AppSettings = {
   spotifyRedirectUri: string;
   rekordboxDatabaseDir: string;
   storageRoot: string;
-  apiPort: number;
   permanentPath: string;
   manualCollectionPath: string;
+  backupRetention: number;
+};
+
+export type SettingsBackup = {
+  type: string;
+  version: number;
+  exportedAt: string;
+  settings: Record<string, string>;
+};
+
+export type SettingsImportResponse = {
+  applied: number;
+  settings: AppSettings;
+};
+
+export type DataImportResponse = {
+  restored: boolean;
+  safetyBackupPath: string | null;
+  message: string;
 };
 
 export type StorageLayout = {
@@ -186,7 +204,7 @@ export type LibraryApplyResponse = {
 
 export type GlobalAcquisitionJob = {
   id?: number | null;
-  scope: "event" | "library";
+  scope: "event" | "library" | "collection";
   eventId?: number | null;
   sourceId?: number | null;
   sourceName: string;
@@ -212,6 +230,20 @@ export type RekordboxBackup = {
   fileCount: number;
 };
 
+export type RekordboxBackupsResponse = {
+  backups: RekordboxBackup[];
+  readable: boolean;
+  retention: number;
+  totalSizeBytes: number;
+};
+
+export type BackupPruneResponse = {
+  removed: number;
+  kept: number;
+  freedBytes: number;
+  readable: boolean;
+};
+
 export type BackupRestoreResponse = {
   restored: string;
   restoredFiles: number;
@@ -232,6 +264,107 @@ export type DiagnosticsReport = {
   status: DiagnosticStatus;
   generatedAt: string;
   checks: DiagnosticCheck[];
+};
+
+export type DuplicateTrack = {
+  contentId: string;
+  title: string;
+  artist: string;
+  durationMs: number | null;
+  isrc: string | null;
+  filePath: string | null;
+  fileName: string | null;
+  fileType: string | null;
+  bitRate: number | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
+  fileSize: number | null;
+  bpm: number | null;
+  rating: number | null;
+  cueCount: number;
+  playlistCount: number;
+  tagCount: number;
+  analysed: boolean;
+  protected: boolean;
+  fileMissing: boolean;
+  dateCreated: string | null;
+  qualityScore: number;
+  isKeeper: boolean;
+};
+
+export type DuplicateGroup = {
+  groupId: string;
+  reason: "isrc" | "fuzzy";
+  confidence: number;
+  note: string | null;
+  keeperContentId: string;
+  tracks: DuplicateTrack[];
+};
+
+export type DuplicateScanResult = {
+  available: boolean;
+  reason: string | null;
+  totalTracks: number;
+  strategies: string[];
+  groups: DuplicateGroup[];
+};
+
+export type DuplicateResolutionItem = {
+  groupId?: string;
+  keeperContentId: string;
+  removeContentIds: string[];
+  deleteFiles?: boolean;
+  dismiss?: boolean;
+};
+
+export type MissingTrack = {
+  contentId: string;
+  title: string;
+  artist: string;
+  durationMs: number | null;
+  isrc: string | null;
+  filePath: string | null;
+  fileName: string | null;
+  fileType: string | null;
+  playlistCount: number;
+  tagCount: number;
+  protected: boolean;
+};
+
+export type MissingFilesReport = {
+  available: boolean;
+  reason: string | null;
+  total: number;
+  missing: number;
+  tracks: MissingTrack[];
+};
+
+export type RelinkCandidate = {
+  filePath: string;
+  fileName: string;
+  score: number;
+  reason: string;
+};
+
+export type MissingActionResponse = {
+  contentId: string;
+  filePath: string | null;
+  title: string | null;
+  artist: string | null;
+  backupPath: string | null;
+  message: string;
+};
+
+export type DuplicateResolutionResponse = {
+  backupPath: string | null;
+  removedFromRekordbox: number;
+  filesDeleted: number;
+  relinkedPlaylists: number;
+  relinkedTags: number;
+  skippedProtected: number;
+  dismissed: number;
+  dryRun: boolean;
+  warnings: string[];
 };
 
 export type AuthUrlResponse = {

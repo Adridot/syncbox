@@ -2,10 +2,15 @@ import type {
   AcquisitionJob,
   AppSettings,
   AuthUrlResponse,
+  BackupPruneResponse,
   BackupRestoreResponse,
+  DataImportResponse,
   DeemixStatus,
   DeezerSearchResult,
   DiagnosticsReport,
+  DuplicateResolutionItem,
+  DuplicateResolutionResponse,
+  DuplicateScanResult,
   EventAcquisitionResponse,
   EventApplyResponse,
   EventDeletePreview,
@@ -19,9 +24,14 @@ import type {
   LibraryReview,
   LibrarySource,
   LiveImportPackage,
+  MissingActionResponse,
+  MissingFilesReport,
   PathValidation,
-  RekordboxBackup,
+  RelinkCandidate,
+  RekordboxBackupsResponse,
   RekordboxCollectionStats,
+  SettingsBackup,
+  SettingsImportResponse,
   RekordboxPlaylist,
   RekordboxStatus,
   RekordboxTag,
@@ -51,12 +61,54 @@ export class ApiClient {
     return this.get("/api/diagnostics");
   }
 
-  async listBackups(): Promise<RekordboxBackup[]> {
+  async listBackups(): Promise<RekordboxBackupsResponse> {
     return this.get("/api/rekordbox/backups");
+  }
+
+  async pruneBackups(): Promise<BackupPruneResponse> {
+    return this.post("/api/rekordbox/backups/prune", {});
   }
 
   async restoreBackup(name: string): Promise<BackupRestoreResponse> {
     return this.post(`/api/rekordbox/backups/${encodeURIComponent(name)}/restore`, {});
+  }
+
+  async scanMissingFiles(): Promise<MissingFilesReport> {
+    return this.get("/api/rekordbox/missing");
+  }
+
+  async removeMissingEntry(contentId: string): Promise<MissingActionResponse> {
+    return this.post(`/api/rekordbox/missing/${encodeURIComponent(contentId)}/remove`, {});
+  }
+
+  async getRelinkCandidates(contentId: string): Promise<RelinkCandidate[]> {
+    return this.get(`/api/rekordbox/missing/${encodeURIComponent(contentId)}/relink-candidates`);
+  }
+
+  async relinkMissingEntry(contentId: string, filePath: string): Promise<MissingActionResponse> {
+    return this.post(`/api/rekordbox/missing/${encodeURIComponent(contentId)}/relink`, { filePath });
+  }
+
+  async redownloadMissingEntry(contentId: string): Promise<MissingActionResponse> {
+    return this.post(`/api/rekordbox/missing/${encodeURIComponent(contentId)}/redownload`, {});
+  }
+
+  async scanDuplicates(
+    strategies: string[],
+    fuzzyThreshold: number
+  ): Promise<DuplicateScanResult> {
+    const query = new URLSearchParams({
+      strategies: strategies.join(","),
+      fuzzyThreshold: String(fuzzyThreshold),
+    });
+    return this.get(`/api/rekordbox/duplicates?${query.toString()}`);
+  }
+
+  async resolveDuplicates(
+    items: DuplicateResolutionItem[],
+    dryRun = false
+  ): Promise<DuplicateResolutionResponse> {
+    return this.post("/api/rekordbox/duplicates/resolve", { items, dryRun });
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -65,6 +117,28 @@ export class ApiClient {
 
   async saveSettings(settings: AppSettings): Promise<AppSettings> {
     return this.post("/api/settings", settings);
+  }
+
+  async exportSettings(): Promise<SettingsBackup> {
+    return this.get("/api/settings/export");
+  }
+
+  async importSettings(backup: SettingsBackup): Promise<SettingsImportResponse> {
+    return this.post("/api/settings/import", backup);
+  }
+
+  /** Absolute URL of the full-database export (for a direct download). */
+  dataExportUrl(): string {
+    return `${this.baseUrl}/api/data/export`;
+  }
+
+  async importData(file: File): Promise<DataImportResponse> {
+    const response = await fetch(`${this.baseUrl}/api/data/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    });
+    return this.parse<DataImportResponse>(response);
   }
 
   async ensureStorage(): Promise<StorageLayout> {

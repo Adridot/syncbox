@@ -150,6 +150,111 @@ class AcquisitionMixin:
                 params,
             )
 
+    # --- Collection (missing-file re-download) jobs ----------------------
+    # Keyed on Rekordbox content_id rather than an event/library + spotify id,
+    # but funnels into the same global job stream + Download & Match view.
+
+    _COLLECTION_UPDATABLE = {
+        "deezer_track_id",
+        "status",
+        "confidence",
+        "match_method",
+        "download_id",
+        "output_dir",
+        "error",
+        "title",
+        "artist",
+        "isrc",
+        "payload_json",
+    }
+
+    def upsert_collection_job(self, content_id: str, job: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now()
+        payload = job.get("payload", {})
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                INSERT INTO collection_acquisition_jobs (
+                    content_id, provider, deezer_track_id, status, confidence,
+                    match_method, download_id, output_dir, error, title, artist,
+                    isrc, payload_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(content_id, provider) DO UPDATE SET
+                    deezer_track_id = excluded.deezer_track_id,
+                    status = excluded.status,
+                    confidence = excluded.confidence,
+                    match_method = excluded.match_method,
+                    download_id = excluded.download_id,
+                    output_dir = excluded.output_dir,
+                    error = excluded.error,
+                    title = excluded.title,
+                    artist = excluded.artist,
+                    isrc = excluded.isrc,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                RETURNING *
+                """,
+                (
+                    str(content_id),
+                    job.get("provider", "deemix"),
+                    job.get("deezer_track_id"),
+                    job["status"],
+                    int(job.get("confidence", 0)),
+                    job.get("match_method"),
+                    job.get("download_id"),
+                    job.get("output_dir"),
+                    job.get("error"),
+                    job.get("title", ""),
+                    job.get("artist", ""),
+                    job.get("isrc"),
+                    json.dumps(payload if isinstance(payload, dict) else {}),
+                    now,
+                    now,
+                ),
+            ).fetchone()
+        return _collection_job_to_dict(row)
+
+    def list_collection_jobs(self, provider: str | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM collection_acquisition_jobs"
+        params: list[Any] = []
+        if provider:
+            query += " WHERE provider = ?"
+            params.append(provider)
+        query += " ORDER BY id"
+        with self.connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [_collection_job_to_dict(row) for row in rows]
+
+    def get_collection_job(
+        self, content_id: str, provider: str = "deemix"
+    ) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM collection_acquisition_jobs WHERE content_id = ? AND provider = ?",
+                (str(content_id), provider),
+            ).fetchone()
+        return _collection_job_to_dict(row) if row else None
+
+    def update_collection_job(
+        self, content_id: str, provider: str = "deemix", **values: Any
+    ) -> None:
+        if "payload" in values:
+            payload = values.pop("payload")
+            values["payload_json"] = json.dumps(payload if isinstance(payload, dict) else {})
+        updates = {k: v for k, v in values.items() if k in self._COLLECTION_UPDATABLE}
+        if not updates:
+            return
+        updates["updated_at"] = utc_now()
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        params = [*updates.values(), str(content_id), provider]
+        with self.connect() as connection:
+            connection.execute(
+                f"UPDATE collection_acquisition_jobs SET {assignments} "
+                "WHERE content_id = ? AND provider = ?",
+                params,
+            )
+
     # --- Global / cross-cutting acquisition queries ---------------------
 
     def list_global_acquisition_jobs(
@@ -235,6 +340,39 @@ class AcquisitionMixin:
                 """
             )
             params.extend(library_params)
+        if scope in (None, "collection"):
+            collection_filters = ""
+            collection_params: list[Any] = []
+            if status:
+                collection_filters += " AND jobs.status = ?"
+                collection_params.append(status)
+            if source:
+                collection_filters += " AND jobs.title LIKE ?"
+                collection_params.append(f"%{source}%")
+            queries.append(
+                f"""
+                SELECT jobs.id,
+                       'collection' AS scope,
+                       NULL AS event_id,
+                       NULL AS source_id,
+                       'Missing files' AS source_name,
+                       jobs.content_id AS spotify_track_id,
+                       jobs.title AS track_title,
+                       json_array(jobs.artist) AS artists_json,
+                       jobs.provider,
+                       jobs.deezer_track_id,
+                       jobs.status,
+                       jobs.confidence,
+                       jobs.match_method,
+                       jobs.download_id,
+                       jobs.output_dir,
+                       jobs.error,
+                       jobs.updated_at
+                FROM collection_acquisition_jobs jobs
+                WHERE 1 = 1{collection_filters}
+                """
+            )
+            params.extend(collection_params)
         if not queries:
             return []
         query = " UNION ALL ".join(queries)
@@ -262,4 +400,34 @@ class AcquisitionMixin:
                     terminal,
                 )
                 cleared += cursor.rowcount
+            if scope in (None, "collection"):
+                cursor = connection.execute(
+                    f"DELETE FROM collection_acquisition_jobs WHERE status IN ({placeholders})",
+                    terminal,
+                )
+                cleared += cursor.rowcount
         return cleared
+
+
+def _collection_job_to_dict(row: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    try:
+        payload = json.loads(str(row["payload_json"] or "{}"))
+    except (json.JSONDecodeError, TypeError):
+        payload = {}
+    return {
+        "id": int(row["id"]),
+        "content_id": str(row["content_id"]),
+        "provider": str(row["provider"]),
+        "deezer_track_id": row["deezer_track_id"],
+        "status": str(row["status"]),
+        "confidence": int(row["confidence"] or 0),
+        "match_method": row["match_method"],
+        "download_id": row["download_id"],
+        "output_dir": row["output_dir"],
+        "error": row["error"],
+        "title": str(row["title"] or ""),
+        "artist": str(row["artist"] or ""),
+        "isrc": row["isrc"],
+        "payload": payload if isinstance(payload, dict) else {},
+    }

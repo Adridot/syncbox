@@ -2,6 +2,13 @@ import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import {
+  ensureDeemixRunning,
+  getDeemixStatus,
+  installDeemix,
+  launchDeemix,
+  findDeemixApp,
+} from "./deemix.js";
 
 /**
  * Auto-update is scaffolded but dormant: it only runs in a packaged build when
@@ -179,6 +186,24 @@ ipcMain.handle("app:open-logs", async () => {
   return dir;
 });
 
+// --- Deemix provisioning ---------------------------------------------------
+ipcMain.handle("deemix:status", () => getDeemixStatus(app.getPath("home")));
+ipcMain.handle("deemix:launch", async () => {
+  const appPath = findDeemixApp(app.getPath("home"));
+  if (!appPath) throw new Error("Deemix Remastered is not installed.");
+  launchDeemix(appPath);
+  return getDeemixStatus(app.getPath("home"));
+});
+ipcMain.handle("deemix:install", async (event) => {
+  const status = await installDeemix(
+    app.getPath("home"),
+    (stage: string, percent: number | null) => {
+      event.sender.send("deemix:progress", { stage, percent });
+    }
+  );
+  return status;
+});
+
 function buildAppMenu(): void {
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -209,6 +234,9 @@ app.whenReady().then(() => {
   startPythonService();
   createWindow();
   void checkForUpdates();
+  // Start the Deemix downloader in the background if it's installed, so its
+  // local API (port 6595) is ready without the user launching it by hand.
+  void ensureDeemixRunning(app.getPath("home"));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

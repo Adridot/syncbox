@@ -105,6 +105,151 @@ def test_backup_list_and_restore_roundtrip(tmp_path: Path, monkeypatch) -> None:
     assert len(adapter.list_backups()) == 2
 
 
+def test_prune_backups_keeps_newest(tmp_path: Path) -> None:
+    import os
+
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(
+        database_dir=tmp_path / "db",
+        storage_root=tmp_path / "store",
+        backup_retention=3,
+    )
+    backup_root = Path(adapter.storage_layout().backups)
+    backup_root.mkdir(parents=True, exist_ok=True)
+    # Create 5 backups with strictly increasing mtimes so "newest" is unambiguous.
+    names = []
+    for i in range(5):
+        d = backup_root / f"rekordbox-db-2026010{i}-000000"
+        d.mkdir()
+        (d / "master.db").write_bytes(b"x")
+        os.utime(d, (1000 + i, 1000 + i))
+        names.append(d.name)
+
+    report = adapter.prune_backups()
+    assert report["removed"] == 2
+    assert report["kept"] == 3
+    remaining = {b["name"] for b in adapter.list_backups()}
+    # The two oldest are gone; the three newest remain.
+    assert remaining == set(names[2:])
+
+
+def test_prune_backups_disabled_when_retention_zero(tmp_path: Path) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(
+        database_dir=tmp_path / "db",
+        storage_root=tmp_path / "store",
+        backup_retention=0,
+    )
+    backup_root = Path(adapter.storage_layout().backups)
+    backup_root.mkdir(parents=True, exist_ok=True)
+    for i in range(4):
+        d = backup_root / f"rekordbox-db-2026010{i}-000000"
+        d.mkdir()
+        (d / "master.db").write_bytes(b"x")
+
+    report = adapter.prune_backups()
+    assert report["removed"] == 0
+    assert len(adapter.list_backups()) == 4
+
+
+def test_collection_stats_derive_from_shared_snapshot(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    monkeypatch.setattr(
+        adapter,
+        "read_collection_snapshot",
+        lambda: {
+            "available": True,
+            "tracks": [
+                {"contentId": "1", "isrc": "X", "artist": "A", "tagCount": 2},
+                {"contentId": "2", "isrc": "", "artist": "", "tagCount": 0},
+                {"contentId": "3", "isrc": None, "artist": "B", "tagCount": 1},
+            ],
+        },
+    )
+    stats = adapter.collection_stats()
+    assert stats == {
+        "available": True,
+        "total": 3,
+        "tagged": 2,
+        "untagged": 1,
+        "withoutIsrc": 2,
+        "withoutArtist": 1,
+    }
+
+
+def test_read_dedup_snapshot_adds_file_missing(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    present = tmp_path / "here.mp3"
+    present.write_bytes(b"x")
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    monkeypatch.setattr(
+        adapter,
+        "read_collection_snapshot",
+        lambda: {
+            "available": True,
+            "tracks": [
+                {"contentId": "1", "filePath": str(present)},
+                {"contentId": "2", "filePath": str(tmp_path / "gone.mp3")},
+            ],
+        },
+    )
+    snap = adapter.read_dedup_snapshot()
+    by_id = {t["contentId"]: t for t in snap["tracks"]}
+    assert by_id["1"]["fileMissing"] is False
+    assert by_id["2"]["fileMissing"] is True
+
+
+def test_find_missing_files_filters_snapshot(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+
+    def fake_snapshot() -> dict:
+        common = {
+            "durationMs": 1000,
+            "isrc": None,
+            "fileName": "x.mp3",
+            "fileType": "MP3",
+            "playlistCount": 0,
+            "tagCount": 0,
+            "protected": False,
+        }
+        return {
+            "available": True,
+            "tracks": [
+                {"contentId": "1", "title": "Present", "artist": "A", "filePath": "/x/a.mp3", "fileMissing": False, **common},
+                {"contentId": "2", "title": "Gone", "artist": "B", "filePath": "/x/b.mp3", "fileMissing": True, **common},
+                {"contentId": "3", "title": "Also Gone", "artist": "A", "filePath": "/x/c.mp3", "fileMissing": True, **common},
+            ],
+        }
+
+    monkeypatch.setattr(adapter, "read_dedup_snapshot", fake_snapshot)
+    report = adapter.find_missing_files()
+    assert report["total"] == 3
+    assert report["missing"] == 2
+    ids = {t["contentId"] for t in report["tracks"]}
+    assert ids == {"2", "3"}
+    # Sorted by artist then title: A/Also Gone before B/Gone.
+    assert report["tracks"][0]["contentId"] == "3"
+
+
+def test_find_missing_files_propagates_unavailable(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    monkeypatch.setattr(
+        adapter, "read_dedup_snapshot", lambda: {"available": False, "reason": "boom", "tracks": []}
+    )
+    report = adapter.find_missing_files()
+    assert report["available"] is False
+    assert report["reason"] == "boom"
+
+
 def test_restore_backup_rejects_path_traversal(tmp_path: Path) -> None:
     import pytest
 

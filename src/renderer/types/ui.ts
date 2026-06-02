@@ -5,6 +5,8 @@ export type ViewKey =
   | "library"
   | "events"
   | "downloadCenter"
+  | "duplicates"
+  | "missing"
   | "doctor"
   | "settings";
 

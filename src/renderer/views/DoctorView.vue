@@ -6,19 +6,29 @@ import {
   Loader2,
   RefreshCw,
   RotateCcw,
+  Trash2,
   XCircle,
 } from "@lucide/vue";
 import { onMounted } from "vue";
 import type { DiagnosticStatus } from "../lib/api";
 import { useDoctorStore } from "../stores/doctor";
+import { useSettingsStore } from "../stores/settings";
 import { useSystemStore } from "../stores/system";
 
 const doctor = useDoctorStore();
+const settings = useSettingsStore();
 const system = useSystemStore();
 
 onMounted(() => {
   if (system.api) doctor.refresh();
 });
+
+async function saveRetention(value: number): Promise<void> {
+  const n = Math.max(0, Math.floor(Number(value) || 0));
+  settings.settings.backupRetention = n;
+  await settings.save();
+  await doctor.refresh();
+}
 
 const statusIcon: Record<DiagnosticStatus, unknown> = {
   ok: CheckCircle2,
@@ -130,12 +140,57 @@ async function confirmRestore(name: string): Promise<void> {
 
       <!-- Backups -->
       <section class="rounded-xl border border-outline-variant bg-surface-container">
-        <h2 class="border-b border-outline-variant px-5 py-3 text-sm font-bold text-on-surface">
-          Rekordbox backups
-          <span class="font-normal text-on-surface-variant">— restore a previous collection state</span>
-        </h2>
+        <div class="flex flex-wrap items-center gap-3 border-b border-outline-variant px-5 py-3">
+          <h2 class="text-sm font-bold text-on-surface">
+            Rekordbox backups
+            <span class="font-normal text-on-surface-variant">— restore a previous collection state</span>
+          </h2>
+          <div class="ml-auto flex items-center gap-3">
+            <label class="flex items-center gap-1.5 text-xs text-on-surface-variant">
+              Keep last
+              <input
+                type="number"
+                min="0"
+                class="w-16 rounded border border-outline bg-surface px-2 py-1 text-xs text-on-surface"
+                :value="settings.settings.backupRetention"
+                @change="saveRetention(($event.target as HTMLInputElement).valueAsNumber)"
+              />
+              backups
+            </label>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded border border-outline bg-surface px-3 py-1.5 text-xs font-semibold text-on-surface hover:border-error hover:text-error disabled:opacity-60"
+              :disabled="doctor.pruning || !doctor.backupsReadable"
+              @click="doctor.prune()"
+            >
+              <Loader2 v-if="doctor.pruning" :size="13" class="animate-spin" aria-hidden="true" />
+              <Trash2 v-else :size="13" aria-hidden="true" />
+              Clean up old backups
+            </button>
+          </div>
+        </div>
+
+        <p
+          v-if="doctor.backups.length > 0"
+          class="border-b border-outline-variant px-5 py-2 text-xs text-on-surface-variant"
+        >
+          {{ doctor.backups.length }} backup(s) · {{ formatBytes(doctor.backupsTotalBytes) }} total ·
+          rotation keeps the {{ doctor.backupRetention || "∞" }} newest, oldest deleted automatically.
+        </p>
+
         <div
-          v-if="doctor.backups.length === 0"
+          v-if="!doctor.backupsReadable"
+          class="flex items-start gap-2 px-5 py-6 text-sm text-tertiary"
+        >
+          <AlertTriangle :size="18" class="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>
+            The backups folder exists but can’t be read here — this happens in the dev build because
+            macOS blocks a terminal-launched process from listing cloud-storage folders. Your backups
+            are safe; the packaged Syncbox app lists and manages them normally.
+          </span>
+        </div>
+        <div
+          v-else-if="doctor.backups.length === 0"
           class="px-5 py-6 text-center text-sm text-on-surface-variant"
         >
           No backups yet. One is created automatically before every change Syncbox applies.

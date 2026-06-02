@@ -33,6 +33,8 @@ export const useUiStore = defineStore("ui", () => {
     if (activeView.value === "library") return "My Library";
     if (activeView.value === "events") return "Events";
     if (activeView.value === "downloadCenter") return "Download & Match Center";
+    if (activeView.value === "duplicates") return "Duplicates";
+    if (activeView.value === "missing") return "Missing Files";
     if (activeView.value === "doctor") return "Doctor";
     return "Settings";
   });

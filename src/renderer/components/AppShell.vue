@@ -2,6 +2,8 @@
 import {
   CalendarDays,
   Cog,
+  Copy,
+  FileSearch,
   LayoutDashboard,
   Library,
   ListChecks,
@@ -21,7 +23,9 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "library", label: "My Library", icon: Library },
   { key: "events", label: "Events", icon: CalendarDays },
-  { key: "downloadCenter", label: "Download & Match", icon: ListChecks }
+  { key: "downloadCenter", label: "Download & Match", icon: ListChecks },
+  { key: "duplicates", label: "Duplicates", icon: Copy },
+  { key: "missing", label: "Missing Files", icon: FileSearch }
 ];
 </script>
 

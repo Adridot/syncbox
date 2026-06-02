@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { defineAsyncComponent, onMounted } from "vue";
 import AppShell from "./components/AppShell.vue";
 import ToastCenter from "./components/ToastCenter.vue";
 import DashboardView from "./views/DashboardView.vue";
-import DoctorView from "./views/DoctorView.vue";
-import DownloadMatchCenterView from "./views/DownloadMatchCenterView.vue";
-import EventsView from "./views/EventsView.vue";
-import LibraryView from "./views/LibraryView.vue";
-import SettingsView from "./views/SettingsView.vue";
+// Secondary views are code-split: each lands in its own chunk and is fetched
+// only when first navigated to, keeping the initial renderer bundle lean.
+const DoctorView = defineAsyncComponent(() => import("./views/DoctorView.vue"));
+const DownloadMatchCenterView = defineAsyncComponent(
+  () => import("./views/DownloadMatchCenterView.vue")
+);
+const DuplicatesView = defineAsyncComponent(() => import("./views/DuplicatesView.vue"));
+const EventsView = defineAsyncComponent(() => import("./views/EventsView.vue"));
+const LibraryView = defineAsyncComponent(() => import("./views/LibraryView.vue"));
+const MissingFilesView = defineAsyncComponent(() => import("./views/MissingFilesView.vue"));
+const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
 import { useRefreshManager } from "./composables/useRefreshManager";
 import { useEventsStore } from "./stores/events";
 import { useLibraryStore } from "./stores/library";
@@ -52,6 +58,8 @@ onMounted(async () => {
     <LibraryView v-else-if="ui.activeView === 'library'" />
     <EventsView v-else-if="ui.activeView === 'events'" />
     <DownloadMatchCenterView v-else-if="ui.activeView === 'downloadCenter'" />
+    <DuplicatesView v-else-if="ui.activeView === 'duplicates'" />
+    <MissingFilesView v-else-if="ui.activeView === 'missing'" />
     <DoctorView v-else-if="ui.activeView === 'doctor'" />
     <SettingsView v-else />
   </AppShell>
