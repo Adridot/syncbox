@@ -11,15 +11,25 @@ auto-updating release.
 
 | Command | Output | Use |
 |---------|--------|-----|
-| `npm run dist` | `release/mac*/Syncbox.app` (unsigned, `--dir`) | Fast local testing |
-| `npm run dist:dmg` | `release/Syncbox-<version>.dmg` | Shareable installer (still unsigned by default) |
+| `npm run dist` | `release/mac-arm64/Syncbox.app` (unsigned, `--dir`) | Fast local testing |
+| `npm run dist:dmg` | `release/Syncbox-<version>-arm64.dmg` | Shareable installer (still unsigned by default) |
 
 Both first run `npm run build` (renderer + main + preload) and
 `npm run build:service` (PyInstaller binary into `service/dist/syncbox-service`).
 
+> Requires **Node ≥ 20** — the bundler uses `crypto.hash`.
+
+`build:service` collects, besides the app's own modules, a few packages whose
+data PyInstaller can't infer: `pyrekordbox`, `sqlcipher3`, `uvicorn`, `mutagen`,
+`pydantic`, and — importantly — **`certifi` / `httpx` / `httpcore`** so the
+bundled service ships a CA bundle. Without it every outbound HTTPS call (Spotify
+token exchange, Deezer search) fails SSL verification in the packaged app.
+
 The bundled service is spawned by the main process from
 `process.resourcesPath/syncbox-service/syncbox-service`; the seed DB is copied
-on first launch (see `electron/main.ts`).
+on first launch (see `electron/main.ts`). The Electron main process also
+auto-launches (or one-click-installs) **Deemix Remastered** — see
+`electron/deemix.ts`.
 
 ### Unsigned `.dmg` caveat
 
@@ -29,6 +39,23 @@ unsigned build the user must **right-click → Open** once, or run:
 ```bash
 xattr -dr com.apple.quarantine /Applications/Syncbox.app
 ```
+
+### Publishing an (unsigned) release to GitHub
+
+The current public builds are unsigned and published by hand with the `gh` CLI:
+
+```bash
+npm run dist:dmg
+gh release create v<version> \
+  "release/Syncbox-<version>-arm64.dmg" \
+  --repo Adridot/syncbox \
+  --title "Syncbox <version>" \
+  --notes "…release notes…"
+```
+
+The README's **Install** section links to
+<https://github.com/Adridot/syncbox/releases>. For a hands-off, signed,
+auto-updating feed instead, see §2–§3 below.
 
 ---
 

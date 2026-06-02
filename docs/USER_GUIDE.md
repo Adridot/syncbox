@@ -1,97 +1,126 @@
 # User Guide
 
-## Current V2 Workflow
+Day-to-day use of Syncbox. For architecture and developer details see the
+[README](../README.md); for packaging see [DISTRIBUTION.md](DISTRIBUTION.md).
 
-Syncbox now supports the first end-to-end event import workflow: Spotify playlist analysis, Rekordbox matching, manual file staging, and guarded Rekordbox application while Rekordbox is closed.
+## First run
 
-## Main Screens
+1. **Install Syncbox** (`.dmg` from Releases → drag to Applications;
+   right-click → Open the first time, it's unsigned).
+2. **Connect Spotify** — Settings → paste your **Client ID**, click **Connect
+   Spotify**, approve in the browser. Add this exact redirect URI in the
+   [Spotify Developer Dashboard](https://developer.spotify.com/dashboard):
 
-### Overview
+   ```text
+   http://127.0.0.1:8765/api/spotify/callback
+   ```
 
-Shows the local API status, the active Rekordbox database path, and whether Rekordbox mutations are allowed.
+3. **Set up the downloader** — Settings → *Deemix downloader*. If Deemix
+   Remastered isn't installed, click **Install Deemix**; otherwise Syncbox
+   launches it automatically. Paste your Deezer **ARL** into Deemix once.
+4. **Check the paths** — Settings: Rekordbox database directory, storage root,
+   and your permanent / manual-collection folders. Save (the managed folders are
+   created automatically).
+5. **Run the Doctor** (sidebar → Doctor) to confirm everything is green.
 
-If Rekordbox is open, the app shows `Write lock active`. This is expected. Any write to the Rekordbox database must wait until Rekordbox and `rekordboxAgent` are closed.
+## The write lock
 
-### Imports
+Any change to your Rekordbox database requires **Rekordbox (and
+`rekordboxAgent`) to be closed**. While Rekordbox is open, Syncbox shows a write
+lock and read-only features still work, but Apply / Delete / Resolve / Re-link
+are blocked. `rekordboxAgent` keeps running in the background after you close the
+Rekordbox window — quit it from the menu bar if a write is still blocked.
 
-Use this screen to prepare an event import.
+## Screens
 
-1. Connect Spotify from Settings.
-2. Click `Load Spotify Playlists`.
-3. Select a playlist from the list.
-4. Set or adjust the event name.
-5. Click `Analyze Import`.
+### Dashboard
+Status at a glance: permanent playlists, events, pending proposals, active
+downloads, and the health of the Local API / Rekordbox / Deemix.
 
-Analysis creates an event review with matched, missing, ambiguous, ignored, and ready tracks.
+### My Library
+Your **permanent** Spotify sources.
+1. Add a source (a Spotify playlist) and give it **tag rules** (the MyTags its
+   tracks should get).
+2. **Analyze** → each track is matched against your Rekordbox collection.
+3. For missing tracks, **Search Deezer**, preview, and **Download**.
+4. When the file lands the track becomes **ready**; **Apply** (Rekordbox closed)
+   adds + tags it.
+5. Later re-syncs surface removed tracks as *proposals* — never auto-applied.
 
-### Live Rekordbox Import
+### Events
+A **temporary** import (a wedding, a party).
+1. Create the event from a Spotify playlist and pick its **event tag**.
+2. Match / stage tracks (download or assign existing files).
+3. **Apply** → tags every track and builds a smart playlist under *Event
+   Imports*.
+4. **Delete event** afterwards → removes the tag, the smart playlist, and tracks
+   that *only* belonged to this event; its on-disk folder (audio included) is
+   deleted. Anything in your permanent/manual collection is always kept.
 
-Use this flow while Rekordbox is open.
+### Live import
+For use **while Rekordbox is open**: generates an `.m3u8` you import with
+`File > Import > Import Playlist`. No database write.
 
-1. Set the event name in Imports.
-2. Click `Prepare Folder`.
-3. Drop local audio files into the generated `audio` folder.
-4. Click `Prepare Folder` again to refresh the `.m3u8` playlist.
-5. In Rekordbox, import the generated `.m3u8` file with `File > Import > Import Playlist`.
+### Download & Match
+Every download job in one place — from My Library, Events, and missing-file
+re-downloads — with live progress, plus tools to match a finished download to
+the track that asked for it.
 
-This flow does not write to `master.db`. It creates a Rekordbox-compatible playlist file that Rekordbox imports itself. My Tags and direct Rekordbox database updates remain part of the closed-app sync flow.
+### Duplicates
+Find duplicate tracks Rekordbox's native tool misses.
+1. **Scan collection** (choose ISRC / fuzzy and the similarity threshold).
+2. Each group shows a suggested **keeper** (best quality / most cues / permanent
+   copy) — change it with the radio button if you disagree.
+3. **Keep selected** removes the others (their playlist & tag memberships move to
+   the keeper). Tick *Delete files* to also remove the loser's audio (never for
+   protected/permanent files). **Not a duplicate** dismisses a group for good.
+4. *Auto-resolve N ISRC groups* handles the high-confidence ones in one click.
+   Groups flagged *"same ISRC but titles differ"* are excluded — review those by
+   hand.
 
-### Review
+### Missing Files
+Collection entries whose audio file is gone.
+- **Re-download** — queues a download (watch it in Download & Match) that
+  re-links the entry when done (Rekordbox closed).
+- **Re-link** — pick a moved/renamed file already on disk.
+- **Remove** — drop an orphaned entry (e.g. `spotify:track:` junk).
 
-Use this screen to work through an event review.
+### Doctor
+Health checks + your safety net:
+- **Diagnostics** for Rekordbox DB, storage, disk space, Deemix, Spotify, backups.
+- **Backups** — every change makes one automatically; here you can **Restore** a
+  previous state, set how many to **keep** (rotation), and **clean up** old ones.
+- **Open Logs**.
 
-1. Open an analyzed event.
-2. Drop missing files into the event audio folder.
-3. Click `Scan Staging`.
-4. Mark tracks as permanent when they should become part of the long-term collection.
-5. Add existing MyTags as comma-separated values.
-6. Close Rekordbox.
-7. Click `Apply to Rekordbox`.
-
-Applying an event creates a database backup, imports staged files, applies the event MyTag, and creates a smart playlist based on that event MyTag. Existing business MyTags must already exist in Rekordbox. The event MyTag is the only MyTag the app may create automatically.
-
-Shows proposed actions such as:
-
-- Add a missing Spotify track to Rekordbox.
-- Manually match an ambiguous track.
-- Protect a manual collection track.
-- Propose a deletion without applying it automatically.
-
-No destructive action is automatic.
-
-### Tag Rules
-
-Maps a Spotify source playlist to default Rekordbox tags. Event imports always use the event name as the first default tag; tag rules add extra default tags.
-
-The tag-to-Spotify mapping section links existing Rekordbox MyTags to Spotify playlists. Permanent tracks are added to mapped Spotify playlists after event application.
+> Running the dev build from a terminal, the backups folder may show as
+> *unreadable* (macOS blocks listing cloud-storage folders from a terminal
+> process). The packaged app lists them normally.
 
 ### Settings
+- **Spotify** — Client ID, redirect URI, Connect.
+- **Deemix downloader** — install / launch status.
+- **Rekordbox & storage** — database directory, storage root, permanent &
+  manual-collection folders. *Storage locations* shows where downloads land.
+- **Backup & Restore** — see below.
 
-Stores:
+## Backup & restore
 
-- Spotify Client ID.
-- Spotify redirect URI.
-- Rekordbox database directory.
-- Dropbox storage root.
+Settings already survive app updates (they live in *Application Support*).
+**Backup & Restore** (Settings) makes them portable for a clean reinstall or a
+new Mac:
 
-The redirect URI must exactly match the value configured in the Spotify Developer Dashboard.
+- **Settings only** → a small `.json` (paths, Spotify client id + tokens,
+  retention). Export/Import.
+- **All data** → the whole app database (sources, events, tag rules, mappings +
+  settings). Export downloads a `.sqlite3`; Restore replaces your data after a
+  confirmation and makes a safety backup first.
 
-## Spotify Setup
+## Managed storage
 
-Add this exact redirect URI in the Spotify Developer Dashboard:
-
-```text
-http://127.0.0.1:8765/api/spotify/callback
-```
-
-Then paste the Client ID into Settings and click `Connect Spotify`.
-
-## Managed Storage
-
-The app creates this structure under the configured Dropbox music root:
+Syncbox keeps downloads under your storage root:
 
 ```text
-Jockey Tricolore/Musique/
+<storageRoot>/
   rekordbox/
     Collection/            # canonical permanent collection (permanentPath)
     Collection manuelle/   # manual collection (manualCollectionPath), protected
@@ -101,9 +130,10 @@ Jockey Tricolore/Musique/
     backups/
 ```
 
-Tracks in the manual collection are protected from automatic deletion proposals.
+Tracks in the permanent and manual collections are **protected** — never
+auto-deleted, and re-downloads land there with clean names.
 
-> **Note:** Syncbox never *moves* audio files (macOS TCC blocks file operations
-> on Dropbox CloudStorage from the service). Apply references each downloaded
-> file where it already is; consolidating files into `rekordbox/Collection` is a
-> separate, explicit step run via `service/scripts/migrate_collection.py`.
+> Syncbox never *moves* audio files (macOS TCC blocks file operations on Dropbox
+> CloudStorage from the service). Apply references each downloaded file where it
+> is; consolidating into `rekordbox/Collection` is a separate, explicit step via
+> `service/scripts/migrate_collection.py`.
