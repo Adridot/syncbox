@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import shutil
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from ..models import (
     EventDeletePreview,
     EventDeleteResponse,
@@ -443,6 +444,37 @@ class RekordboxAdapter:
         if not self.database_file.exists():
             raise FileNotFoundError(f"Rekordbox database not found: {self.database_file}")
 
+    @contextmanager
+    def _mutate(self) -> Iterator[tuple[Any, Any, Path]]:
+        """Unit-of-work for a Rekordbox DB mutation.
+
+        Asserts it is safe to mutate (Rekordbox closed, DB present), snapshots a
+        backup, opens the pyrekordbox database, and yields ``(database, tables,
+        backup_path)``. On clean exit it commits and invalidates the collection
+        snapshot cache; on any exception it rolls back and re-raises. The
+        connection is always closed. Replaces the assert/backup/open/try/commit/
+        except/rollback/finally/close boilerplate every mutation used to repeat.
+        """
+        self.assert_mutation_ready()
+        backup_path = self.backup_database()
+        try:
+            from pyrekordbox import Rekordbox6Database
+            from pyrekordbox.db6 import tables
+        except Exception as exc:
+            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
+
+        database = Rekordbox6Database(db_dir=str(self.database_dir))
+        try:
+            yield database, tables, backup_path
+            database.commit()
+            invalidate_library_snapshot_cache()
+        except Exception:
+            if hasattr(database, "rollback"):
+                database.rollback()
+            raise
+        finally:
+            database.close()
+
     def list_tags(self) -> list[RekordboxTag]:
         try:
             from pyrekordbox import Rekordbox6Database
@@ -493,104 +525,94 @@ class RekordboxAdapter:
             database.close()
 
     def apply_event_import(self, review: EventReview) -> dict[str, Any]:
-        self.assert_mutation_ready()
-        backup_path = self.backup_database()
-
-        try:
-            from pyrekordbox import Rekordbox6Database
-            from pyrekordbox.db6 import tables
-            from pyrekordbox.db6.smartlist import Operator, SmartList
-        except Exception as exc:
-            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
-
+        # Rekordbox can overwrite masterPlaylists6.xml during our writes; snapshot
+        # it so we can restore it whether the transaction succeeds or fails.
         xml_path = self.database_dir / "masterPlaylists6.xml"
-        xml_backup: bytes | None = None
-        if xml_path.exists():
-            xml_backup = xml_path.read_bytes()
+        xml_backup: bytes | None = xml_path.read_bytes() if xml_path.exists() else None
 
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
         imported = 0
         tagged = 0
         event_playlist_name = review.event_name
         try:
-            event_tag = ensure_event_my_tag(
-                database,
-                tables,
-                review.default_tag,
-                EVENT_MY_TAG_CATEGORY_NAME,
-            )
+            with self._mutate() as (database, tables, backup_path):
+                from pyrekordbox.db6.smartlist import Operator, SmartList
 
-            all_content = list(database.get_content())
-            content_by_id = {
-                str(content.ID): content
-                for content in all_content
-                if not is_rekordbox_row_deleted(content)
-            }
-            content_by_path = content_path_lookup(
-                (
-                    content
+                event_tag = ensure_event_my_tag(
+                    database,
+                    tables,
+                    review.default_tag,
+                    EVENT_MY_TAG_CATEGORY_NAME,
+                )
+
+                all_content = list(database.get_content())
+                content_by_id = {
+                    str(content.ID): content
                     for content in all_content
                     if not is_rekordbox_row_deleted(content)
-                ),
-                self.storage_root,
-            )
-            deleted_content_by_path = content_path_lookup(
-                (content for content in all_content if is_rekordbox_row_deleted(content)),
-                self.storage_root,
-            )
+                }
+                content_by_path = content_path_lookup(
+                    (
+                        content
+                        for content in all_content
+                        if not is_rekordbox_row_deleted(content)
+                    ),
+                    self.storage_root,
+                )
+                deleted_content_by_path = content_path_lookup(
+                    (content for content in all_content if is_rekordbox_row_deleted(content)),
+                    self.storage_root,
+                )
 
-            for track in review.tracks:
-                if track.status not in {"matched", "ready"}:
-                    continue
-                content = None
-                if track.rekordbox_content_id:
-                    content = content_by_id.get(str(track.rekordbox_content_id))
-                if content is None and track.staging_file_path:
-                    file_path = Path(track.staging_file_path)
-                    content = find_content_by_path(
-                        content_by_path, file_path, self.storage_root
-                    )
-                    if content is None:
+                for track in review.tracks:
+                    if track.status not in {"matched", "ready"}:
+                        continue
+                    content = None
+                    if track.rekordbox_content_id:
+                        content = content_by_id.get(str(track.rekordbox_content_id))
+                    if content is None and track.staging_file_path:
+                        file_path = Path(track.staging_file_path)
                         content = find_content_by_path(
-                            deleted_content_by_path, file_path, self.storage_root
+                            content_by_path, file_path, self.storage_root
                         )
-                        if content is not None:
-                            reactivate_rekordbox_row(content)
-                            imported += 1
-                        else:
-                            content = add_rekordbox_content(
-                                database,
-                                tables,
-                                str(file_path),
-                                artist=", ".join(track.artists),
-                                storage_root=self.storage_root,
-                                Title=track.title,
-                                ISRC=track.isrc or "",
-                                Length=max(1, round(track.duration_ms / 1000)),
+                        if content is None:
+                            content = find_content_by_path(
+                                deleted_content_by_path, file_path, self.storage_root
                             )
-                            imported += 1
-                        content_by_id[str(content.ID)] = content
-                        for key in path_lookup_keys(file_path, self.storage_root):
-                            content_by_path[key] = content
+                            if content is not None:
+                                reactivate_rekordbox_row(content)
+                                imported += 1
+                            else:
+                                content = add_rekordbox_content(
+                                    database,
+                                    tables,
+                                    str(file_path),
+                                    artist=", ".join(track.artists),
+                                    storage_root=self.storage_root,
+                                    Title=track.title,
+                                    ISRC=track.isrc or "",
+                                    Length=max(1, round(track.duration_ms / 1000)),
+                                )
+                                imported += 1
+                            content_by_id[str(content.ID)] = content
+                            for key in path_lookup_keys(file_path, self.storage_root):
+                                content_by_path[key] = content
 
-                if content is None:
-                    raise RuntimeError(f"Could not resolve Rekordbox content for {track.title}.")
+                    if content is None:
+                        raise RuntimeError(f"Could not resolve Rekordbox content for {track.title}.")
 
-                ensure_content_tag(database, tables, content, event_tag)
-                tagged += 1
+                    ensure_content_tag(database, tables, content, event_tag)
+                    tagged += 1
 
-            playlist = ensure_event_smart_playlist(
-                database,
-                name=event_playlist_name,
-                event_tag=event_tag,
-                operator=int(Operator.CONTAINS),
-                smart_list_class=SmartList,
-            )
-            event_playlist_name = str(getattr(playlist, "Name", event_playlist_name))
+                playlist = ensure_event_smart_playlist(
+                    database,
+                    name=event_playlist_name,
+                    event_tag=event_tag,
+                    operator=int(Operator.CONTAINS),
+                    smart_list_class=SmartList,
+                )
+                event_playlist_name = str(getattr(playlist, "Name", event_playlist_name))
 
-            database.commit()
-            invalidate_library_snapshot_cache()
-
+            # Committed. Restore the XML snapshot pyrekordbox may have rewritten.
             if xml_backup is not None:
                 xml_path.write_bytes(xml_backup)
 
@@ -601,28 +623,16 @@ class RekordboxAdapter:
                 "smart_playlist": event_playlist_name,
             }
         except Exception:
-            if hasattr(database, "rollback"):
-                database.rollback()
+            # _mutate already rolled the DB back; just restore the XML snapshot.
             if xml_backup is not None and xml_path.exists():
                 xml_path.write_bytes(xml_backup)
             raise
-        finally:
-            database.close()
 
     def repair_event_import_structure(self, review: EventReview) -> dict[str, Any]:
-        self.assert_mutation_ready()
-        backup_path = self.backup_database()
-
-        try:
-            from pyrekordbox import Rekordbox6Database
-            from pyrekordbox.db6 import tables
-            from pyrekordbox.db6.smartlist import Operator, SmartList
-        except Exception as exc:
-            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
-
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
         event_playlist_name = review.event_name
-        try:
+        with self._mutate() as (database, tables, backup_path):
+            from pyrekordbox.db6.smartlist import Operator, SmartList
+
             event_tag = ensure_event_my_tag(
                 database,
                 tables,
@@ -636,7 +646,6 @@ class RekordboxAdapter:
                 operator=int(Operator.CONTAINS),
                 smart_list_class=SmartList,
             )
-            database.commit()
             return {
                 "backup_path": str(backup_path),
                 "tag_id": str(event_tag.ID),
@@ -645,12 +654,6 @@ class RekordboxAdapter:
                 "playlist": str(getattr(playlist, "Name", event_playlist_name)),
                 "playlist_folder": EVENT_IMPORTS_PLAYLIST_FOLDER_NAME,
             }
-        except Exception:
-            if hasattr(database, "rollback"):
-                database.rollback()
-            raise
-        finally:
-            database.close()
 
     def preview_event_delete(self, review: EventReview) -> EventDeletePreview:
         # Read-only: opens the DB to compute what *would* be deleted. It must
@@ -681,16 +684,7 @@ class RekordboxAdapter:
             database.close()
 
     def delete_event_import(self, review: EventReview) -> EventDeleteResponse:
-        self.assert_mutation_ready()
-        backup_path = self.backup_database()
-
-        try:
-            from pyrekordbox import Rekordbox6Database
-        except Exception as exc:
-            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
-
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
-        try:
+        with self._mutate() as (database, _tables, backup_path):
             plan = build_event_delete_plan(
                 database,
                 event_tag_name=review.default_tag,
@@ -707,137 +701,115 @@ class RekordboxAdapter:
                 mark_rekordbox_row_deleted(row)
             for row in plan["event_playlist_rows"]:
                 mark_rekordbox_row_deleted(row)
-            database.commit()
-            invalidate_library_snapshot_cache()
 
-            # Remove the event playlist from the exported XML. Cover both the
-            # current name (event name) and the legacy "<name> - Smart".
-            _remove_playlist_from_xml(self.database_dir, review.default_tag)
-            _remove_playlist_from_xml(self.database_dir, f"{review.default_tag} - Smart")
+        # After commit: remove the event playlist from the exported XML. Cover
+        # both the current name (event name) and the legacy "<name> - Smart".
+        _remove_playlist_from_xml(self.database_dir, review.default_tag)
+        _remove_playlist_from_xml(self.database_dir, f"{review.default_tag} - Smart")
 
-            preview = event_delete_preview_from_plan(review, plan)
-            return EventDeleteResponse(
-                **preview.model_dump(by_alias=True),
-                backupPath=str(backup_path),
-                deletedFromRekordbox=len(plan["delete_contents"]),
-                removedEventTags=len(plan["event_tag_rows"]),
-                localEventDeleted=True,
-            )
-        except Exception:
-            if hasattr(database, "rollback"):
-                database.rollback()
-            raise
-        finally:
-            database.close()
+        preview = event_delete_preview_from_plan(review, plan)
+        return EventDeleteResponse(
+            **preview.model_dump(by_alias=True),
+            backupPath=str(backup_path),
+            deletedFromRekordbox=len(plan["delete_contents"]),
+            removedEventTags=len(plan["event_tag_rows"]),
+            localEventDeleted=True,
+        )
 
     def apply_library_import(self, review: Any) -> dict[str, Any]:
-        self.assert_mutation_ready()
-        backup_path = self.backup_database()
-
-        try:
-            from pyrekordbox import Rekordbox6Database
-            from pyrekordbox.db6 import tables
-        except Exception as exc:
-            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
-
         xml_path = self.database_dir / "masterPlaylists6.xml"
-        xml_backup: bytes | None = None
-        if xml_path.exists():
-            xml_backup = xml_path.read_bytes()
+        xml_backup: bytes | None = xml_path.read_bytes() if xml_path.exists() else None
 
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
         imported = 0
         tagged = 0
         try:
-            all_tags = {
-                str(tag.Name): tag
-                for tag in database.get_my_tag()
-                if not getattr(tag, "rb_local_deleted", 0)
-            }
-            requested_tags = {
-                tag_name
-                for track in review.tracks
-                if track.status in {"matched", "ready"}
-                for tag_name in track.tags
-                if tag_name.strip()
-            }
-            missing_tags = sorted(tag_name for tag_name in requested_tags if tag_name not in all_tags)
-            if missing_tags:
-                raise RuntimeError(
-                    "These MyTags must already exist before applying the library import: "
-                    + ", ".join(missing_tags)
+            with self._mutate() as (database, tables, backup_path):
+                all_tags = {
+                    str(tag.Name): tag
+                    for tag in database.get_my_tag()
+                    if not getattr(tag, "rb_local_deleted", 0)
+                }
+                requested_tags = {
+                    tag_name
+                    for track in review.tracks
+                    if track.status in {"matched", "ready"}
+                    for tag_name in track.tags
+                    if tag_name.strip()
+                }
+                missing_tags = sorted(
+                    tag_name for tag_name in requested_tags if tag_name not in all_tags
                 )
+                if missing_tags:
+                    raise RuntimeError(
+                        "These MyTags must already exist before applying the library import: "
+                        + ", ".join(missing_tags)
+                    )
 
-            all_content = list(database.get_content())
-            content_by_id = {
-                str(content.ID): content
-                for content in all_content
-                if not is_rekordbox_row_deleted(content)
-            }
-            content_by_path = content_path_lookup(
-                (
-                    content
+                all_content = list(database.get_content())
+                content_by_id = {
+                    str(content.ID): content
                     for content in all_content
                     if not is_rekordbox_row_deleted(content)
-                ),
-                self.storage_root,
-            )
-            deleted_content_by_path = content_path_lookup(
-                (content for content in all_content if is_rekordbox_row_deleted(content)),
-                self.storage_root,
-            )
+                }
+                content_by_path = content_path_lookup(
+                    (
+                        content
+                        for content in all_content
+                        if not is_rekordbox_row_deleted(content)
+                    ),
+                    self.storage_root,
+                )
+                deleted_content_by_path = content_path_lookup(
+                    (content for content in all_content if is_rekordbox_row_deleted(content)),
+                    self.storage_root,
+                )
 
-            for track in review.tracks:
-                if track.status not in {"matched", "ready"}:
-                    continue
-                content = None
-                if track.rekordbox_content_id:
-                    content = content_by_id.get(str(track.rekordbox_content_id))
-                if content is None and track.staging_file_path:
-                    # The app never moves files: macOS TCC blocks file operations
-                    # on Dropbox/iCloud CloudStorage from this process. Reference
-                    # the downloaded file where it already is; consolidation into
-                    # the canonical Collection is done by migrate_collection.py.
-                    file_path = Path(track.staging_file_path)
-                    content = find_content_by_path(
-                        content_by_path, file_path, self.storage_root
-                    )
-                    if content is None:
+                for track in review.tracks:
+                    if track.status not in {"matched", "ready"}:
+                        continue
+                    content = None
+                    if track.rekordbox_content_id:
+                        content = content_by_id.get(str(track.rekordbox_content_id))
+                    if content is None and track.staging_file_path:
+                        # The app never moves files: macOS TCC blocks file ops on
+                        # Dropbox/iCloud CloudStorage from this process. Reference
+                        # the downloaded file where it already is; consolidation
+                        # into the canonical Collection is done by migrate_collection.
+                        file_path = Path(track.staging_file_path)
                         content = find_content_by_path(
-                            deleted_content_by_path, file_path, self.storage_root
+                            content_by_path, file_path, self.storage_root
                         )
-                        if content is not None:
-                            reactivate_rekordbox_row(content)
-                            imported += 1
-                        else:
-                            content = add_rekordbox_content(
-                                database,
-                                tables,
-                                str(file_path),
-                                artist=", ".join(track.artists),
-                                storage_root=self.storage_root,
-                                Title=track.title,
-                                ISRC=track.isrc or "",
-                                Length=max(1, round(track.duration_ms / 1000)),
+                        if content is None:
+                            content = find_content_by_path(
+                                deleted_content_by_path, file_path, self.storage_root
                             )
-                            imported += 1
-                        content_by_id[str(content.ID)] = content
-                        for key in path_lookup_keys(file_path, self.storage_root):
-                            content_by_path[key] = content
+                            if content is not None:
+                                reactivate_rekordbox_row(content)
+                                imported += 1
+                            else:
+                                content = add_rekordbox_content(
+                                    database,
+                                    tables,
+                                    str(file_path),
+                                    artist=", ".join(track.artists),
+                                    storage_root=self.storage_root,
+                                    Title=track.title,
+                                    ISRC=track.isrc or "",
+                                    Length=max(1, round(track.duration_ms / 1000)),
+                                )
+                                imported += 1
+                            content_by_id[str(content.ID)] = content
+                            for key in path_lookup_keys(file_path, self.storage_root):
+                                content_by_path[key] = content
 
-                if content is None:
-                    raise RuntimeError(f"Could not resolve Rekordbox content for {track.title}.")
+                    if content is None:
+                        raise RuntimeError(f"Could not resolve Rekordbox content for {track.title}.")
 
-                for tag_name in dict.fromkeys(track.tags):
-                    ensure_content_tag(database, tables, content, all_tags[tag_name])
-                    tagged += 1
+                    for tag_name in dict.fromkeys(track.tags):
+                        ensure_content_tag(database, tables, content, all_tags[tag_name])
+                        tagged += 1
 
-            if imported > 0 or tagged > 0:
-                database.commit()
-                invalidate_library_snapshot_cache()
-            else:
-                database.rollback()
-
+            # Committed. Restore the XML snapshot pyrekordbox may have rewritten.
             if xml_backup is not None:
                 xml_path.write_bytes(xml_backup)
 
@@ -847,13 +819,9 @@ class RekordboxAdapter:
                 "tagged": tagged,
             }
         except Exception:
-            if hasattr(database, "rollback"):
-                database.rollback()
             if xml_backup is not None and xml_path.exists():
                 xml_path.write_bytes(xml_backup)
             raise
-        finally:
-            database.close()
 
     # --- Duplicate detection -------------------------------------------------
 
@@ -1057,74 +1025,29 @@ class RekordboxAdapter:
         if not new_path.exists() or not new_path.is_file():
             raise FileNotFoundError(f"File does not exist: {file_path}")
 
-        self.assert_mutation_ready()
-        backup_path = self.backup_database()
-        try:
-            from pyrekordbox import Rekordbox6Database
-            from pyrekordbox.db6 import tables
-            from pyrekordbox.db6.tables import FileType
-        except Exception as exc:
-            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
-
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
-        try:
+        with self._mutate() as (database, tables, backup_path):
             content = (
                 database.query(tables.DjmdContent).filter_by(ID=str(content_id)).first()
             )
             if content is None:
                 raise KeyError(f"Content {content_id} not found.")
-            content.FolderPath = to_volume_relative(new_path, self.storage_root)
-            content.FileNameL = new_path.name
-            try:
-                content.FileSize = new_path.stat().st_size
-            except OSError:
-                pass
-            suffix = new_path.suffix.lstrip(".").upper()
-            if suffix and hasattr(FileType, suffix):
-                content.FileType = getattr(FileType, suffix).value
-            if hasattr(content, "rb_local_synced"):
-                content.rb_local_synced = 0
-            database.commit()
-            invalidate_library_snapshot_cache()
-            return {
-                "contentId": str(content_id),
-                "filePath": str(new_path),
-                "backupPath": str(backup_path),
-            }
-        except Exception:
-            if hasattr(database, "rollback"):
-                database.rollback()
-            raise
-        finally:
-            database.close()
+            _point_content_at_file(content, new_path, self.storage_root, tables)
+        return {
+            "contentId": str(content_id),
+            "filePath": str(new_path),
+            "backupPath": str(backup_path),
+        }
 
     def remove_content(self, content_id: str) -> dict[str, Any]:
         """Soft-delete a collection row (for orphans with no recoverable file)."""
-        self.assert_mutation_ready()
-        backup_path = self.backup_database()
-        try:
-            from pyrekordbox import Rekordbox6Database
-            from pyrekordbox.db6 import tables
-        except Exception as exc:
-            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
-
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
-        try:
+        with self._mutate() as (database, tables, backup_path):
             content = (
                 database.query(tables.DjmdContent).filter_by(ID=str(content_id)).first()
             )
             if content is None:
                 raise KeyError(f"Content {content_id} not found.")
             mark_rekordbox_row_deleted(content)
-            database.commit()
-            invalidate_library_snapshot_cache()
-            return {"contentId": str(content_id), "backupPath": str(backup_path)}
-        except Exception:
-            if hasattr(database, "rollback"):
-                database.rollback()
-            raise
-        finally:
-            database.close()
+        return {"contentId": str(content_id), "backupPath": str(backup_path)}
 
     def find_relink_candidates(self, content_id: str, *, limit: int = 8) -> list[dict[str, Any]]:
         """Search the managed storage tree for an existing file that matches a
@@ -1249,18 +1172,8 @@ class RekordboxAdapter:
             result["filesDeleted"] = len(files_to_delete)
             return result
 
-        self.assert_mutation_ready()
-        backup_path = self.backup_database()
-        result["backupPath"] = str(backup_path)
-
-        try:
-            from pyrekordbox import Rekordbox6Database
-            from pyrekordbox.db6 import tables
-        except Exception as exc:
-            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
-
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
-        try:
+        with self._mutate() as (database, tables, backup_path):
+            result["backupPath"] = str(backup_path)
             for plan in plans:
                 keeper = plan["keeper_content_id"]
                 for loser in plan["remove_content_ids"]:
@@ -1273,14 +1186,6 @@ class RekordboxAdapter:
                     if content is not None:
                         mark_rekordbox_row_deleted(content)
                         result["removedFromRekordbox"] += 1
-            database.commit()
-            invalidate_library_snapshot_cache()
-        except Exception:
-            if hasattr(database, "rollback"):
-                database.rollback()
-            raise
-        finally:
-            database.close()
 
         # File deletion happens only after the DB commit succeeded.
         for path_str in files_to_delete:
@@ -1304,6 +1209,26 @@ def _file_type_name(value: Any) -> str | None:
         return FileType(int(value)).name
     except Exception:
         return str(value)
+
+
+def _point_content_at_file(
+    content: Any, new_path: Path, storage_root: Path, tables: Any
+) -> None:
+    """Re-point a content row at ``new_path`` (FolderPath/name/size/type), so a
+    re-linked or re-downloaded file is adopted while keeping cues/tags/playlists.
+    """
+    content.FolderPath = to_volume_relative(new_path, storage_root)
+    content.FileNameL = new_path.name
+    try:
+        content.FileSize = new_path.stat().st_size
+    except OSError:
+        pass
+    suffix = new_path.suffix.lstrip(".").upper()
+    file_type = getattr(tables, "FileType", None)
+    if suffix and file_type is not None and hasattr(file_type, suffix):
+        content.FileType = getattr(file_type, suffix).value
+    if hasattr(content, "rb_local_synced"):
+        content.rb_local_synced = 0
 
 
 def _int_or_none(value: Any) -> int | None:
