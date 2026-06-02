@@ -21,6 +21,7 @@ from .repositories._mappers import (
     utc_now,
 )
 from .repositories.acquisition import AcquisitionMixin
+from .repositories.dedup import DedupMixin
 from .repositories.events import EventsMixin
 from .repositories.library import LibraryMixin
 from .repositories.proposals import ProposalsMixin
@@ -45,6 +46,7 @@ class LocalDatabase(
     TagsMixin,
     LibraryMixin,
     AcquisitionMixin,
+    DedupMixin,
     EventsMixin,
     ProposalsMixin,
     BaseRepository,

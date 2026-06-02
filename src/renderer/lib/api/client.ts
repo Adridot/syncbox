@@ -2,10 +2,14 @@ import type {
   AcquisitionJob,
   AppSettings,
   AuthUrlResponse,
+  BackupPruneResponse,
   BackupRestoreResponse,
   DeemixStatus,
   DeezerSearchResult,
   DiagnosticsReport,
+  DuplicateResolutionItem,
+  DuplicateResolutionResponse,
+  DuplicateScanResult,
   EventAcquisitionResponse,
   EventApplyResponse,
   EventDeletePreview,
@@ -20,7 +24,7 @@ import type {
   LibrarySource,
   LiveImportPackage,
   PathValidation,
-  RekordboxBackup,
+  RekordboxBackupsResponse,
   RekordboxCollectionStats,
   RekordboxPlaylist,
   RekordboxStatus,
@@ -51,12 +55,34 @@ export class ApiClient {
     return this.get("/api/diagnostics");
   }
 
-  async listBackups(): Promise<RekordboxBackup[]> {
+  async listBackups(): Promise<RekordboxBackupsResponse> {
     return this.get("/api/rekordbox/backups");
+  }
+
+  async pruneBackups(): Promise<BackupPruneResponse> {
+    return this.post("/api/rekordbox/backups/prune", {});
   }
 
   async restoreBackup(name: string): Promise<BackupRestoreResponse> {
     return this.post(`/api/rekordbox/backups/${encodeURIComponent(name)}/restore`, {});
+  }
+
+  async scanDuplicates(
+    strategies: string[],
+    fuzzyThreshold: number
+  ): Promise<DuplicateScanResult> {
+    const query = new URLSearchParams({
+      strategies: strategies.join(","),
+      fuzzyThreshold: String(fuzzyThreshold),
+    });
+    return this.get(`/api/rekordbox/duplicates?${query.toString()}`);
+  }
+
+  async resolveDuplicates(
+    items: DuplicateResolutionItem[],
+    dryRun = false
+  ): Promise<DuplicateResolutionResponse> {
+    return this.post("/api/rekordbox/duplicates/resolve", { items, dryRun });
   }
 
   async getSettings(): Promise<AppSettings> {

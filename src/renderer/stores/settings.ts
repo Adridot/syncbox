@@ -14,6 +14,7 @@ export const useSettingsStore = defineStore("settings", () => {
     apiPort: 8765,
     permanentPath: "",
     manualCollectionPath: "",
+    backupRetention: 15,
   });
   const storage = ref<StorageLayout | null>(null);
   // Folder-exists status for the two configurable path fields.

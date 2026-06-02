@@ -248,6 +248,11 @@ class BaseRepository:
                     FOREIGN KEY(source_id) REFERENCES library_sources(id) ON DELETE CASCADE,
                     UNIQUE(source_id, spotify_track_id, provider)
                 );
+
+                CREATE TABLE IF NOT EXISTS dedup_dismissed (
+                    group_key TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
             now = utc_now()

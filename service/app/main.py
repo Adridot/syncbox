@@ -30,10 +30,14 @@ from .db import LocalDatabase
 from .models import (
     AcquisitionJob,
     AppSettings,
+    BackupPruneResponse,
     BackupRestoreResponse,
     DeemixStatus,
     DeezerSearchResult,
     DiagnosticsReport,
+    DuplicateResolutionRequest,
+    DuplicateResolutionResponse,
+    DuplicateScanResult,
     EventAcquisitionResponse,
     EventApplyResponse,
     EventDeletePreview,
@@ -55,6 +59,7 @@ from .models import (
     LiveImportPackage,
     LiveImportRequest,
     RekordboxBackup,
+    RekordboxBackupsResponse,
     RekordboxCollectionStats,
     RekordboxTrack,
     RekordboxPlaylist,
@@ -166,9 +171,29 @@ async def diagnostics() -> DiagnosticsReport:
     return await run_diagnostics(database, build_rekordbox_adapter())
 
 
-@app.get("/api/rekordbox/backups", response_model=list[RekordboxBackup])
-def list_rekordbox_backups() -> list[dict[str, Any]]:
-    return build_rekordbox_adapter().list_backups()
+@app.get("/api/rekordbox/backups", response_model=RekordboxBackupsResponse)
+def list_rekordbox_backups() -> RekordboxBackupsResponse:
+    adapter = build_rekordbox_adapter()
+    backups = adapter.list_backups()
+    return RekordboxBackupsResponse(
+        backups=[RekordboxBackup(**b) for b in backups],
+        readable=adapter._backups_readable,
+        retention=adapter._backup_retention,
+        totalSizeBytes=sum(int(b.get("sizeBytes", 0) or 0) for b in backups),
+    )
+
+
+@app.post("/api/rekordbox/backups/prune", response_model=BackupPruneResponse)
+def prune_rekordbox_backups() -> BackupPruneResponse:
+    report = build_rekordbox_adapter().prune_backups()
+    if report["removed"]:
+        logger.info("Pruned %s old backup(s)", report["removed"])
+    return BackupPruneResponse(
+        removed=report["removed"],
+        kept=report["kept"],
+        freedBytes=report["freedBytes"],
+        readable=report["readable"],
+    )
 
 
 @app.post("/api/rekordbox/backups/{name}/restore", response_model=BackupRestoreResponse)
@@ -183,6 +208,63 @@ def restore_rekordbox_backup(name: str) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info("Restored Rekordbox backup %s (%s files)", name, result["restoredFiles"])
     return result
+
+
+@app.get("/api/rekordbox/duplicates", response_model=DuplicateScanResult)
+def scan_duplicates(
+    strategies: str = Query(default="isrc,fuzzy"),
+    fuzzyThreshold: float = Query(default=0.87, ge=0.5, le=1.0),
+) -> DuplicateScanResult:
+    selected = [s.strip() for s in strategies.split(",") if s.strip() in {"isrc", "fuzzy"}]
+    if not selected:
+        selected = ["isrc"]
+    dismissed = database.get_dismissed_dedup_keys()
+    try:
+        result = build_rekordbox_adapter().scan_duplicates(
+            strategies=selected,
+            fuzzy_threshold=fuzzyThreshold,
+            dismissed=dismissed,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return DuplicateScanResult(**result)
+
+
+@app.post("/api/rekordbox/duplicates/resolve", response_model=DuplicateResolutionResponse)
+def resolve_duplicates(request: DuplicateResolutionRequest) -> DuplicateResolutionResponse:
+    # Persist "not a duplicate" dismissals first (cheap, local DB only).
+    dismissed_count = 0
+    actionable = []
+    for item in request.items:
+        if item.dismiss:
+            key = item.group_id or "|".join(
+                sorted({item.keeper_content_id, *item.remove_content_ids})
+            )
+            database.add_dismissed_dedup_key(key)
+            dismissed_count += 1
+        else:
+            actionable.append(item)
+
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.resolve_duplicates(actionable, dry_run=request.dry_run)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        # e.g. RekordboxRunningError — cannot mutate while RB is open.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    result["dismissed"] = dismissed_count
+    if not request.dry_run:
+        logger.info(
+            "Resolved duplicates: removed=%s files=%s relinked_pl=%s relinked_tag=%s dismissed=%s",
+            result["removedFromRekordbox"],
+            result["filesDeleted"],
+            result["relinkedPlaylists"],
+            result["relinkedTags"],
+            dismissed_count,
+        )
+    return DuplicateResolutionResponse(**result)
 
 
 @app.post("/api/storage/ensure", response_model=StorageLayout)
@@ -849,6 +931,7 @@ def build_rekordbox_adapter() -> RekordboxAdapter:
         storage_root=Path(settings.storage_root),
         permanent_path=settings.permanent_path,
         manual_collection_path=settings.manual_collection_path,
+        backup_retention=settings.backup_retention,
     )
 
 

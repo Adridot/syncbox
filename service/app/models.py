@@ -37,6 +37,7 @@ class AppSettings(BaseModel):
     api_port: int = Field(default=8765, alias="apiPort")
     permanent_path: str = Field(default="", alias="permanentPath")
     manual_collection_path: str = Field(default="", alias="manualCollectionPath")
+    backup_retention: int = Field(default=15, alias="backupRetention")
 
 
 class StorageLayout(BaseModel):
@@ -229,6 +230,26 @@ class RekordboxBackup(BaseModel):
     created_at: float = Field(alias="createdAt")
     size_bytes: int = Field(alias="sizeBytes")
     file_count: int = Field(alias="fileCount")
+
+    model_config = {"populate_by_name": True}
+
+
+class RekordboxBackupsResponse(BaseModel):
+    backups: list[RekordboxBackup] = Field(default_factory=list)
+    # False when the backups directory exists but can't be listed (e.g. cloud
+    # storage blocked by macOS permissions for a terminal-spawned dev service).
+    readable: bool = True
+    retention: int = 0
+    total_size_bytes: int = Field(default=0, alias="totalSizeBytes")
+
+    model_config = {"populate_by_name": True}
+
+
+class BackupPruneResponse(BaseModel):
+    removed: int = 0
+    kept: int = 0
+    freed_bytes: int = Field(default=0, alias="freedBytes")
+    readable: bool = True
 
     model_config = {"populate_by_name": True}
 
@@ -494,3 +515,86 @@ ProposalType = Literal[
     "manual_match",
     "protect_manual_track",
 ]
+
+
+# --- Duplicate detection ---------------------------------------------------
+
+
+class DuplicateTrack(BaseModel):
+    content_id: str = Field(alias="contentId")
+    title: str
+    artist: str
+    duration_ms: int | None = Field(default=None, alias="durationMs")
+    isrc: str | None = None
+    file_path: str | None = Field(default=None, alias="filePath")
+    file_name: str | None = Field(default=None, alias="fileName")
+    file_type: str | None = Field(default=None, alias="fileType")
+    bit_rate: int | None = Field(default=None, alias="bitRate")
+    sample_rate: int | None = Field(default=None, alias="sampleRate")
+    bit_depth: int | None = Field(default=None, alias="bitDepth")
+    file_size: int | None = Field(default=None, alias="fileSize")
+    bpm: float | None = None
+    rating: int | None = None
+    cue_count: int = Field(default=0, alias="cueCount")
+    playlist_count: int = Field(default=0, alias="playlistCount")
+    tag_count: int = Field(default=0, alias="tagCount")
+    analysed: bool = False
+    protected: bool = False
+    file_missing: bool = Field(default=False, alias="fileMissing")
+    date_created: str | None = Field(default=None, alias="dateCreated")
+    quality_score: float = Field(default=0.0, alias="qualityScore")
+    is_keeper: bool = Field(default=False, alias="isKeeper")
+
+    model_config = {"populate_by_name": True}
+
+
+class DuplicateGroup(BaseModel):
+    group_id: str = Field(alias="groupId")
+    reason: Literal["isrc", "fuzzy"]
+    confidence: int
+    note: str | None = None
+    keeper_content_id: str = Field(alias="keeperContentId")
+    tracks: list[DuplicateTrack]
+
+    model_config = {"populate_by_name": True}
+
+
+class DuplicateScanResult(BaseModel):
+    available: bool = True
+    reason: str | None = None
+    total_tracks: int = Field(default=0, alias="totalTracks")
+    strategies: list[str] = Field(default_factory=list)
+    groups: list[DuplicateGroup] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
+class DuplicateResolutionItem(BaseModel):
+    group_id: str = Field(default="", alias="groupId")
+    keeper_content_id: str = Field(alias="keeperContentId")
+    remove_content_ids: list[str] = Field(default_factory=list, alias="removeContentIds")
+    delete_files: bool = Field(default=False, alias="deleteFiles")
+    dismiss: bool = False
+
+    model_config = {"populate_by_name": True}
+
+
+class DuplicateResolutionRequest(BaseModel):
+    items: list[DuplicateResolutionItem] = Field(default_factory=list)
+    dry_run: bool = Field(default=False, alias="dryRun")
+
+    model_config = {"populate_by_name": True}
+
+
+class DuplicateResolutionResponse(BaseModel):
+    backup_path: str | None = Field(default=None, alias="backupPath")
+    removed_from_rekordbox: int = Field(default=0, alias="removedFromRekordbox")
+    files_deleted: int = Field(default=0, alias="filesDeleted")
+    relinked_playlists: int = Field(default=0, alias="relinkedPlaylists")
+    relinked_tags: int = Field(default=0, alias="relinkedTags")
+    skipped_protected: int = Field(default=0, alias="skippedProtected")
+    dismissed: int = 0
+    dry_run: bool = Field(default=False, alias="dryRun")
+    warnings: list[str] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}

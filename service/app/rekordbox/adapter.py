@@ -19,10 +19,12 @@ from ..safety import assert_rekordbox_can_mutate, find_rekordbox_processes
 from .paths import (
     content_path_lookup,
     find_content_by_path,
+    path_is_under_roots,
     path_lookup_keys,
     resolve_volume_path,
     safe_timestamp,
 )
+from ..dedup import build_resolution_plan, find_duplicate_groups
 from .content import (
     EVENT_IMPORTS_PLAYLIST_FOLDER_NAME,
     EVENT_MY_TAG_CATEGORY_NAME,
@@ -43,6 +45,12 @@ from .content import (
 """RekordboxAdapter + its private read/cache/XML helpers."""
 
 logger = get_logger("rekordbox")
+
+# How many timestamped DB backups to keep by default. Each backup is a full
+# copy of master.db (+ wal/shm) — they add up fast — so older ones are pruned
+# after every new backup. Overridable per-install via the backupRetention
+# setting; 0 disables rotation (keep everything).
+DEFAULT_BACKUP_RETENTION = 15
 
 # Reading the whole Rekordbox collection (open SQLCipher + iterate ~1.5k rows)
 # costs ~0.4-0.9s and was happening on *every* event-review load and refresh.
@@ -97,11 +105,15 @@ class RekordboxAdapter:
         storage_root: Path,
         permanent_path: str = "",
         manual_collection_path: str = "",
+        backup_retention: int = DEFAULT_BACKUP_RETENTION,
     ) -> None:
         self.database_dir = database_dir.expanduser()
         self.storage_root = storage_root.expanduser()
         self._permanent_path = permanent_path.strip()
         self._manual_collection_path = manual_collection_path.strip()
+        # 0 (or negative) disables rotation: keep every backup.
+        self._backup_retention = int(backup_retention)
+        self._backups_readable = True
 
     @property
     def database_file(self) -> Path:
@@ -170,7 +182,40 @@ class RekordboxAdapter:
             if source.exists():
                 shutil.copy2(source, target / source.name)
 
+        # Rotate: drop the oldest backups beyond the retention window.
+        self.prune_backups()
+
         return target
+
+    def prune_backups(self, keep: int | None = None) -> dict[str, Any]:
+        """Delete the oldest backups beyond the retention window (newest kept).
+
+        Best-effort and TCC-safe: if the backups directory can't be listed
+        (cloud storage + terminal-spawned process), it does nothing. Returns a
+        small report so callers/UI can show how many were removed.
+        """
+        if keep is None:
+            keep = self._backup_retention
+        report = {"removed": 0, "kept": 0, "freedBytes": 0, "readable": True}
+        if keep <= 0:
+            # Rotation disabled.
+            backups = self.list_backups()
+            report["kept"] = len(backups)
+            report["readable"] = backups is not None
+            return report
+        backups = self.list_backups()
+        report["readable"] = self._backups_readable
+        if not report["readable"]:
+            return report
+        report["kept"] = min(len(backups), keep)
+        for backup in backups[keep:]:
+            try:
+                shutil.rmtree(backup["path"])
+                report["removed"] += 1
+                report["freedBytes"] += int(backup.get("sizeBytes", 0) or 0)
+            except OSError as exc:
+                logger.warning("Could not prune backup %s: %s", backup["path"], exc)
+        return report
 
     def list_backups(self) -> list[dict[str, Any]]:
         """Timestamped Rekordbox DB backups, newest first.
@@ -180,12 +225,14 @@ class RekordboxAdapter:
         error as "no readable backups" rather than failing the request.
         """
         backup_root = Path(self.storage_layout().backups)
+        self._backups_readable = True
         try:
             if not backup_root.exists():
                 return []
             entries = list(backup_root.iterdir())
         except OSError as exc:
             logger.warning("Cannot list backups in %s: %s", backup_root, exc)
+            self._backups_readable = False
             return []
         backups: list[dict[str, Any]] = []
         for entry in entries:
@@ -806,6 +853,303 @@ class RekordboxAdapter:
             raise
         finally:
             database.close()
+
+    # --- Duplicate detection -------------------------------------------------
+
+    def _protected_roots(self) -> list[Path]:
+        layout = self.storage_layout()
+        return [Path(layout.permanent), Path(layout.manual_collection)]
+
+    def read_dedup_snapshot(self) -> dict[str, Any]:
+        """Heavier collection read enriched with the signals needed for
+        duplicate detection and keeper scoring (format, bitrate, cues, playlist
+        memberships, tag counts, on-disk existence). Not cached: only run on
+        demand from the Duplicates view, never on the hot refresh path.
+        """
+        protected_roots = self._protected_roots()
+
+        def reader(database: Any) -> dict[str, Any]:
+            from pyrekordbox.db6 import tables
+
+            # Per-content aggregate counts (one pass each).
+            cue_counts: dict[str, int] = {}
+            for cue in database.get_cue():
+                if is_rekordbox_row_deleted(cue):
+                    continue
+                key = str(getattr(cue, "ContentID", "") or "")
+                cue_counts[key] = cue_counts.get(key, 0) + 1
+
+            playlist_counts: dict[str, int] = {}
+            for row in database.query(tables.DjmdSongPlaylist):
+                if is_rekordbox_row_deleted(row):
+                    continue
+                key = str(getattr(row, "ContentID", "") or "")
+                playlist_counts[key] = playlist_counts.get(key, 0) + 1
+
+            tag_counts: dict[str, int] = {}
+            for row in database.get_my_tag_songs():
+                if is_rekordbox_row_deleted(row):
+                    continue
+                key = str(getattr(row, "ContentID", "") or "")
+                tag_counts[key] = tag_counts.get(key, 0) + 1
+
+            tracks = []
+            for content in database.get_content():
+                if is_rekordbox_row_deleted(content):
+                    continue
+                cid = str(content.ID)
+                real_path = resolve_volume_path(
+                    str(getattr(content, "FolderPath", "") or ""),
+                    self.storage_root,
+                )
+                missing = False
+                if real_path:
+                    try:
+                        missing = not Path(real_path).exists()
+                    except OSError:
+                        missing = False
+                bpm_raw = getattr(content, "BPM", None)
+                tracks.append(
+                    {
+                        "contentId": cid,
+                        "title": str(getattr(content, "Title", "") or ""),
+                        "artist": str(getattr(content, "ArtistName", "") or ""),
+                        "durationMs": content_length_ms(content),
+                        "isrc": str(getattr(content, "ISRC", "") or "") or None,
+                        "filePath": real_path,
+                        "fileName": str(getattr(content, "FileNameL", "") or "")
+                        or (Path(real_path).name if real_path else None),
+                        "fileType": _file_type_name(getattr(content, "FileType", None)),
+                        "bitRate": _int_or_none(getattr(content, "BitRate", None)),
+                        "sampleRate": _int_or_none(getattr(content, "SampleRate", None)),
+                        "bitDepth": _int_or_none(getattr(content, "BitDepth", None)),
+                        "fileSize": _int_or_none(getattr(content, "FileSize", None)),
+                        "bpm": (float(bpm_raw) / 100.0) if bpm_raw else None,
+                        "rating": _int_or_none(getattr(content, "Rating", None)),
+                        "cueCount": cue_counts.get(cid, 0),
+                        "playlistCount": playlist_counts.get(cid, 0),
+                        "tagCount": tag_counts.get(cid, 0),
+                        "analysed": bool(getattr(content, "Analysed", 0)),
+                        "protected": path_is_under_roots(real_path, protected_roots),
+                        "fileMissing": missing,
+                        "dateCreated": str(getattr(content, "DateCreated", "") or "")
+                        or None,
+                    }
+                )
+            return {"available": True, "tracks": tracks}
+
+        try:
+            return _read_rekordbox(self.database_dir, reader)
+        except Exception as exc:
+            return {"available": False, "reason": str(exc), "tracks": []}
+
+    def scan_duplicates(
+        self,
+        *,
+        strategies: list[str],
+        fuzzy_threshold: float,
+        dismissed: set[str],
+    ) -> dict[str, Any]:
+        snapshot = self.read_dedup_snapshot()
+        if not snapshot.get("available"):
+            return {
+                "available": False,
+                "reason": snapshot.get("reason"),
+                "totalTracks": 0,
+                "strategies": strategies,
+                "groups": [],
+            }
+        tracks = snapshot["tracks"]
+        groups = find_duplicate_groups(
+            tracks,
+            strategies=strategies,
+            fuzzy_threshold=fuzzy_threshold,
+            dismissed=dismissed,
+        )
+        return {
+            "available": True,
+            "reason": None,
+            "totalTracks": len(tracks),
+            "strategies": strategies,
+            "groups": groups,
+        }
+
+    def resolve_duplicates(
+        self,
+        items: list[Any],
+        *,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Apply duplicate resolutions: relink playlist/tag memberships from the
+        removed copies onto the keeper, then soft-delete the removed rows and,
+        when allowed, delete their files on disk (never under a protected root).
+
+        ``items`` are ``DuplicateResolutionItem``-shaped objects.
+        """
+        result = {
+            "backupPath": None,
+            "removedFromRekordbox": 0,
+            "filesDeleted": 0,
+            "relinkedPlaylists": 0,
+            "relinkedTags": 0,
+            "skippedProtected": 0,
+            "dismissed": 0,
+            "dryRun": dry_run,
+            "warnings": [],
+        }
+        if not items:
+            return result
+
+        # Build a fresh snapshot keyed by id for plan-building / safety checks.
+        snapshot = self.read_dedup_snapshot()
+        if not snapshot.get("available"):
+            raise RuntimeError(
+                snapshot.get("reason") or "Cannot read Rekordbox database."
+            )
+        tracks_by_id = {str(t["contentId"]): t for t in snapshot["tracks"]}
+
+        plans = []
+        files_to_delete: list[str] = []
+        for item in items:
+            keeper = str(getattr(item, "keeper_content_id"))
+            remove_ids = [str(x) for x in getattr(item, "remove_content_ids", [])]
+            allow_delete = bool(getattr(item, "delete_files", False))
+            plan = build_resolution_plan(
+                tracks_by_id,
+                keeper_content_id=keeper,
+                remove_content_ids=remove_ids,
+                allow_file_delete=allow_delete,
+            )
+            plans.append(plan)
+            files_to_delete.extend(plan["files_to_delete"])
+            result["skippedProtected"] += len(plan["skipped_protected"])
+            result["warnings"].extend(plan["warnings"])
+
+        if dry_run:
+            result["removedFromRekordbox"] = sum(
+                len(p["remove_content_ids"]) for p in plans
+            )
+            result["filesDeleted"] = len(files_to_delete)
+            return result
+
+        self.assert_mutation_ready()
+        backup_path = self.backup_database()
+        result["backupPath"] = str(backup_path)
+
+        try:
+            from pyrekordbox import Rekordbox6Database
+            from pyrekordbox.db6 import tables
+        except Exception as exc:
+            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
+
+        database = Rekordbox6Database(db_dir=str(self.database_dir))
+        try:
+            for plan in plans:
+                keeper = plan["keeper_content_id"]
+                for loser in plan["remove_content_ids"]:
+                    relinked_pl, relinked_tag = _relink_memberships(
+                        database, tables, loser, keeper
+                    )
+                    result["relinkedPlaylists"] += relinked_pl
+                    result["relinkedTags"] += relinked_tag
+                    content = _content_by_id(database, tables, loser)
+                    if content is not None:
+                        mark_rekordbox_row_deleted(content)
+                        result["removedFromRekordbox"] += 1
+            database.commit()
+            invalidate_library_snapshot_cache()
+        except Exception:
+            if hasattr(database, "rollback"):
+                database.rollback()
+            raise
+        finally:
+            database.close()
+
+        # File deletion happens only after the DB commit succeeded.
+        for path_str in files_to_delete:
+            try:
+                file_path = Path(path_str)
+                if file_path.exists():
+                    file_path.unlink()
+                    result["filesDeleted"] += 1
+            except OSError as exc:
+                result["warnings"].append(f"Could not delete {path_str}: {exc}")
+
+        return result
+
+
+def _file_type_name(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    try:
+        from pyrekordbox.db6.tables import FileType
+
+        return FileType(int(value)).name
+    except Exception:
+        return str(value)
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        if value in (None, ""):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _content_by_id(database: Any, tables: Any, content_id: str) -> Any | None:
+    row = database.query(tables.DjmdContent).filter_by(ID=str(content_id)).first()
+    return row
+
+
+def _relink_memberships(
+    database: Any, tables: Any, loser_id: str, keeper_id: str
+) -> tuple[int, int]:
+    """Move playlist and MyTag memberships from ``loser_id`` onto ``keeper_id``
+    so removing a duplicate never drops the keeper out of a playlist or tag.
+
+    Re-points each membership row, skipping any where the keeper is already a
+    member (those rows are soft-deleted to avoid duplicates).
+    """
+    relinked_playlists = 0
+    relinked_tags = 0
+
+    keeper_playlists = {
+        str(getattr(r, "PlaylistID", "") or "")
+        for r in database.query(tables.DjmdSongPlaylist).filter_by(ContentID=str(keeper_id))
+        if not is_rekordbox_row_deleted(r)
+    }
+    for row in database.query(tables.DjmdSongPlaylist).filter_by(ContentID=str(loser_id)):
+        if is_rekordbox_row_deleted(row):
+            continue
+        playlist_id = str(getattr(row, "PlaylistID", "") or "")
+        if playlist_id in keeper_playlists:
+            mark_rekordbox_row_deleted(row)
+            continue
+        row.ContentID = str(keeper_id)
+        row.rb_local_synced = 0
+        keeper_playlists.add(playlist_id)
+        relinked_playlists += 1
+
+    keeper_tags = {
+        str(getattr(r, "MyTagID", "") or "")
+        for r in database.query(tables.DjmdSongMyTag).filter_by(ContentID=str(keeper_id))
+        if not is_rekordbox_row_deleted(r)
+    }
+    for row in database.query(tables.DjmdSongMyTag).filter_by(ContentID=str(loser_id)):
+        if is_rekordbox_row_deleted(row):
+            continue
+        tag_id = str(getattr(row, "MyTagID", "") or "")
+        if tag_id in keeper_tags:
+            mark_rekordbox_row_deleted(row)
+            continue
+        row.ContentID = str(keeper_id)
+        row.rb_local_synced = 0
+        keeper_tags.add(tag_id)
+        relinked_tags += 1
+
+    return relinked_playlists, relinked_tags
 
 
 def _remove_playlist_from_xml(database_dir: Path, playlist_name: str) -> None:

@@ -45,6 +45,9 @@ class SettingsMixin:
             manualCollectionPath=self.get_setting(
                 "manual_collection_path", defaults.manual_collection_path
             ),
+            backupRetention=int(
+                self.get_setting("backup_retention", str(defaults.backup_retention))
+            ),
         )
 
     def save_app_settings(self, settings: AppSettings) -> AppSettings:
@@ -56,6 +59,7 @@ class SettingsMixin:
             "api_port": str(settings.api_port),
             "permanent_path": settings.permanent_path,
             "manual_collection_path": settings.manual_collection_path,
+            "backup_retention": str(settings.backup_retention),
         }
         with self.connect() as connection:
             connection.executemany(
