@@ -68,6 +68,87 @@ export const useSettingsStore = defineStore("settings", () => {
     });
   }
 
+  const backupBusy = ref(false);
+
+  function triggerDownload(filename: string, blob: Blob): void {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function stamp(): string {
+    return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  }
+
+  // Export the portable settings backup (paths, Spotify client id + tokens).
+  async function exportSettings(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    await ui.withLoading(async () => {
+      const backup = await system.api!.exportSettings();
+      triggerDownload(
+        `syncbox-settings-${stamp()}.json`,
+        new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" })
+      );
+      ui.setMessage("success", "Settings exported.");
+    });
+  }
+
+  async function importSettingsFromFile(file: File): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    try {
+      const backup = JSON.parse(await file.text());
+      const result = await system.api.importSettings(backup);
+      Object.assign(settings, result.settings);
+      await Promise.all([loadStorage(), validatePaths()]);
+      ui.setMessage("success", `Imported ${result.applied} setting(s).`);
+    } catch (error) {
+      ui.setMessage("error", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // Export / import the entire app database (sources, events, tag rules…).
+  async function exportData(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    backupBusy.value = true;
+    try {
+      const response = await fetch(system.api.dataExportUrl());
+      if (!response.ok) throw new Error("Export failed.");
+      triggerDownload(`syncbox-data-${stamp()}.sqlite3`, await response.blob());
+      ui.setMessage("success", "All data exported.");
+    } catch (error) {
+      ui.setMessage("error", error instanceof Error ? error.message : String(error));
+    } finally {
+      backupBusy.value = false;
+    }
+  }
+
+  async function importDataFromFile(file: File): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    backupBusy.value = true;
+    try {
+      const result = await system.api.importData(file);
+      ui.setMessage("success", result.message);
+      await load();
+    } catch (error) {
+      ui.setMessage("error", error instanceof Error ? error.message : String(error));
+    } finally {
+      backupBusy.value = false;
+    }
+  }
+
   async function openSpotifyAuth(): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -90,11 +171,16 @@ export const useSettingsStore = defineStore("settings", () => {
     settings,
     storage,
     pathChecks,
+    backupBusy,
     load,
     save,
     loadStorage,
     validatePaths,
     ensureStorage,
+    exportSettings,
+    importSettingsFromFile,
+    exportData,
+    importDataFromFile,
     openSpotifyAuth,
   };
 });

@@ -9,6 +9,39 @@ from ..models import (
 class SettingsMixin:
     """Settings persistence (mixed into LocalDatabase)."""
 
+    # Transient OAuth handshake values are never exported/imported.
+    _NON_PORTABLE_SETTINGS = {"spotify_oauth_state", "spotify_pkce_verifier"}
+
+    def export_settings(self) -> dict[str, str]:
+        """All persisted settings as a flat dict (for portable backup)."""
+        with self.connect() as connection:
+            rows = connection.execute("SELECT key, value FROM settings").fetchall()
+        return {
+            str(row["key"]): str(row["value"])
+            for row in rows
+            if str(row["key"]) not in self._NON_PORTABLE_SETTINGS
+        }
+
+    def import_settings(self, values: dict[str, str]) -> int:
+        """Upsert a settings dict from a backup. Returns the number applied."""
+        applied = [
+            (str(key), str(value))
+            for key, value in values.items()
+            if str(key) not in self._NON_PORTABLE_SETTINGS
+        ]
+        if not applied:
+            return 0
+        with self.connect() as connection:
+            connection.executemany(
+                """
+                INSERT INTO settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                applied,
+            )
+        return len(applied)
+
     def get_setting(self, key: str, default: str = "") -> str:
         with self.connect() as connection:
             row = connection.execute(

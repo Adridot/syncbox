@@ -4,6 +4,7 @@ import type {
   AuthUrlResponse,
   BackupPruneResponse,
   BackupRestoreResponse,
+  DataImportResponse,
   DeemixStatus,
   DeezerSearchResult,
   DiagnosticsReport,
@@ -29,6 +30,8 @@ import type {
   RelinkCandidate,
   RekordboxBackupsResponse,
   RekordboxCollectionStats,
+  SettingsBackup,
+  SettingsImportResponse,
   RekordboxPlaylist,
   RekordboxStatus,
   RekordboxTag,
@@ -114,6 +117,28 @@ export class ApiClient {
 
   async saveSettings(settings: AppSettings): Promise<AppSettings> {
     return this.post("/api/settings", settings);
+  }
+
+  async exportSettings(): Promise<SettingsBackup> {
+    return this.get("/api/settings/export");
+  }
+
+  async importSettings(backup: SettingsBackup): Promise<SettingsImportResponse> {
+    return this.post("/api/settings/import", backup);
+  }
+
+  /** Absolute URL of the full-database export (for a direct download). */
+  dataExportUrl(): string {
+    return `${this.baseUrl}/api/data/export`;
+  }
+
+  async importData(file: File): Promise<DataImportResponse> {
+    const response = await fetch(`${this.baseUrl}/api/data/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    });
+    return this.parse<DataImportResponse>(response);
   }
 
   async ensureStorage(): Promise<StorageLayout> {

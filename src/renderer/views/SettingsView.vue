@@ -1,8 +1,33 @@
 <script setup lang="ts">
-import { AlertTriangle, CheckCircle2, Database, ExternalLink, FileAudio, FolderOpen, Key, Save, Settings2 } from "@lucide/vue";
+import { AlertTriangle, Archive, CheckCircle2, Database, Download, ExternalLink, FileAudio, FolderOpen, Key, Save, Settings2, Upload } from "@lucide/vue";
+import { ref } from "vue";
 import { useSettingsStore } from "../stores/settings";
 
 const settings = useSettingsStore();
+
+const settingsFileInput = ref<HTMLInputElement | null>(null);
+const dataFileInput = ref<HTMLInputElement | null>(null);
+
+async function onSettingsFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (file) await settings.importSettingsFromFile(file);
+  input.value = "";
+}
+
+async function onDataFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (
+    file &&
+    window.confirm(
+      "Restore ALL app data from this file? This replaces your current sources, events, tag rules and settings. A safety backup of the current data is made first."
+    )
+  ) {
+    await settings.importDataFromFile(file);
+  }
+  input.value = "";
+}
 </script>
 
 <template>
@@ -133,6 +158,83 @@ const settings = useSettingsStore();
                   </template>
                 </small>
               </label>
+            </div>
+          </section>
+
+          <section class="rounded-xl border border-outline-variant bg-surface-container-high p-6">
+            <h3 class="mb-1 flex items-center gap-2 text-lg font-bold text-on-surface">
+              <Archive class="text-primary" :size="20" aria-hidden="true" />
+              Backup &amp; Restore
+            </h3>
+            <p class="mb-5 text-xs text-on-surface-variant">
+              Settings live in <span class="font-mono">Application&nbsp;Support</span> and survive app
+              updates. Export a portable copy to recover after a clean reinstall or move to another Mac.
+            </p>
+
+            <div class="grid gap-5 sm:grid-cols-2">
+              <div class="rounded-lg border border-outline-variant bg-surface p-4">
+                <h4 class="mb-1 text-sm font-bold text-on-surface">Settings only</h4>
+                <p class="mb-3 text-xs text-on-surface-variant">
+                  Paths, Spotify client&nbsp;ID + tokens, backup retention. Small JSON file.
+                </p>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+                    :disabled="settings.backupBusy"
+                    @click="settings.exportSettings()"
+                  >
+                    <Download :size="14" aria-hidden="true" /> Export
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded border border-outline px-3 py-1.5 text-xs font-semibold text-on-surface hover:border-primary disabled:opacity-60"
+                    :disabled="settings.backupBusy"
+                    @click="settingsFileInput?.click()"
+                  >
+                    <Upload :size="14" aria-hidden="true" /> Import
+                  </button>
+                  <input
+                    ref="settingsFileInput"
+                    type="file"
+                    accept="application/json,.json"
+                    class="hidden"
+                    @change="onSettingsFile"
+                  />
+                </div>
+              </div>
+
+              <div class="rounded-lg border border-outline-variant bg-surface p-4">
+                <h4 class="mb-1 text-sm font-bold text-on-surface">All data</h4>
+                <p class="mb-3 text-xs text-on-surface-variant">
+                  Everything: sources, events, tag rules, mappings + settings. Full database file.
+                </p>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+                    :disabled="settings.backupBusy"
+                    @click="settings.exportData()"
+                  >
+                    <Download :size="14" aria-hidden="true" /> Export
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded border border-outline px-3 py-1.5 text-xs font-semibold text-on-surface hover:border-error hover:text-error disabled:opacity-60"
+                    :disabled="settings.backupBusy"
+                    @click="dataFileInput?.click()"
+                  >
+                    <Upload :size="14" aria-hidden="true" /> Restore
+                  </button>
+                  <input
+                    ref="dataFileInput"
+                    type="file"
+                    accept=".sqlite3,application/octet-stream"
+                    class="hidden"
+                    @change="onDataFile"
+                  />
+                </div>
+              </div>
             </div>
           </section>
         </div>

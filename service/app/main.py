@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from .config import load_config
 from .diagnostics import run_diagnostics
@@ -32,6 +32,7 @@ from .models import (
     AppSettings,
     BackupPruneResponse,
     BackupRestoreResponse,
+    DataImportResponse,
     DeemixStatus,
     DeezerSearchResult,
     DiagnosticsReport,
@@ -65,6 +66,8 @@ from .models import (
     RekordboxBackup,
     RekordboxBackupsResponse,
     RekordboxCollectionStats,
+    SettingsBackup,
+    SettingsImportResponse,
     RekordboxTrack,
     RekordboxPlaylist,
     RekordboxTag,
@@ -158,6 +161,69 @@ def get_settings() -> AppSettings:
 @app.post("/api/settings", response_model=AppSettings)
 def save_settings(settings: AppSettings) -> AppSettings:
     return database.save_app_settings(settings)
+
+
+@app.get("/api/settings/export", response_model=SettingsBackup)
+def export_settings() -> SettingsBackup:
+    from datetime import datetime, timezone
+
+    return SettingsBackup(
+        exportedAt=datetime.now(timezone.utc).isoformat(),
+        settings=database.export_settings(),
+    )
+
+
+@app.post("/api/settings/import", response_model=SettingsImportResponse)
+def import_settings(backup: SettingsBackup) -> SettingsImportResponse:
+    if backup.type != "syncbox-settings":
+        raise HTTPException(status_code=400, detail="Not a Syncbox settings backup.")
+    applied = database.import_settings(backup.settings)
+    logger.info("Imported %s setting(s) from backup", applied)
+    return SettingsImportResponse(
+        applied=applied,
+        settings=database.get_app_settings(default_settings()),
+    )
+
+
+@app.get("/api/data/export")
+def export_data() -> FileResponse:
+    from datetime import datetime
+
+    snapshot_dir = Path(config.data_dir) / "exports"
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    snapshot = database.snapshot_to(snapshot_dir / f"syncbox-data-{stamp}.sqlite3")
+    return FileResponse(
+        str(snapshot),
+        media_type="application/octet-stream",
+        filename=f"syncbox-data-{stamp}.sqlite3",
+    )
+
+
+@app.post("/api/data/import", response_model=DataImportResponse)
+async def import_data(request: Request) -> DataImportResponse:
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="No file uploaded.")
+    temp = database.write_temp_upload(body)
+    try:
+        if not database.is_valid_app_database(temp):
+            raise HTTPException(
+                status_code=400,
+                detail="That file is not a valid Syncbox data backup.",
+            )
+        safety = database.replace_with(temp)
+        database.migrate()
+    finally:
+        try:
+            temp.unlink()
+        except OSError:
+            pass
+    logger.info("Imported full app database (safety backup: %s)", safety)
+    return DataImportResponse(
+        restored=True,
+        safetyBackupPath=str(safety),
+        message="All data restored. A safety backup of the previous data was made.",
+    )
 
 
 @app.get("/api/rekordbox/status")

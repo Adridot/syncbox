@@ -40,6 +40,30 @@ class AppSettings(BaseModel):
     backup_retention: int = Field(default=15, alias="backupRetention")
 
 
+class SettingsBackup(BaseModel):
+    type: str = "syncbox-settings"
+    version: int = 1
+    exported_at: str = Field(default="", alias="exportedAt")
+    settings: dict[str, str] = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True}
+
+
+class SettingsImportResponse(BaseModel):
+    applied: int = 0
+    settings: AppSettings
+
+    model_config = {"populate_by_name": True}
+
+
+class DataImportResponse(BaseModel):
+    restored: bool = False
+    safety_backup_path: str | None = Field(default=None, alias="safetyBackupPath")
+    message: str = ""
+
+    model_config = {"populate_by_name": True}
+
+
 class StorageLayout(BaseModel):
     root: str
     inbox: str

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
+import tempfile
 from pathlib import Path
 
 from ._mappers import utc_now
@@ -18,6 +20,64 @@ class BaseRepository:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
+
+    def snapshot_to(self, target: Path) -> Path:
+        """Write a clean, single-file copy of the whole app DB to ``target``.
+
+        Uses ``VACUUM INTO`` so any WAL is folded in and the result is a
+        consistent, self-contained database — the right thing to hand to the
+        user as a downloadable "all data" backup.
+        """
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            target.unlink()
+        with self.connect() as connection:
+            connection.execute("VACUUM INTO ?", (str(target),))
+        return target
+
+    def is_valid_app_database(self, candidate: Path) -> bool:
+        """True if ``candidate`` is a SQLite DB that looks like ours."""
+        try:
+            connection = sqlite3.connect(f"file:{candidate}?mode=ro", uri=True)
+        except sqlite3.Error:
+            return False
+        try:
+            row = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='settings'"
+            ).fetchone()
+            return row is not None
+        except sqlite3.Error:
+            return False
+        finally:
+            connection.close()
+
+    def replace_with(self, source: Path) -> Path:
+        """Replace the live app DB with ``source`` after snapshotting the
+        current one. Returns the safety-backup path. Caller must have validated.
+        """
+        safety = self.path.with_suffix(
+            f".sqlite3.bak-{utc_now().replace(':', '').replace('-', '')}"
+        )
+        if self.path.exists():
+            shutil.copy2(self.path, safety)
+        # Clear WAL/SHM so the imported file is authoritative.
+        for suffix in ("-wal", "-shm"):
+            side = Path(f"{self.path}{suffix}")
+            if side.exists():
+                side.unlink()
+        shutil.copy2(source, self.path)
+        return safety
+
+    def write_temp_upload(self, data: bytes) -> Path:
+        """Persist uploaded bytes to a temp file for validation before import."""
+        handle = tempfile.NamedTemporaryFile(
+            prefix="syncbox-import-", suffix=".sqlite3", delete=False
+        )
+        try:
+            handle.write(data)
+        finally:
+            handle.close()
+        return Path(handle.name)
 
     def migrate(self) -> None:
         with self.connect() as connection:

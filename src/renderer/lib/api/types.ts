@@ -45,6 +45,24 @@ export type AppSettings = {
   backupRetention: number;
 };
 
+export type SettingsBackup = {
+  type: string;
+  version: number;
+  exportedAt: string;
+  settings: Record<string, string>;
+};
+
+export type SettingsImportResponse = {
+  applied: number;
+  settings: AppSettings;
+};
+
+export type DataImportResponse = {
+  restored: boolean;
+  safetyBackupPath: string | null;
+  message: string;
+};
+
 export type StorageLayout = {
   root: string;
   inbox: string;
