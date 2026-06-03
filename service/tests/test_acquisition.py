@@ -46,42 +46,63 @@ def test_login_arl_posts_arl_body(monkeypatch) -> None:
     assert result == {"success": True}
 
 
-def test_ensure_deemix_authenticated_logs_in_when_arl_stored(tmp_path: Path) -> None:
+def test_ensure_deemix_authenticated_applies_arl_once(tmp_path: Path, monkeypatch) -> None:
+    from app import acquisition
+
     database = LocalDatabase(tmp_path / "app.sqlite3")
     database.migrate()
+    # Start from a clean "nothing applied yet" process state.
+    monkeypatch.setattr(acquisition, "_applied_arl", None)
 
     class StubClient:
-        def __init__(self, authenticated: bool) -> None:
-            self._authenticated = authenticated
+        def __init__(self) -> None:
             self.logged_in_with: str | None = None
-
-        async def status(self) -> DeemixStatus:
-            return DeemixStatus(
-                baseUrl="x",
-                available=True,
-                authenticated=self._authenticated,
-                detail="stub",
-            )
 
         async def login_arl(self, arl: str) -> dict[str, Any]:
             self.logged_in_with = arl
             return {"success": True}
 
-    # No ARL stored -> no login attempted.
-    client = StubClient(authenticated=False)
+    # No ARL stored -> nothing to apply.
+    client = StubClient()
     asyncio.run(ensure_deemix_authenticated(database, client))
     assert client.logged_in_with is None
 
-    # ARL stored + not authenticated -> push it.
+    # ARL stored + not yet applied this process -> push it (no status() call,
+    # so Deezer isn't hit just to decide whether to log in).
     database.set_setting("deemix_arl", "stored-arl")
-    client = StubClient(authenticated=False)
+    client = StubClient()
     asyncio.run(ensure_deemix_authenticated(database, client))
     assert client.logged_in_with == "stored-arl"
 
-    # Already authenticated -> skip the login.
-    client = StubClient(authenticated=True)
+    # Already applied -> skip (idempotent, no extra Deezer load).
+    monkeypatch.setattr(acquisition, "_applied_arl", "stored-arl")
+    client = StubClient()
     asyncio.run(ensure_deemix_authenticated(database, client))
     assert client.logged_in_with is None
+
+
+def test_status_is_cached_to_spare_deezer(monkeypatch) -> None:
+    from app import acquisition
+
+    acquisition._STATUS_CACHE.clear()
+    calls = {"auth": 0}
+
+    class CountingClient(DeemixClient):
+        async def health(self) -> dict[str, Any]:
+            return {"version": "1.0.0"}
+
+        async def auth_status(self) -> dict[str, Any]:
+            calls["auth"] += 1
+            return {"authenticated": True}
+
+    client = CountingClient(base_url="http://127.0.0.1:9999")
+    first = asyncio.run(client.status())
+    second = asyncio.run(client.status())
+
+    assert first.authenticated and second.authenticated
+    # The Deezer-backed auth_status is hit once; the second status() is cached.
+    assert calls["auth"] == 1
+    acquisition._STATUS_CACHE.clear()
 
 
 def test_deezer_resolver_matches_isrc_exactly() -> None:
