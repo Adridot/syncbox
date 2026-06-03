@@ -30,9 +30,12 @@ export function useApiAction() {
     options: RunOptions<T> = {}
   ): Promise<T | undefined> {
     if (!system.api) return undefined;
-    const cleanup = options.busy?.();
-    try {
-      const result = await action(system.api);
+    const api = system.api;
+    // Delegate the try/catch/toast + busy teardown to the ui store's single
+    // implementation; this composable only adds the api null-check and the
+    // optional success toast / onSuccess side effect.
+    return ui.withErrorToast(async () => {
+      const result = await action(api);
       if (options.success !== undefined) {
         ui.setMessage(
           "success",
@@ -41,12 +44,7 @@ export function useApiAction() {
       }
       options.onSuccess?.(result);
       return result;
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-      return undefined;
-    } finally {
-      cleanup?.();
-    }
+    }, options.busy);
   }
 
   return { run };

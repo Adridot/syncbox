@@ -3,7 +3,6 @@ import { watch } from "vue";
 import { useAcquisitionStream } from "./useAcquisitionStream";
 import { useEventsStore } from "../stores/events";
 import { useLibraryStore } from "../stores/library";
-import { useProposalsStore } from "../stores/proposals";
 import { useSpotifyStore } from "../stores/spotify";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
@@ -14,7 +13,6 @@ export function useRefreshManager() {
   const events = useEventsStore();
   const library = useLibraryStore();
   const spotify = useSpotifyStore();
-  const proposals = useProposalsStore();
   const visibility = useDocumentVisibility();
 
   // SSE stream pushes global acquisition jobs; when live we skip the redundant
@@ -61,7 +59,6 @@ export function useRefreshManager() {
       await Promise.all([
         library.refreshTagRules(),
         library.refreshSources(),
-        proposals.refresh(),
         events.refreshSummaries(),
         library.refreshMappings(),
         spotify.refreshRekordboxTags(),

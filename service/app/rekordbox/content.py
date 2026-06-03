@@ -32,21 +32,6 @@ def content_length_ms(content: Any) -> int | None:
         return None
 
 
-def count_playlist_tracks(database: Any, playlist: Any) -> int:
-    if getattr(playlist, "is_folder", False):
-        return 0
-    try:
-        return len(
-            [
-                song
-                for song in database.get_playlist_songs(PlaylistID=playlist.ID)
-                if not getattr(song, "rb_local_deleted", 0)
-            ]
-        )
-    except Exception:
-        return 0
-
-
 def ensure_event_my_tag(
     database: Any,
     tables: Any,

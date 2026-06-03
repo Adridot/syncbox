@@ -223,18 +223,6 @@ class BaseRepository:
                     updated_at TEXT NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS sync_proposals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    proposal_type TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    spotify_track_id TEXT,
-                    rekordbox_content_id TEXT,
-                    file_path TEXT,
-                    reason TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     version INTEGER PRIMARY KEY,
                     applied_at TEXT NOT NULL

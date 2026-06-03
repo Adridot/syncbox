@@ -15,7 +15,6 @@ import type { MappingFormState, TagRuleFormState } from "../types/ui";
 import { useSystemStore } from "./system";
 import { useUiStore } from "./ui";
 import { useSpotifyStore } from "./spotify";
-import { useProposalsStore } from "./proposals";
 
 export const useLibraryStore = defineStore("library", () => {
   const sources = ref<LibrarySource[]>([]);
@@ -117,12 +116,10 @@ export const useLibraryStore = defineStore("library", () => {
   async function syncSource(source: LibrarySource): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
-    const proposals = useProposalsStore();
     if (!system.api) return;
     await ui.withLoading(async () => {
       activeReview.value = await system.api!.syncLibrarySource(source.id);
       sources.value = await system.api!.listLibrarySources();
-      await proposals.refresh();
       selectedTrackIds.value = [];
       ui.setMessage("success", `"${source.spotifyPlaylistName}" synced.`);
       // Missing tracks are fetched automatically; only failures are surfaced.

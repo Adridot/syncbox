@@ -10,7 +10,6 @@ from ..models import (
     EventDeleteResponse,
     EventReview,
     ProcessInfo,
-    RekordboxPlaylist,
     RekordboxStatus,
     RekordboxTag,
     StorageLayout,
@@ -28,12 +27,10 @@ from .paths import (
 )
 from ..dedup import build_resolution_plan, find_duplicate_groups
 from .content import (
-    EVENT_IMPORTS_PLAYLIST_FOLDER_NAME,
     EVENT_MY_TAG_CATEGORY_NAME,
     add_rekordbox_content,
     build_event_delete_plan,
     content_length_ms,
-    count_playlist_tracks,
     ensure_content_tag,
     ensure_event_my_tag,
     ensure_event_smart_playlist,
@@ -559,32 +556,6 @@ class RekordboxAdapter:
         finally:
             database.close()
 
-    def list_playlists(self) -> list[RekordboxPlaylist]:
-        try:
-            from pyrekordbox import Rekordbox6Database
-        except Exception as exc:
-            raise RuntimeError(f"pyrekordbox is not available: {exc}") from exc
-
-        database = Rekordbox6Database(db_dir=str(self.database_dir))
-        try:
-            playlists = []
-            for playlist in database.get_playlist():
-                if getattr(playlist, "rb_local_deleted", 0):
-                    continue
-                playlists.append(
-                    RekordboxPlaylist(
-                        id=str(playlist.ID),
-                        name=str(getattr(playlist, "Name", "") or ""),
-                        parentId=str(getattr(playlist, "ParentID", "") or "") or None,
-                        isFolder=bool(getattr(playlist, "is_folder", False)),
-                        isSmartPlaylist=bool(getattr(playlist, "is_smart_playlist", False)),
-                        trackCount=count_playlist_tracks(database, playlist),
-                    )
-                )
-            return sorted(playlists, key=lambda playlist: playlist.name.lower())
-        finally:
-            database.close()
-
     # --- untagged review tool ------------------------------------------------
 
     def untagged_report(self) -> dict[str, Any]:
@@ -854,33 +825,6 @@ class RekordboxAdapter:
             if xml_backup is not None and xml_path.exists():
                 xml_path.write_bytes(xml_backup)
             raise
-
-    def repair_event_import_structure(self, review: EventReview) -> dict[str, Any]:
-        event_playlist_name = review.event_name
-        with self._mutate() as (database, tables, backup_path):
-            from pyrekordbox.db6.smartlist import Operator, SmartList
-
-            event_tag = ensure_event_my_tag(
-                database,
-                tables,
-                review.default_tag,
-                EVENT_MY_TAG_CATEGORY_NAME,
-            )
-            playlist = ensure_event_smart_playlist(
-                database,
-                name=event_playlist_name,
-                event_tag=event_tag,
-                operator=int(Operator.CONTAINS),
-                smart_list_class=SmartList,
-            )
-            return {
-                "backup_path": str(backup_path),
-                "tag_id": str(event_tag.ID),
-                "tag_parent": EVENT_MY_TAG_CATEGORY_NAME,
-                "playlist_id": str(playlist.ID),
-                "playlist": str(getattr(playlist, "Name", event_playlist_name)),
-                "playlist_folder": EVENT_IMPORTS_PLAYLIST_FOLDER_NAME,
-            }
 
     def preview_event_delete(self, review: EventReview) -> EventDeletePreview:
         # Read-only: opens the DB to compute what *would* be deleted. It must
@@ -1220,7 +1164,6 @@ class RekordboxAdapter:
         meta = self.content_meta(content_id)
         target_isrc = (meta.get("isrc") or "").strip().upper()
         target_title = meta.get("title") or ""
-        target_artist = meta.get("artist") or ""
 
         candidates: list[dict[str, Any]] = []
         roots = [

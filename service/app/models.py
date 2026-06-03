@@ -96,22 +96,6 @@ class TagPlaylistMapping(TagPlaylistMappingIn):
     id: int
 
 
-class SyncProposal(BaseModel):
-    id: int
-    proposal_type: str = Field(alias="proposalType")
-    status: str
-    spotify_track_id: str | None = Field(default=None, alias="spotifyTrackId")
-    rekordbox_content_id: str | None = Field(default=None, alias="rekordboxContentId")
-    file_path: str | None = Field(default=None, alias="filePath")
-    reason: str
-    payload: dict[str, Any]
-    created_at: str = Field(alias="createdAt")
-
-
-class SyncProposalResolveRequest(BaseModel):
-    status: Literal["approved", "ignored", "protected"] = "ignored"
-
-
 class SpotifyAuthUrlRequest(BaseModel):
     client_id: str = Field(alias="clientId")
     redirect_uri: str = Field(alias="redirectUri")
@@ -307,15 +291,6 @@ class RekordboxTag(BaseModel):
     id: str
     name: str
     parent_id: str | None = Field(default=None, alias="parentId")
-
-
-class RekordboxPlaylist(BaseModel):
-    id: str
-    name: str
-    parent_id: str | None = Field(default=None, alias="parentId")
-    is_folder: bool = Field(alias="isFolder")
-    is_smart_playlist: bool = Field(alias="isSmartPlaylist")
-    track_count: int = Field(default=0, alias="trackCount")
 
 
 class StagingFile(BaseModel):

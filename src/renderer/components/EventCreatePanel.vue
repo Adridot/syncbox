@@ -23,12 +23,12 @@ async function createEmptyEvent(): Promise<void> {
 }
 
 async function addTrack(): Promise<void> {
-  await events.addTrackToEvent({
+  const ok = await events.addTrackToEvent({
     url: trackUrl.value,
     targetEventId: isNewEvent.value ? null : Number(target.value),
     newEventName: isNewEvent.value ? newEventName.value : undefined,
   });
-  if (!ui.errorMessage) {
+  if (ok) {
     trackUrl.value = "";
     newEventName.value = "";
   }

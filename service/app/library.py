@@ -353,7 +353,6 @@ def mark_removed_library_tracks(
     active_spotify_ids: set[str],
 ) -> int:
     removed = 0
-    proposals = []
     for track in existing_tracks.values():
         if track.spotify_track_id in active_spotify_ids:
             continue
@@ -366,27 +365,6 @@ def mark_removed_library_tracks(
             reason="Spotify track is no longer present in the source playlist.",
         )
         removed += 1
-        proposals.append(
-            {
-                "proposal_type": "remove_from_rekordbox",
-                "spotify_track_id": track.spotify_track_id,
-                "rekordbox_content_id": track.rekordbox_content_id,
-                "file_path": track.rekordbox_file_path or track.staging_file_path,
-                "reason": (
-                    "Permanent source track was removed from Spotify. "
-                    "Review before removing tags or files."
-                ),
-                "payload": {
-                    "sourceId": source.id,
-                    "sourcePlaylistId": source.spotify_playlist_id,
-                    "sourcePlaylistName": source.spotify_playlist_name,
-                    "tagNames": source.tags,
-                    "trackTitle": track.title,
-                    "trackArtists": track.artists,
-                },
-            }
-        )
-    database.insert_proposals(proposals)
     return removed
 
 

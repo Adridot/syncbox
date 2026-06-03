@@ -19,11 +19,6 @@ const DEFAULT_TIMEOUTS: Record<ToastKind, number> = {
 export const useUiStore = defineStore("ui", () => {
   const activeView = ref<ViewKey>("dashboard");
   const loading = ref(false);
-  // errorMessage/successMessage are kept for back-compat: several views branch
-  // on `if (!ui.errorMessage)` right after an awaited action.
-  const errorMessage = ref("");
-  const successMessage = ref("");
-  const searchQuery = ref("");
 
   const toasts = ref<Toast[]>([]);
   let nextToastId = 1;
@@ -58,57 +53,58 @@ export const useUiStore = defineStore("ui", () => {
     return id;
   }
 
-  function notify(kind: ToastKind, message: string): void {
-    pushToast(kind, message);
-  }
-
   function setMessage(kind: "success" | "error", message: string): void {
-    successMessage.value = kind === "success" ? message : "";
-    errorMessage.value = kind === "error" ? message : "";
     pushToast(kind, message);
   }
 
-  function clearMessages(): void {
-    errorMessage.value = "";
-    successMessage.value = "";
-  }
-
-  async function withLoading<T>(task: () => Promise<T>): Promise<T | undefined> {
-    return withLoadingFlag(loading, task);
-  }
-
-  // Same error-surfacing contract as withLoading, but toggles a caller-provided
-  // flag (e.g. a panel-local `deezerSearchLoading`) instead of the global one.
-  async function withLoadingFlag<T>(
-    flag: Ref<boolean>,
-    task: () => Promise<T>
+  // Single error-surfacing core: run a task, turn any throw into an error toast,
+  // and always run the optional busy-cleanup in `finally`. withLoading,
+  // withLoadingFlag and the useApiAction composable all delegate here so the
+  // try/catch/toast contract has exactly one implementation.
+  type Cleanup = () => void;
+  async function withErrorToast<T>(
+    task: () => Promise<T>,
+    busy?: () => Cleanup
   ): Promise<T | undefined> {
-    flag.value = true;
-    clearMessages();
+    const cleanup = busy?.();
     try {
       return await task();
     } catch (error) {
       setMessage("error", error instanceof Error ? error.message : String(error));
       return undefined;
     } finally {
-      flag.value = false;
+      cleanup?.();
     }
+  }
+
+  async function withLoading<T>(task: () => Promise<T>): Promise<T | undefined> {
+    return withLoadingFlag(loading, task);
+  }
+
+  // Same contract as withLoading, but toggles a caller-provided flag
+  // (e.g. a panel-local `deezerSearchLoading`) instead of the global one.
+  async function withLoadingFlag<T>(
+    flag: Ref<boolean>,
+    task: () => Promise<T>
+  ): Promise<T | undefined> {
+    return withErrorToast(task, () => {
+      flag.value = true;
+      return () => {
+        flag.value = false;
+      };
+    });
   }
 
   return {
     activeView,
     loading,
-    errorMessage,
-    successMessage,
-    searchQuery,
     toasts,
     pageTitle,
     navigateTo,
     setMessage,
-    clearMessages,
-    notify,
     pushToast,
     dismissToast,
+    withErrorToast,
     withLoading,
     withLoadingFlag,
   };

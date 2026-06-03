@@ -35,9 +35,8 @@ export const useDoctorStore = defineStore("doctor", () => {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api) return;
-    pruning.value = true;
-    try {
-      const result = await system.api.pruneBackups();
+    await ui.withLoadingFlag(pruning, async () => {
+      const result = await system.api!.pruneBackups();
       if (!result.readable) {
         ui.setMessage(
           "error",
@@ -52,30 +51,29 @@ export const useDoctorStore = defineStore("doctor", () => {
         );
       }
       await refresh();
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      pruning.value = false;
-    }
+    });
   }
 
   async function restore(name: string): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api) return;
-    restoringName.value = name;
-    try {
-      const result = await system.api.restoreBackup(name);
-      ui.setMessage(
-        "success",
-        `Restored ${result.restored} (${result.restoredFiles} file(s)). A safety backup was made.`
-      );
-      await refresh();
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      restoringName.value = null;
-    }
+    await ui.withErrorToast(
+      async () => {
+        const result = await system.api!.restoreBackup(name);
+        ui.setMessage(
+          "success",
+          `Restored ${result.restored} (${result.restoredFiles} file(s)). A safety backup was made.`
+        );
+        await refresh();
+      },
+      () => {
+        restoringName.value = name;
+        return () => {
+          restoringName.value = null;
+        };
+      }
+    );
   }
 
   return {

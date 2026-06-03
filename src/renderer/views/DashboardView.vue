@@ -14,7 +14,6 @@ import MetricCard from "../components/MetricCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { useEventsStore } from "../stores/events";
 import { useLibraryStore } from "../stores/library";
-import { useProposalsStore } from "../stores/proposals";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
 
@@ -22,7 +21,6 @@ const ui = useUiStore();
 const system = useSystemStore();
 const events = useEventsStore();
 const library = useLibraryStore();
-const proposals = useProposalsStore();
 
 // Load the collection stats once the API client is ready (it may be initialised
 // after this view mounts).
@@ -59,11 +57,8 @@ const activeDownloads = computed(
 const failedDownloads = computed(
   () => events.globalAcquisitionJobs.filter((job) => job.status === "acquisition_failed").length
 );
-const pendingProposals = computed(
-  () => proposals.proposals.filter((p) => p.status === "pending").length
-);
 const needsAttention = computed(
-  () => lib.value.conflict + failedDownloads.value + pendingProposals.value
+  () => lib.value.conflict + failedDownloads.value
 );
 
 const stats = computed(() => system.collectionStats);
@@ -110,7 +105,7 @@ const recentEvents = computed(() => events.summaries.slice(0, 5));
         <MetricCard
           title="Needs attention"
           :value="needsAttention"
-          detail="Conflicts, failed downloads & proposals"
+          detail="Conflicts & failed downloads"
           :icon="AlertTriangle"
           :tone="needsAttention > 0 ? 'error' : 'muted'"
         />
