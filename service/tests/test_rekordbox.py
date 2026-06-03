@@ -594,3 +594,65 @@ class FakeSmartList:
 
     def to_xml(self) -> str:
         return f"{self.playlist_id}:{self.value_left}"
+
+
+def _untagged_snapshot() -> dict:
+    """A small collection: 2 tagged, plus junk / dup / alt / review untagged."""
+    return {
+        "available": True,
+        "tracks": [
+            # Tagged anchors.
+            {"contentId": "1", "title": "Get Lucky", "artist": "Daft Punk",
+             "durationMs": 248000, "isrc": "US1", "filePath": "/m/a.mp3",
+             "fileName": "a.mp3", "playlistCount": 2, "tagCount": 1,
+             "protected": True, "dateCreated": None},
+            {"contentId": "2", "title": "One More Time", "artist": "Daft Punk",
+             "durationMs": 320000, "isrc": "US2", "filePath": "/m/b.mp3",
+             "fileName": "b.mp3", "playlistCount": 1, "tagCount": 2,
+             "protected": True, "dateCreated": None},
+            # Untagged: rekordbox built-in sample -> junk.
+            {"contentId": "3", "title": "House 1", "artist": "rekordbox",
+             "durationMs": 5000, "isrc": None, "filePath": "/m/h.wav",
+             "fileName": "h.wav", "playlistCount": 0, "tagCount": 0,
+             "protected": False, "dateCreated": None},
+            # Untagged: same song-key as a tagged track -> dup_of_tagged.
+            {"contentId": "4", "title": "Get Lucky (Radio Edit)", "artist": "Daft Punk",
+             "durationMs": 240000, "isrc": None, "filePath": "/m/c.mp3",
+             "fileName": "c.mp3", "playlistCount": 0, "tagCount": 0,
+             "protected": False, "dateCreated": None},
+            # Untagged: genuine unique mainstream track -> review.
+            {"contentId": "5", "title": "Titanium", "artist": "David Guetta",
+             "durationMs": 245000, "isrc": "US5", "filePath": "/m/d.mp3",
+             "fileName": "d.mp3", "playlistCount": 3, "tagCount": 0,
+             "protected": False, "dateCreated": None},
+        ],
+    }
+
+
+def _patch_adapter_snapshot(adapter, monkeypatch) -> None:
+    snap = _untagged_snapshot()
+    monkeypatch.setattr(type(adapter), "read_collection_snapshot", lambda self: snap)
+    monkeypatch.setattr(type(adapter), "_file_missing_map", lambda self, tracks: {})
+    monkeypatch.setattr(type(adapter), "list_tags", lambda self: [])
+
+
+def test_untagged_report_classifies_and_sorts(tmp_path: Path, monkeypatch) -> None:
+    from app.rekordbox import RekordboxAdapter
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    _patch_adapter_snapshot(adapter, monkeypatch)
+
+    report = adapter.untagged_report()
+
+    assert report["available"] is True
+    assert report["total"] == 5
+    assert report["untagged"] == 3  # only tagCount == 0 rows
+    by_id = {t["contentId"]: t for t in report["tracks"]}
+    assert by_id["3"]["suggestion"] == "junk"
+    assert by_id["4"]["suggestion"] == "dup_of_tagged"
+    assert by_id["4"]["suggestionDetail"] == "Get Lucky"
+    assert by_id["5"]["suggestion"] == "review"
+    assert by_id["5"]["protected"] is False
+    # Sorted junk -> dup -> alt -> review.
+    order = [t["suggestion"] for t in report["tracks"]]
+    assert order == ["junk", "dup_of_tagged", "review"]

@@ -676,3 +676,68 @@ class DuplicateResolutionResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
+
+
+# --- Untagged tracks (the "why aren't these tagged?" review tool) -----------
+
+
+class UntaggedTrack(BaseModel):
+    content_id: str = Field(alias="contentId")
+    title: str
+    artist: str
+    duration_ms: int | None = Field(default=None, alias="durationMs")
+    isrc: str | None = None
+    file_path: str | None = Field(default=None, alias="filePath")
+    file_name: str | None = Field(default=None, alias="fileName")
+    playlist_count: int = Field(default=0, alias="playlistCount")
+    file_missing: bool = Field(default=False, alias="fileMissing")
+    protected: bool = False
+    date_created: str | None = Field(default=None, alias="dateCreated")
+    # Heuristic hint about *why* the track is untagged / what to do with it:
+    #   junk | dup_of_tagged | alt_version | review
+    suggestion: str = "review"
+    suggestion_detail: str = Field(default="", alias="suggestionDetail")
+
+    model_config = {"populate_by_name": True}
+
+
+class UntaggedReport(BaseModel):
+    available: bool = True
+    reason: str | None = None
+    total: int = 0
+    untagged: int = 0
+    tracks: list[UntaggedTrack] = Field(default_factory=list)
+    tags: list[RekordboxTag] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
+class UntaggedTagRequest(BaseModel):
+    content_ids: list[str] = Field(default_factory=list, alias="contentIds")
+    tag_name: str = Field(alias="tagName")
+    category: str = "Genre"
+
+    model_config = {"populate_by_name": True}
+
+
+class UntaggedTagResponse(BaseModel):
+    backup_path: str | None = Field(default=None, alias="backupPath")
+    tagged: int = 0
+    created_tag: bool = Field(default=False, alias="createdTag")
+    tag_name: str = Field(default="", alias="tagName")
+
+    model_config = {"populate_by_name": True}
+
+
+class UntaggedDeleteRequest(BaseModel):
+    content_ids: list[str] = Field(default_factory=list, alias="contentIds")
+
+    model_config = {"populate_by_name": True}
+
+
+class UntaggedDeleteResponse(BaseModel):
+    backup_path: str | None = Field(default=None, alias="backupPath")
+    removed: int = 0
+    skipped_protected: int = Field(default=0, alias="skippedProtected")
+
+    model_config = {"populate_by_name": True}

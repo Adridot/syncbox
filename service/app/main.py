@@ -83,6 +83,11 @@ from .models import (
     TagPlaylistMappingIn,
     TagRule,
     TagRuleIn,
+    UntaggedDeleteRequest,
+    UntaggedDeleteResponse,
+    UntaggedReport,
+    UntaggedTagRequest,
+    UntaggedTagResponse,
 )
 from .event_import import (
     add_spotify_track_to_event,
@@ -416,6 +421,47 @@ async def redownload_missing_entry(content_id: str) -> MissingActionResponse:
         artist=result.get("artist"),
         message=result["message"],
     )
+
+
+@app.get("/api/rekordbox/untagged", response_model=UntaggedReport)
+def rekordbox_untagged() -> UntaggedReport:
+    try:
+        result = build_rekordbox_adapter().untagged_report()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return UntaggedReport(**result)
+
+
+@app.post("/api/rekordbox/untagged/tag", response_model=UntaggedTagResponse)
+def rekordbox_untagged_tag(request: UntaggedTagRequest) -> UntaggedTagResponse:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.tag_untagged(request.content_ids, request.tag_name, request.category)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        # e.g. RekordboxRunningError — cannot mutate while RB is open.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    logger.info(
+        "Tagged %s untagged track(s) with '%s'%s",
+        result["tagged"],
+        result["tag_name"],
+        " (created tag)" if result["created_tag"] else "",
+    )
+    return UntaggedTagResponse(**result)
+
+
+@app.post("/api/rekordbox/untagged/delete", response_model=UntaggedDeleteResponse)
+def rekordbox_untagged_delete(request: UntaggedDeleteRequest) -> UntaggedDeleteResponse:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.delete_untagged(request.content_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    logger.info("Soft-deleted %s untagged track(s) from the collection", result["removed"])
+    return UntaggedDeleteResponse(**result)
 
 
 @app.post("/api/storage/ensure", response_model=StorageLayout)

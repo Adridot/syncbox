@@ -40,6 +40,9 @@ import type {
   SyncProposal,
   TagPlaylistMapping,
   TagRule,
+  UntaggedDeleteResponse,
+  UntaggedReport,
+  UntaggedTagResponse,
 } from "./types";
 
 export class ApiClient {
@@ -109,6 +112,22 @@ export class ApiClient {
     dryRun = false
   ): Promise<DuplicateResolutionResponse> {
     return this.post("/api/rekordbox/duplicates/resolve", { items, dryRun });
+  }
+
+  async getUntaggedTracks(): Promise<UntaggedReport> {
+    return this.get("/api/rekordbox/untagged");
+  }
+
+  async tagUntaggedTracks(
+    contentIds: string[],
+    tagName: string,
+    category = "Genre"
+  ): Promise<UntaggedTagResponse> {
+    return this.post("/api/rekordbox/untagged/tag", { contentIds, tagName, category });
+  }
+
+  async deleteUntaggedTracks(contentIds: string[]): Promise<UntaggedDeleteResponse> {
+    return this.post("/api/rekordbox/untagged/delete", { contentIds });
   }
 
   async getSettings(): Promise<AppSettings> {

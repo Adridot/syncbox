@@ -7,6 +7,7 @@ export type ViewKey =
   | "downloadCenter"
   | "duplicates"
   | "missing"
+  | "untagged"
   | "doctor"
   | "settings";
 

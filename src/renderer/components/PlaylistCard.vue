@@ -14,11 +14,12 @@ defineEmits<{
 
 <template>
   <article
-    class="group flex h-full flex-col rounded-lg border border-outline-variant bg-surface-container-high p-4 transition-all hover:border-primary"
+    class="group flex h-full flex-col rounded-lg border border-outline-variant bg-surface-container-high transition-all hover:border-primary"
+    :class="compact ? 'p-2.5' : 'p-4'"
   >
     <div
-      class="relative mb-4 overflow-hidden rounded bg-surface-container"
-      :class="compact ? 'h-20 w-20' : 'aspect-square w-full'"
+      class="relative overflow-hidden rounded bg-surface-container aspect-square w-full"
+      :class="compact ? 'mb-2' : 'mb-4'"
     >
       <img
         v-if="playlist.imageUrl"
@@ -31,31 +32,44 @@ defineEmits<{
       </div>
       <div
         v-if="playlist.trackCount > 0"
-        class="absolute right-2 top-2 rounded-full bg-secondary px-2 py-1 text-[10px] font-bold text-black shadow-sm"
+        class="absolute right-1.5 top-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-bold text-black shadow-sm"
       >
         {{ playlist.trackCount }}
       </div>
     </div>
 
     <div class="flex flex-1 flex-col">
-      <h3 class="truncate font-bold text-on-surface transition-colors group-hover:text-primary">
+      <h3
+        class="truncate font-bold text-on-surface transition-colors group-hover:text-primary"
+        :class="compact ? 'text-sm' : ''"
+      >
         {{ playlist.name }}
       </h3>
-      <p class="mt-1 text-xs text-on-surface-variant">
+      <p class="mt-0.5 truncate text-xs text-on-surface-variant">
         {{ playlist.owner }} - {{ playlist.public === false ? "Private" : "Spotify" }}
       </p>
-      <div class="mt-auto flex items-center justify-between border-t border-outline-variant pt-3">
-        <span class="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
-          Playlist
-        </span>
-        <button
-          class="rounded border border-outline bg-surface px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
-          type="button"
-          @click="$emit('select', playlist)"
-        >
-          Select
-        </button>
-      </div>
+      <template v-if="!compact">
+        <div class="mt-auto flex items-center justify-between border-t border-outline-variant pt-3">
+          <span class="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
+            Playlist
+          </span>
+          <button
+            class="rounded border border-outline bg-surface px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
+            type="button"
+            @click="$emit('select', playlist)"
+          >
+            Select
+          </button>
+        </div>
+      </template>
+      <button
+        v-else
+        class="mt-2 w-full rounded border border-outline bg-surface px-2 py-1 text-xs font-bold text-on-surface transition-colors hover:border-primary"
+        type="button"
+        @click="$emit('select', playlist)"
+      >
+        Select
+      </button>
     </div>
   </article>
 </template>

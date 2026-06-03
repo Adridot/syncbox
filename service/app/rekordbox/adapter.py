@@ -585,6 +585,172 @@ class RekordboxAdapter:
         finally:
             database.close()
 
+    # --- untagged review tool ------------------------------------------------
+
+    def untagged_report(self) -> dict[str, Any]:
+        """List collection tracks carrying no MyTag, with a "why / what to do"
+        hint per track (junk, duplicate of a tagged song, alternate version, or
+        a genuine track to review). Derived entirely from the cached snapshot."""
+        from ..maintenance import (
+            ACTION_DELETE,
+            REASON_ALT_VERSION,
+            REASON_DUP_OF_TAGGED,
+            REASON_JUNK,
+            TrackRow,
+            classify_untagged,
+        )
+
+        snapshot = self.read_collection_snapshot()
+        if not snapshot.get("available"):
+            return {
+                "available": False,
+                "reason": snapshot.get("reason"),
+                "tracks": [],
+                "tags": [],
+            }
+        tracks = snapshot["tracks"]
+        missing = self._file_missing_map(tracks)
+
+        tagged_rows: list[TrackRow] = []
+        untagged_rows: list[TrackRow] = []
+        for track in tracks:
+            row = TrackRow(
+                content_id=str(track["contentId"]),
+                artist=track.get("artist") or "",
+                title=track.get("title") or "",
+                folder_path=track.get("filePath") or "",
+                is_tagged=int(track.get("tagCount", 0) or 0) > 0,
+            )
+            (tagged_rows if row.is_tagged else untagged_rows).append(row)
+
+        decisions = {d.content_id: d for d in classify_untagged(tagged_rows, untagged_rows)}
+        by_id = {str(track["contentId"]): track for track in tracks}
+        reason_to_suggestion = {
+            REASON_JUNK: "junk",
+            REASON_DUP_OF_TAGGED: "dup_of_tagged",
+            REASON_ALT_VERSION: "alt_version",
+        }
+
+        out: list[dict[str, Any]] = []
+        for row in untagged_rows:
+            track = by_id[row.content_id]
+            decision = decisions.get(row.content_id)
+            suggestion = "review"
+            detail = ""
+            if decision is not None and decision.action == ACTION_DELETE:
+                suggestion = reason_to_suggestion.get(decision.reason, "review")
+                if decision.reason == REASON_DUP_OF_TAGGED and decision.matched_tagged_title:
+                    detail = decision.matched_tagged_title
+            out.append(
+                {
+                    "contentId": row.content_id,
+                    "title": track.get("title") or "",
+                    "artist": track.get("artist") or "",
+                    "durationMs": track.get("durationMs"),
+                    "isrc": track.get("isrc"),
+                    "filePath": track.get("filePath"),
+                    "fileName": track.get("fileName"),
+                    "playlistCount": int(track.get("playlistCount", 0) or 0),
+                    "fileMissing": missing.get(row.content_id, False),
+                    "protected": bool(track.get("protected", False)),
+                    "dateCreated": track.get("dateCreated"),
+                    "suggestion": suggestion,
+                    "suggestionDetail": detail,
+                }
+            )
+
+        order = {"junk": 0, "dup_of_tagged": 1, "alt_version": 2, "review": 3}
+        out.sort(
+            key=lambda r: (
+                order.get(r["suggestion"], 3),
+                (r["artist"] or "").lower(),
+                (r["title"] or "").lower(),
+            )
+        )
+        return {
+            "available": True,
+            "total": len(tracks),
+            "untagged": len(out),
+            "tracks": out,
+            "tags": self.list_tags(),
+        }
+
+    def tag_untagged(
+        self,
+        content_ids: list[str],
+        tag_name: str,
+        category: str = "Genre",
+    ) -> dict[str, Any]:
+        """Apply an existing (or newly created) MyTag to the given tracks.
+
+        If no MyTag with ``tag_name`` exists, one is created under the
+        ``category`` MyTag category (default "Genre"). Soft, reversible, backed
+        up first via :meth:`_mutate`."""
+        from .content import create_my_tag, find_active_my_tag, find_my_tag_category
+
+        clean_name = (tag_name or "").strip()
+        if not clean_name:
+            raise ValueError("A tag name is required.")
+        ids = {str(cid) for cid in content_ids}
+        if not ids:
+            raise ValueError("No tracks selected.")
+
+        tagged = 0
+        created = False
+        with self._mutate() as (database, tables, backup_path):
+            tag = find_active_my_tag(database, clean_name)
+            if tag is None:
+                cat = find_my_tag_category(database, category)
+                tag = create_my_tag(database, tables, clean_name, parent_id=str(cat.ID))
+                created = True
+            content_by_id = {
+                str(content.ID): content
+                for content in database.get_content()
+                if not is_rekordbox_row_deleted(content)
+            }
+            for cid in ids:
+                content = content_by_id.get(cid)
+                if content is None:
+                    continue
+                ensure_content_tag(database, tables, content, tag)
+                tagged += 1
+
+        return {
+            "backup_path": str(backup_path),
+            "tagged": tagged,
+            "created_tag": created,
+            "tag_name": clean_name,
+        }
+
+    def delete_untagged(self, content_ids: list[str]) -> dict[str, Any]:
+        """Soft-delete (mark rb_local_deleted) the given collection rows.
+
+        Reversible: a backup is taken first and the row is only flagged deleted,
+        never hard-removed; the file on disk is left untouched."""
+        ids = {str(cid) for cid in content_ids}
+        if not ids:
+            raise ValueError("No tracks selected.")
+
+        removed = 0
+        with self._mutate() as (database, tables, backup_path):
+            content_by_id = {
+                str(content.ID): content
+                for content in database.get_content()
+                if not is_rekordbox_row_deleted(content)
+            }
+            for cid in ids:
+                content = content_by_id.get(cid)
+                if content is None:
+                    continue
+                mark_rekordbox_row_deleted(content)
+                removed += 1
+
+        return {
+            "backup_path": str(backup_path),
+            "removed": removed,
+            "skipped_protected": 0,
+        }
+
     def apply_event_import(self, review: EventReview) -> dict[str, Any]:
         # Rekordbox can overwrite masterPlaylists6.xml during our writes; snapshot
         # it so we can restore it whether the transaction succeeds or fails.

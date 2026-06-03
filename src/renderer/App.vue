@@ -13,6 +13,7 @@ const DuplicatesView = defineAsyncComponent(() => import("./views/DuplicatesView
 const EventsView = defineAsyncComponent(() => import("./views/EventsView.vue"));
 const LibraryView = defineAsyncComponent(() => import("./views/LibraryView.vue"));
 const MissingFilesView = defineAsyncComponent(() => import("./views/MissingFilesView.vue"));
+const UntaggedView = defineAsyncComponent(() => import("./views/UntaggedView.vue"));
 const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
 import { useRefreshManager } from "./composables/useRefreshManager";
 import { useEventsStore } from "./stores/events";
@@ -60,6 +61,7 @@ onMounted(async () => {
     <DownloadMatchCenterView v-else-if="ui.activeView === 'downloadCenter'" />
     <DuplicatesView v-else-if="ui.activeView === 'duplicates'" />
     <MissingFilesView v-else-if="ui.activeView === 'missing'" />
+    <UntaggedView v-else-if="ui.activeView === 'untagged'" />
     <DoctorView v-else-if="ui.activeView === 'doctor'" />
     <SettingsView v-else />
   </AppShell>

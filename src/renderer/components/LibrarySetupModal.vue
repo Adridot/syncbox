@@ -153,11 +153,12 @@ const tabClass = (active: boolean) =>
                 class="w-48 rounded border border-outline bg-surface-container-high px-3 py-1.5 text-xs text-on-surface focus:border-primary focus:outline-none"
               />
             </div>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               <PlaylistCard
                 v-for="playlist in availablePlaylists"
                 :key="playlist.id"
                 :playlist="playlist"
+                compact
                 @select="
                   library.tagRuleForm.sourcePlaylistId = playlist.id;
                   library.selectTagRulePlaylist(playlist.id);

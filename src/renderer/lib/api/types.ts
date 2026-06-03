@@ -355,6 +355,46 @@ export type MissingActionResponse = {
   message: string;
 };
 
+export type UntaggedSuggestion = "junk" | "dup_of_tagged" | "alt_version" | "review";
+
+export type UntaggedTrack = {
+  contentId: string;
+  title: string;
+  artist: string;
+  durationMs: number | null;
+  isrc: string | null;
+  filePath: string | null;
+  fileName: string | null;
+  playlistCount: number;
+  fileMissing: boolean;
+  protected: boolean;
+  dateCreated: string | null;
+  suggestion: UntaggedSuggestion;
+  suggestionDetail: string;
+};
+
+export type UntaggedReport = {
+  available: boolean;
+  reason: string | null;
+  total: number;
+  untagged: number;
+  tracks: UntaggedTrack[];
+  tags: RekordboxTag[];
+};
+
+export type UntaggedTagResponse = {
+  backupPath: string | null;
+  tagged: number;
+  createdTag: boolean;
+  tagName: string;
+};
+
+export type UntaggedDeleteResponse = {
+  backupPath: string | null;
+  removed: number;
+  skippedProtected: number;
+};
+
 export type DuplicateResolutionResponse = {
   backupPath: string | null;
   removedFromRekordbox: number;
