@@ -691,8 +691,12 @@ async def list_global_acquisition_jobs(
     status: str | None = Query(default=None),
     source: str | None = Query(default=None),
 ) -> list[GlobalAcquisitionJob]:
-    await refresh_global_acquisition_state(scope=scope, source=source)
-    return database.list_global_acquisition_jobs(scope=scope, status=status, source=source)
+    await run_acquisition_refresh(scope=scope, source=source)
+    return await asyncio.to_thread(
+        lambda: database.list_global_acquisition_jobs(
+            scope=scope, status=status, source=source
+        )
+    )
 
 
 @app.delete("/api/acquisition/jobs/clear")
@@ -720,8 +724,8 @@ async def stream_acquisition_jobs(request: Request) -> StreamingResponse:
             if await request.is_disconnected():
                 break
             try:
-                await refresh_global_acquisition_state()
-                jobs = database.list_global_acquisition_jobs()
+                await run_acquisition_refresh()
+                jobs = await asyncio.to_thread(database.list_global_acquisition_jobs)
                 payload = json.dumps(
                     [job.model_dump(by_alias=True, mode="json") for job in jobs]
                 )
@@ -1130,6 +1134,33 @@ def normalized_label(value: str | None) -> str:
         char for char in normalized if not unicodedata.combining(char)
     )
     return " ".join(without_accents.casefold().split())
+
+
+# Serialize acquisition refreshes: the SSE stream and on-demand list calls would
+# otherwise run overlapping refreshes (two worker threads writing SQLite at once
+# -> lock contention). Callers await this lock asynchronously, so waiting never
+# blocks the event loop.
+_acquisition_refresh_lock = asyncio.Lock()
+
+
+async def run_acquisition_refresh(
+    scope: str | None = None, source: str | None = None
+) -> None:
+    """Run the (blocking) acquisition refresh off the asyncio event loop.
+
+    ``refresh_global_acquisition_state`` interleaves Deemix network calls with
+    heavy *synchronous* work — reading the Rekordbox collection snapshot (which
+    stalls and retries while Rekordbox is mid-write) and SQLite I/O. Running it
+    inline froze every other request — the Clear button, the job list, even
+    ``/health`` — whenever a refresh was slow. Isolating it in a worker thread
+    (with its own event loop for the inner awaits) keeps the API responsive.
+    """
+    async with _acquisition_refresh_lock:
+        await asyncio.to_thread(
+            lambda: asyncio.run(
+                refresh_global_acquisition_state(scope=scope, source=source)
+            )
+        )
 
 
 async def refresh_global_acquisition_state(
