@@ -481,7 +481,12 @@ async def sync_library_source_endpoint(source_id: int) -> LibraryReview:
             source_id,
         )
     except SpotifyAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        logger.warning("sync source %s: Spotify auth failed: %s", source_id, exc)
+        raise HTTPException(
+            status_code=401,
+            detail="Spotify sign-in has expired or was revoked. "
+            "Reconnect Spotify in Settings, then sync again.",
+        ) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -495,16 +500,28 @@ async def sync_all_library_sources() -> list[LibraryReview]:
     client = SpotifyClient(database)
     results: list[LibraryReview] = []
     failures: list[str] = []
+    auth_failed = False
     for source in sources:
         try:
             review = await sync_library_source(database, adapter, client, source.id)
             results.append(review)
+        except SpotifyAuthError as exc:
+            # The token is dead for every source — stop hammering Spotify.
+            auth_failed = True
+            logger.warning("sync-all: Spotify auth failed: %s", exc)
+            break
         except Exception as exc:
             failures.append(source.spotify_playlist_name)
             logger.warning(
                 "sync-all: source %s (%s) failed: %s",
                 source.id, source.spotify_playlist_name, exc,
             )
+    if auth_failed and not results:
+        raise HTTPException(
+            status_code=401,
+            detail="Spotify sign-in has expired or was revoked. "
+            "Reconnect Spotify in Settings, then sync again.",
+        )
     if failures and not results:
         raise HTTPException(
             status_code=503,
