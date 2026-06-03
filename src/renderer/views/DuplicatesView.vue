@@ -11,25 +11,12 @@ import {
   X,
 } from "@lucide/vue";
 import type { DuplicateGroup, DuplicateTrack } from "../lib/api";
+import { formatBytes, formatDuration } from "../lib/format";
 import { useDuplicatesStore } from "../stores/duplicates";
 import { useSystemStore } from "../stores/system";
 
 const duplicates = useDuplicatesStore();
 const system = useSystemStore();
-
-function formatDuration(ms: number | null): string {
-  if (!ms) return "—";
-  const total = Math.round(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function formatBytes(bytes: number | null): string {
-  if (!bytes) return "—";
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function qualityLine(track: DuplicateTrack): string {
   const parts: string[] = [];

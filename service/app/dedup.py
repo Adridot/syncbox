@@ -393,7 +393,6 @@ def build_resolution_plan(
     remove: list[str] = []
     files_to_delete: list[str] = []
     skipped_protected: list[str] = []
-    warnings: list[str] = []
 
     for content_id in remove_content_ids:
         content_id = str(content_id)
@@ -414,5 +413,4 @@ def build_resolution_plan(
         "remove_content_ids": remove,
         "files_to_delete": files_to_delete,
         "skipped_protected": skipped_protected,
-        "warnings": warnings,
     }

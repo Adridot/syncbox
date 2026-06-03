@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,6 +34,19 @@ def optional_string(value: object) -> str | None:
         return None
     text = str(value)
     return text or None
+
+
+def count_by_status(items: Iterable[Any], keys: Sequence[str]) -> dict[str, int]:
+    """Tally ``item.status`` occurrences into a zero-initialised dict of ``keys``.
+
+    Shared by the review repositories and acquisition job summaries so the same
+    status histogram isn't re-implemented per status set.
+    """
+    counts = {key: 0 for key in keys}
+    for item in items:
+        if item.status in counts:
+            counts[item.status] += 1
+    return counts
 
 
 def proposal_from_row(row: sqlite3.Row) -> SyncProposal:

@@ -1322,7 +1322,6 @@ class RekordboxAdapter:
             plans.append(plan)
             files_to_delete.extend(plan["files_to_delete"])
             result["skippedProtected"] += len(plan["skipped_protected"])
-            result["warnings"].extend(plan["warnings"])
 
         if dry_run:
             result["removedFromRekordbox"] = sum(

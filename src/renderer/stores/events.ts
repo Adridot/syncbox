@@ -51,19 +51,6 @@ export const useEventsStore = defineStore("events", () => {
     return stats;
   });
 
-  const acquisitionCounts = computed(() => {
-    const counts = { queued: 0, downloading: 0, downloaded: 0, ready: 0, failed: 0, ambiguous: 0 };
-    for (const job of acquisitionJobs.value) {
-      if (job.status === "queued") counts.queued += 1;
-      if (job.status === "downloading") counts.downloading += 1;
-      if (job.status === "downloaded") counts.downloaded += 1;
-      if (job.status === "ready") counts.ready += 1;
-      if (job.status === "acquisition_failed") counts.failed += 1;
-      if (job.status === "acquisition_ambiguous") counts.ambiguous += 1;
-    }
-    return counts;
-  });
-
   async function refreshSummaries(): Promise<void> {
     const system = useSystemStore();
     if (!system.api) return;
@@ -458,7 +445,6 @@ export const useEventsStore = defineStore("events", () => {
     deezerSearchResults,
     deezerSearchLoading,
     readyToApply,
-    acquisitionCounts,
     globalJobStats,
     refreshSummaries,
     refreshGlobalJobs,
