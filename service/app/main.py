@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+import httpx
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
@@ -127,6 +128,17 @@ async def lifespan(_app: FastAPI):
     current = database.get_app_settings(defaults)
     database.save_app_settings(current)
     logger.info("Database ready at %s", database.path)
+    # Best-effort: push a stored Deezer ARL to Deemix on boot so downloads work
+    # without opening Deemix. Deemix may not be up yet — the download flows also
+    # re-auth lazily via ensure_deemix_authenticated, so failure here is fine.
+    arl = database.get_setting("deemix_arl")
+    if arl:
+        try:
+            await DeemixClient().login_arl(arl)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.info("Deemix ARL not applied at startup: %s", exc)
     yield
     logger.info("Syncbox service shutting down")
 
@@ -732,6 +744,30 @@ def list_rekordbox_tags() -> list[RekordboxTag]:
 @app.get("/api/providers/deemix/status", response_model=DeemixStatus)
 async def provider_deemix_status() -> DeemixStatus:
     return await get_deemix_status()
+
+
+@app.post("/api/providers/deemix/login", response_model=DeemixStatus)
+async def provider_deemix_login() -> DeemixStatus:
+    """Push the ARL stored in Settings to Deemix so the user configures Deezer
+    once, here, instead of in Deemix's own UI."""
+    arl = database.get_setting("deemix_arl")
+    if not arl:
+        raise HTTPException(
+            status_code=400, detail="No Deezer ARL is configured in Settings."
+        )
+    client = DeemixClient()
+    try:
+        await client.login_arl(arl)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Deemix rejected the ARL: {exc}"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not reach Deemix: {exc}. Make sure Deemix is running.",
+        ) from exc
+    return await client.status()
 
 
 @app.get("/api/acquisition/jobs", response_model=list[GlobalAcquisitionJob])

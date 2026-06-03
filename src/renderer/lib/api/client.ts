@@ -344,6 +344,10 @@ export class ApiClient {
     return this.get("/api/providers/deemix/status");
   }
 
+  async loginDeemixArl(): Promise<DeemixStatus> {
+    return this.post("/api/providers/deemix/login", {});
+  }
+
   async runAutoAcquisition(eventId: number): Promise<EventAcquisitionResponse> {
     return this.post(`/api/events/${eventId}/acquisition/auto`, {});
   }

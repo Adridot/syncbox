@@ -2,17 +2,86 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from app import event_import
 from app.acquisition import (
+    DeemixClient,
     DeezerResolveResult,
     DeezerResolver,
     DeezerTrackCandidate,
     deemix_event_settings,
+    ensure_deemix_authenticated,
     refresh_acquisition_jobs,
     run_auto_acquisition,
 )
 from app.db import LocalDatabase
 from app.models import DeemixStatus, EventTrackReview
+
+
+def test_login_arl_posts_arl_body(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+        reason_phrase = "OK"
+
+        def json(self) -> dict[str, Any]:
+            return {"success": True}
+
+    async def fake_request(self, method, url, **kwargs):  # type: ignore[no-untyped-def]
+        captured["method"] = method
+        captured["url"] = url
+        captured["json"] = kwargs.get("json")
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", fake_request)
+
+    result = asyncio.run(DeemixClient().login_arl("my-arl"))
+
+    assert captured["method"] == "POST"
+    assert captured["url"].endswith("/api/auth/login")
+    assert captured["json"] == {"arl": "my-arl"}
+    assert result == {"success": True}
+
+
+def test_ensure_deemix_authenticated_logs_in_when_arl_stored(tmp_path: Path) -> None:
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+
+    class StubClient:
+        def __init__(self, authenticated: bool) -> None:
+            self._authenticated = authenticated
+            self.logged_in_with: str | None = None
+
+        async def status(self) -> DeemixStatus:
+            return DeemixStatus(
+                baseUrl="x",
+                available=True,
+                authenticated=self._authenticated,
+                detail="stub",
+            )
+
+        async def login_arl(self, arl: str) -> dict[str, Any]:
+            self.logged_in_with = arl
+            return {"success": True}
+
+    # No ARL stored -> no login attempted.
+    client = StubClient(authenticated=False)
+    asyncio.run(ensure_deemix_authenticated(database, client))
+    assert client.logged_in_with is None
+
+    # ARL stored + not authenticated -> push it.
+    database.set_setting("deemix_arl", "stored-arl")
+    client = StubClient(authenticated=False)
+    asyncio.run(ensure_deemix_authenticated(database, client))
+    assert client.logged_in_with == "stored-arl"
+
+    # Already authenticated -> skip the login.
+    client = StubClient(authenticated=True)
+    asyncio.run(ensure_deemix_authenticated(database, client))
+    assert client.logged_in_with is None
 
 
 def test_deezer_resolver_matches_isrc_exactly() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,6 +101,11 @@ class DeemixClient:
 
     async def auth_status(self) -> dict[str, Any]:
         return await self._request("GET", "/api/auth/status")
+
+    async def login_arl(self, arl: str) -> dict[str, Any]:
+        """Authenticate Deemix's Deezer session with an ARL token. Lets Syncbox
+        own the ARL so the user never has to open Deemix's own UI."""
+        return await self._request("POST", "/api/auth/login", json={"arl": arl})
 
     async def settings(self) -> dict[str, Any]:
         return await self._request("GET", "/api/settings")
@@ -272,6 +278,23 @@ async def get_deemix_status(client: DeemixClient | None = None) -> DeemixStatus:
     return await (client or DeemixClient()).status()
 
 
+async def ensure_deemix_authenticated(database: LocalDatabase, client: DeemixClient) -> None:
+    """If an ARL is stored in Syncbox settings and Deemix isn't currently
+    authenticated, push the ARL so downloads work without the user opening
+    Deemix. Best-effort: silent if Deemix is down or the ARL is rejected."""
+    arl = database.get_setting("deemix_arl")
+    if not arl:
+        return
+    try:
+        if (await client.status()).authenticated:
+            return
+        await client.login_arl(arl)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        pass
+
+
 async def run_auto_acquisition(
     database: LocalDatabase,
     event_id: int,
@@ -283,6 +306,7 @@ async def run_auto_acquisition(
     missing_tracks = [track for track in review.tracks if track.status == "missing"]
     client = deemix_client or DeemixClient()
     resolver = deezer_resolver or DeezerResolver()
+    await ensure_deemix_authenticated(database, client)
     existing_jobs = {
         job.spotify_track_id: job
         for job in database.list_acquisition_jobs(event_id, DEEMIX_PROVIDER)
@@ -806,6 +830,7 @@ async def queue_event_manual_deezer(
         candidate=candidate,
     )
     client = deemix_client or DeemixClient()
+    await ensure_deemix_authenticated(database, client)
     await queue_resolved_tracks(database, review, client, [(track, result)])
     await refresh_acquisition_jobs(database, event_id, deemix_client=client)
 

@@ -28,6 +28,7 @@ class RekordboxStatus(BaseModel):
 
 class AppSettings(BaseModel):
     spotify_client_id: str = Field(default="", alias="spotifyClientId")
+    spotify_client_secret: str = Field(default="", alias="spotifyClientSecret")
     spotify_redirect_uri: str = Field(
         default="http://127.0.0.1:8765/api/spotify/callback",
         alias="spotifyRedirectUri",
@@ -36,6 +37,7 @@ class AppSettings(BaseModel):
     storage_root: str = Field(alias="storageRoot")
     permanent_path: str = Field(default="", alias="permanentPath")
     manual_collection_path: str = Field(default="", alias="manualCollectionPath")
+    deemix_arl: str = Field(default="", alias="deemixArl")
     backup_retention: int = Field(default=15, alias="backupRetention")
 
 

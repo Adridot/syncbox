@@ -1,10 +1,30 @@
+import base64
+from pathlib import Path
+
+from app.db import LocalDatabase
 from app.spotify import (
+    SpotifyClient,
     parse_playlist_id,
     parse_track_id,
     playlist_items_to_tracks,
     summarize_playlist_page,
     track_payload_to_spotify_track,
 )
+
+
+def test_token_headers_confidential_vs_pkce(tmp_path: Path) -> None:
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    database.set_setting("spotify_client_id", "cid")
+    client = SpotifyClient(database)
+
+    # No secret -> public PKCE flow, no Authorization header.
+    assert "Authorization" not in client._token_headers("cid")
+
+    # Secret set -> confidential client, HTTP Basic auth (stable refresh token).
+    database.set_setting("spotify_client_secret", "sec")
+    expected = "Basic " + base64.b64encode(b"cid:sec").decode("ascii")
+    assert client._token_headers("cid")["Authorization"] == expected
 
 
 def test_parse_track_id_from_url() -> None:
