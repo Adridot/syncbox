@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+import httpx
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
@@ -134,6 +135,8 @@ async def lifespan(_app: FastAPI):
     if arl:
         try:
             await DeemixClient().login_arl(arl)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.info("Deemix ARL not applied at startup: %s", exc)
     yield
@@ -758,6 +761,11 @@ async def provider_deemix_login() -> DeemixStatus:
     except RuntimeError as exc:
         raise HTTPException(
             status_code=502, detail=f"Deemix rejected the ARL: {exc}"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not reach Deemix: {exc}. Make sure Deemix is running.",
         ) from exc
     return await client.status()
 

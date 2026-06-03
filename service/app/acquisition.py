@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -288,6 +289,8 @@ async def ensure_deemix_authenticated(database: LocalDatabase, client: DeemixCli
         if (await client.status()).authenticated:
             return
         await client.login_arl(arl)
+    except asyncio.CancelledError:
+        raise
     except Exception:
         pass
 
