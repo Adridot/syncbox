@@ -8,10 +8,9 @@ from typing import Any, Callable
 import httpx
 
 from .audio import scan_audio_files
-from .db import LocalDatabase
+from .db import LocalDatabase, count_by_status, optional_string as optional_text
 from .event_import import require_event_review, scan_event_staging
 from .matching import duration_score, text_similarity
-from .repositories._mappers import count_by_status, optional_string as optional_text
 from .models import (
     AcquisitionJob,
     DeemixStatus,
