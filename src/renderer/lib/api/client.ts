@@ -144,9 +144,14 @@ export class ApiClient {
     return this.post("/api/settings/import", backup);
   }
 
-  /** Absolute URL of the full-database export (for a direct download). */
-  dataExportUrl(): string {
-    return `${this.baseUrl}/api/data/export`;
+  /** Full-database export as a blob (for a direct download). */
+  async exportData(): Promise<Blob> {
+    const response = await fetch(`${this.baseUrl}/api/data/export`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(String(payload?.detail ?? payload?.message ?? response.statusText));
+    }
+    return response.blob();
   }
 
   async importData(file: File): Promise<DataImportResponse> {

@@ -19,8 +19,8 @@ const emptyMessage = "Select or create an event to review tracks, files, and dow
 const trackUrl = ref("");
 async function addTrackToActiveEvent(): Promise<void> {
   if (!events.activeEvent) return;
-  await events.addSpotifyTrack(events.activeEvent.id, trackUrl.value);
-  if (!ui.errorMessage) trackUrl.value = "";
+  const ok = await events.addSpotifyTrack(events.activeEvent.id, trackUrl.value);
+  if (ok) trackUrl.value = "";
 }
 
 function eventStatusTone(event: {

@@ -122,17 +122,11 @@ export const useSettingsStore = defineStore("settings", () => {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api) return;
-    backupBusy.value = true;
-    try {
-      const response = await fetch(system.api.dataExportUrl());
-      if (!response.ok) throw new Error("Export failed.");
-      triggerDownload(`syncbox-data-${stamp()}.sqlite3`, await response.blob());
+    await ui.withLoadingFlag(backupBusy, async () => {
+      const blob = await system.api!.exportData();
+      triggerDownload(`syncbox-data-${stamp()}.sqlite3`, blob);
       ui.setMessage("success", "All data exported.");
-    } catch (error) {
-      ui.setMessage("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      backupBusy.value = false;
-    }
+    });
   }
 
   async function importDataFromFile(file: File): Promise<void> {
