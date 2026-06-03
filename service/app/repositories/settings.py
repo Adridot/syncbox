@@ -66,6 +66,9 @@ class SettingsMixin:
             spotifyClientId=self.get_setting(
                 "spotify_client_id", defaults.spotify_client_id
             ),
+            spotifyClientSecret=self.get_setting(
+                "spotify_client_secret", defaults.spotify_client_secret
+            ),
             spotifyRedirectUri=self.get_setting(
                 "spotify_redirect_uri", defaults.spotify_redirect_uri
             ),
@@ -77,6 +80,7 @@ class SettingsMixin:
             manualCollectionPath=self.get_setting(
                 "manual_collection_path", defaults.manual_collection_path
             ),
+            deemixArl=self.get_setting("deemix_arl", defaults.deemix_arl),
             backupRetention=int(
                 self.get_setting("backup_retention", str(defaults.backup_retention))
             ),
@@ -85,11 +89,13 @@ class SettingsMixin:
     def save_app_settings(self, settings: AppSettings) -> AppSettings:
         values = {
             "spotify_client_id": settings.spotify_client_id,
+            "spotify_client_secret": settings.spotify_client_secret,
             "spotify_redirect_uri": settings.spotify_redirect_uri,
             "rekordbox_database_dir": settings.rekordbox_database_dir,
             "storage_root": settings.storage_root,
             "permanent_path": settings.permanent_path,
             "manual_collection_path": settings.manual_collection_path,
+            "deemix_arl": settings.deemix_arl,
             "backup_retention": str(settings.backup_retention),
         }
         with self.connect() as connection:

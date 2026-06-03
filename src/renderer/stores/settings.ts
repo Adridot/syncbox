@@ -7,12 +7,14 @@ import { useUiStore } from "./ui";
 export const useSettingsStore = defineStore("settings", () => {
   const settings = reactive<AppSettings>({
     spotifyClientId: "",
+    spotifyClientSecret: "",
     spotifyRedirectUri: "http://127.0.0.1:8765/api/spotify/callback",
     rekordboxDatabaseDir: "/Users/adriendidot/Library/Pioneer/rekordbox",
     storageRoot:
       "/Users/adriendidot/Library/CloudStorage/Dropbox-CloudOptionDJteam/Jockey Tricolore/Musique",
     permanentPath: "",
     manualCollectionPath: "",
+    deemixArl: "",
     backupRetention: 15,
   });
   const storage = ref<StorageLayout | null>(null);
@@ -145,6 +147,25 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  // Save settings (incl. the Deezer ARL), then push the ARL to Deemix so the
+  // user configures Deezer here instead of in Deemix's own UI.
+  async function connectDeezer(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    await ui.withLoading(async () => {
+      Object.assign(settings, await system.api!.saveSettings(settings));
+      const status = await system.api!.loginDeemixArl();
+      system.deemixStatus = status;
+      ui.setMessage(
+        status.authenticated ? "success" : "error",
+        status.authenticated
+          ? "Deezer connected — Deemix is authenticated."
+          : `Deezer not authenticated: ${status.detail}`
+      );
+    });
+  }
+
   async function openSpotifyAuth(): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -178,5 +199,6 @@ export const useSettingsStore = defineStore("settings", () => {
     exportData,
     importDataFromFile,
     openSpotifyAuth,
+    connectDeezer,
   };
 });

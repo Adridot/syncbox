@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import secrets
@@ -12,6 +13,12 @@ import httpx
 from .db import LocalDatabase
 from .models import SpotifyTrack
 
+
+# Serialises token refreshes across concurrent requests: in the PKCE flow Spotify
+# rotates the refresh token on every refresh, so simultaneous refreshes would
+# invalidate each other's token and force a re-login. The lock (plus the
+# inside-lock freshness re-check) guarantees a single refresh wins.
+_refresh_lock = asyncio.Lock()
 
 SPOTIFY_ACCOUNTS_URL = "https://accounts.spotify.com"
 SPOTIFY_API_URL = "https://api.spotify.com/v1"
@@ -83,7 +90,7 @@ class SpotifyClient:
                         "client_id": client_id,
                         "code_verifier": verifier,
                     },
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    headers=self._token_headers(client_id),
                 )
         except httpx.HTTPError as exc:
             # Network/SSL failure reaching Spotify — surface a readable message
@@ -218,7 +225,7 @@ class SpotifyClient:
                     await sleep_seconds(retry_after + attempt)
                     continue
                 if response.status_code == 401 and attempt == 0:
-                    access_token = await self._refresh_access_token()
+                    access_token = await self._refresh_access_token(force=True)
                     headers = {"Authorization": f"Bearer {access_token}"}
                     continue
                 if response.status_code >= 400:
@@ -237,27 +244,54 @@ class SpotifyClient:
             return await self._refresh_access_token()
         return access_token
 
-    async def _refresh_access_token(self) -> str:
-        refresh_token = self.database.get_setting("spotify_refresh_token")
-        client_id = self.database.get_setting("spotify_client_id")
-        if not refresh_token or not client_id:
-            raise SpotifyAuthError("Spotify refresh token is missing.")
+    async def _refresh_access_token(self, *, force: bool = False) -> str:
+        async with _refresh_lock:
+            # A concurrent request may have already refreshed while we waited on
+            # the lock — reuse that token instead of refreshing again (which, in
+            # the PKCE flow, would invalidate the just-issued refresh token).
+            if not force:
+                access_token = self.database.get_setting("spotify_access_token")
+                expires_at = int(
+                    self.database.get_setting("spotify_expires_at", "0") or "0"
+                )
+                if access_token and expires_at > int(time.time()) + 60:
+                    return access_token
 
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(
-                f"{SPOTIFY_ACCOUNTS_URL}/api/token",
-                data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": refresh_token,
-                    "client_id": client_id,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-        if response.status_code >= 400:
-            raise SpotifyAuthError(response.text)
-        payload = response.json()
-        self._store_tokens(payload, keep_refresh=True)
-        return str(payload["access_token"])
+            refresh_token = self.database.get_setting("spotify_refresh_token")
+            client_id = self.database.get_setting("spotify_client_id")
+            if not refresh_token or not client_id:
+                raise SpotifyAuthError("Spotify refresh token is missing.")
+
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    f"{SPOTIFY_ACCOUNTS_URL}/api/token",
+                    data={
+                        "grant_type": "refresh_token",
+                        "refresh_token": refresh_token,
+                        "client_id": client_id,
+                    },
+                    headers=self._token_headers(client_id),
+                )
+            if response.status_code >= 400:
+                raise SpotifyAuthError(response.text)
+            payload = response.json()
+            self._store_tokens(payload, keep_refresh=True)
+            return str(payload["access_token"])
+
+    def _token_headers(self, client_id: str) -> dict[str, str]:
+        """Headers for a token endpoint call. When a client secret is configured
+        we authenticate as a *confidential* client (HTTP Basic), which makes
+        Spotify issue a stable, non-rotating refresh token — so the user signs in
+        once and Syncbox refreshes silently forever. Without a secret we stay on
+        the public PKCE flow (client_id only)."""
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        client_secret = self.database.get_setting("spotify_client_secret")
+        if client_secret:
+            basic = base64.b64encode(
+                f"{client_id}:{client_secret}".encode("utf-8")
+            ).decode("ascii")
+            headers["Authorization"] = f"Basic {basic}"
+        return headers
 
     def _store_tokens(self, payload: dict[str, Any], keep_refresh: bool = False) -> None:
         self.database.set_setting("spotify_access_token", str(payload["access_token"]))

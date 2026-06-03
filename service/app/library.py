@@ -14,6 +14,7 @@ from .acquisition import (
     acquisition_status_counts,
     compact_deezer_payload,
     deemix_event_settings,
+    ensure_deemix_authenticated,
     extract_download_ids,
     iter_queue_status_changes,
     match_manual_deezer_jobs,
@@ -403,6 +404,7 @@ async def download_library_tracks(
 ) -> dict[str, Any]:
     client = deemix_client or DeemixClient()
     resolver = deezer_resolver or DeezerResolver()
+    await ensure_deemix_authenticated(database, client)
     await refresh_library_review_state(
         database,
         adapter,

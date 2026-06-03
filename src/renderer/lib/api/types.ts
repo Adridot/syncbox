@@ -36,11 +36,13 @@ export type RekordboxCollectionStats = {
 
 export type AppSettings = {
   spotifyClientId: string;
+  spotifyClientSecret: string;
   spotifyRedirectUri: string;
   rekordboxDatabaseDir: string;
   storageRoot: string;
   permanentPath: string;
   manualCollectionPath: string;
+  deemixArl: string;
   backupRetention: number;
 };
 
