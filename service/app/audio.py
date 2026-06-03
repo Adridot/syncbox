@@ -121,7 +121,42 @@ def find_downloaded_file(
     return None
 
 
+# Scanning a (cloud-synced) collection folder means an rglob + a mutagen read per
+# file — easily ~1s. The library job-status refresh used to call this once per
+# source on every tick, so with N sources the same folder was scanned N times
+# every few seconds (the Library view took ~13s). Memoise per directory on its
+# mtime, with a short TTL safety net in case the cloud FS doesn't bump the dir
+# mtime when a file lands. A completed download changes the folder -> fresh scan.
+_SCAN_CACHE: dict[str, tuple[Any, float, list[dict[str, Any]]]] = {}
+_SCAN_TTL_S = 15.0
+
+
 def scan_audio_files(audio_dir: Path) -> list[dict[str, Any]]:
+    import time
+
+    key = str(audio_dir)
+    try:
+        stat = audio_dir.stat()
+        sig: Any = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        sig = None
+
+    cached = _SCAN_CACHE.get(key)
+    if (
+        cached is not None
+        and sig is not None
+        and cached[0] == sig
+        and (time.monotonic() - cached[1]) < _SCAN_TTL_S
+    ):
+        return cached[2]
+
+    results = _scan_audio_files_uncached(audio_dir)
+    if sig is not None:
+        _SCAN_CACHE[key] = (sig, time.monotonic(), results)
+    return results
+
+
+def _scan_audio_files_uncached(audio_dir: Path) -> list[dict[str, Any]]:
     files = [
         path
         for path in audio_dir.rglob("*")
