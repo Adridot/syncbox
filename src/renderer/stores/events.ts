@@ -345,9 +345,22 @@ export const useEventsStore = defineStore("events", () => {
     if (!system.api) return;
     await ui.withLoading(async () => {
       const result = await system.api!.clearAcquisitionJobs();
-      globalAcquisitionJobs.value = await system.api!.listGlobalAcquisitionJobs();
+      // Drop the cleared (terminal) jobs locally instead of re-fetching through
+      // the refreshing list endpoint (which re-scans every source and can take
+      // many seconds). The SSE stream reconciles the lists shortly after.
+      const terminal = new Set([
+        "ready",
+        "downloaded",
+        "acquisition_failed",
+        "acquisition_ambiguous",
+      ]);
+      globalAcquisitionJobs.value = globalAcquisitionJobs.value.filter(
+        (job) => !terminal.has(job.status)
+      );
       if (activeEvent.value) {
-        acquisitionJobs.value = await system.api!.listAcquisitionJobs(activeEvent.value.id);
+        acquisitionJobs.value = acquisitionJobs.value.filter(
+          (job) => !terminal.has(job.status)
+        );
       }
       ui.setMessage("success", `${result.cleared} download job(s) cleared.`);
     });
