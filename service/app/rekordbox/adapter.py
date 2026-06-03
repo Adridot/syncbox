@@ -1164,7 +1164,6 @@ class RekordboxAdapter:
         meta = self.content_meta(content_id)
         target_isrc = (meta.get("isrc") or "").strip().upper()
         target_title = meta.get("title") or ""
-        target_artist = meta.get("artist") or ""
 
         candidates: list[dict[str, Any]] = []
         roots = [
