@@ -133,25 +133,25 @@ function removeDrawerTag(tagName: string): void {
             Sources
           </h2>
           <StatusBadge tone="muted">{{ library.sources.length }}</StatusBadge>
-          <div class="ml-auto flex items-center gap-1.5">
-            <button
-              type="button"
-              class="inline-flex items-center gap-1.5 rounded border border-outline bg-surface px-2.5 py-1.5 text-xs font-semibold text-on-surface hover:border-primary disabled:opacity-60"
-              :disabled="ui.loading || library.sources.length === 0"
-              title="Sync all sources"
-              @click="library.syncAllSources()"
-            >
-              <RefreshCw :size="13" aria-hidden="true" /> Sync all
-            </button>
-            <button
-              type="button"
-              class="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-bold text-white"
-              title="Follow a playlist / manage mappings"
-              @click="setupOpen = true"
-            >
-              <Settings2 :size="13" aria-hidden="true" /> Manage
-            </button>
-          </div>
+        </div>
+        <div class="mb-3 flex items-stretch gap-2">
+          <button
+            type="button"
+            class="inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded border border-outline bg-surface px-3 py-1.5 text-xs font-semibold text-on-surface hover:border-primary disabled:opacity-60"
+            :disabled="ui.loading || library.sources.length === 0"
+            title="Sync all sources"
+            @click="library.syncAllSources()"
+          >
+            <RefreshCw :size="13" aria-hidden="true" /> Sync all
+          </button>
+          <button
+            type="button"
+            class="inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded bg-primary px-3 py-1.5 text-xs font-bold text-white"
+            title="Follow a playlist / manage mappings"
+            @click="setupOpen = true"
+          >
+            <Settings2 :size="13" aria-hidden="true" /> Manage
+          </button>
         </div>
 
         <div class="relative">
@@ -236,10 +236,10 @@ function removeDrawerTag(tagName: string): void {
     </aside>
 
     <!-- RIGHT: selected source review -->
-    <div class="flex min-w-0 flex-1 flex-col overflow-y-auto">
+    <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <template v-if="library.activeReview">
         <div
-          class="sticky top-0 z-10 border-b border-outline-variant bg-surface-container/95 px-6 py-4 backdrop-blur"
+          class="shrink-0 border-b border-outline-variant bg-surface-container px-6 py-4"
         >
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
@@ -277,7 +277,7 @@ function removeDrawerTag(tagName: string): void {
           </div>
         </div>
 
-        <div class="px-6 pb-10 pt-4">
+        <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-4">
           <TrackReviewTable
             :tracks="library.activeReview?.tracks ?? []"
             :selected-ids="library.selectedTrackIds"
@@ -297,6 +297,57 @@ function removeDrawerTag(tagName: string): void {
             <p class="text-xs text-on-surface-variant">
               {{ pendingLibraryProposals.length }} track(s) were removed from Spotify and need manual review.
             </p>
+          </div>
+        </div>
+
+        <!-- Batch tagging bar (does not steal width from the track list) -->
+        <div
+          v-if="library.selectedTrackIds.length > 0"
+          class="shrink-0 border-t border-outline-variant bg-surface-container px-6 py-3"
+        >
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <StatusBadge tone="active">{{ library.selectedTrackIds.length }} selected</StatusBadge>
+
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <span class="text-xs font-semibold text-on-surface-variant">Tags:</span>
+              <button
+                v-for="tagName in selectedTagNames"
+                :key="tagName"
+                class="inline-flex items-center gap-1.5 rounded border border-outline bg-surface-variant px-2 py-0.5 text-xs font-bold text-on-surface"
+                type="button"
+                title="Remove tag"
+                @click="removeDrawerTag(tagName)"
+              >
+                {{ tagName }}
+                <X :size="11" aria-hidden="true" />
+              </button>
+              <span v-if="selectedTagNames.length === 0" class="text-xs text-on-surface-variant">
+                none
+              </span>
+            </div>
+
+            <div class="flex shrink-0 items-center gap-2">
+              <input
+                class="w-48 rounded border border-outline bg-surface-container-high px-3 py-1.5 text-sm text-on-surface focus:border-primary focus:outline-none"
+                v-model="drawerTagInput"
+                list="drawer-tags"
+                placeholder="Add existing MyTag"
+                @change="applyDrawerTag(drawerTagInput)"
+                @keydown.enter.prevent="applyDrawerTag(drawerTagInput)"
+              />
+              <datalist id="drawer-tags">
+                <option v-for="tagName in spotify.availableTagNames" :key="tagName" :value="tagName" />
+              </datalist>
+              <button
+                class="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-primary px-3 py-1.5 text-sm font-bold text-white disabled:opacity-60"
+                type="button"
+                :disabled="!drawerTagInput.trim()"
+                @click="applyDrawerTag(drawerTagInput)"
+              >
+                <CheckCircle2 :size="15" aria-hidden="true" />
+                Apply
+              </button>
+            </div>
           </div>
         </div>
       </template>
@@ -321,65 +372,6 @@ function removeDrawerTag(tagName: string): void {
         </div>
       </div>
     </div>
-
-    <!-- Batch tagging drawer (when tracks are selected) -->
-    <aside
-      v-if="library.selectedTrackIds.length > 0"
-      class="hidden h-full w-[360px] shrink-0 flex-col border-l border-outline-variant bg-surface-container p-6 shadow-2xl xl:flex"
-    >
-      <div class="mb-6 flex items-center justify-between">
-        <h2 class="text-lg font-bold text-on-surface">Batch tagging</h2>
-        <StatusBadge tone="active">{{ library.selectedTrackIds.length }} selected</StatusBadge>
-      </div>
-
-      <div class="mb-6 rounded border border-primary/20 bg-primary/5 p-4">
-        <div class="mb-1 text-[10px] font-bold uppercase text-primary">Selected source</div>
-        <div class="truncate text-xl font-bold text-on-surface">
-          {{ library.activeReview?.source.spotifyPlaylistName ?? "My Library" }}
-        </div>
-      </div>
-
-      <div class="mb-6">
-        <h3 class="mb-3 text-sm font-bold text-on-surface">Applied MyTags</h3>
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="tagName in selectedTagNames"
-            :key="tagName"
-            class="inline-flex items-center gap-2 rounded border border-outline bg-surface-variant px-2.5 py-1 text-xs font-bold text-on-surface"
-            type="button"
-            @click="removeDrawerTag(tagName)"
-          >
-            {{ tagName }}
-            <X :size="12" aria-hidden="true" />
-          </button>
-          <span v-if="selectedTagNames.length === 0" class="text-sm text-on-surface-variant">
-            No tags selected.
-          </span>
-        </div>
-      </div>
-
-      <div class="grid gap-2">
-        <input
-          class="rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
-          v-model="drawerTagInput"
-          list="drawer-tags"
-          placeholder="Add existing MyTag"
-          @change="applyDrawerTag(drawerTagInput)"
-          @keydown.enter.prevent="applyDrawerTag(drawerTagInput)"
-        />
-        <datalist id="drawer-tags">
-          <option v-for="tagName in spotify.availableTagNames" :key="tagName" :value="tagName" />
-        </datalist>
-        <button
-          class="inline-flex items-center justify-center gap-2 rounded bg-primary px-4 py-2 text-sm font-bold text-white"
-          type="button"
-          @click="applyDrawerTag(drawerTagInput)"
-        >
-          <CheckCircle2 :size="16" aria-hidden="true" />
-          Apply tag
-        </button>
-      </div>
-    </aside>
 
     <LibrarySetupModal v-if="setupOpen" @close="setupOpen = false" />
 

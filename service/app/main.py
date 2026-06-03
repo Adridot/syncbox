@@ -83,6 +83,11 @@ from .models import (
     TagPlaylistMappingIn,
     TagRule,
     TagRuleIn,
+    UntaggedDeleteRequest,
+    UntaggedDeleteResponse,
+    UntaggedReport,
+    UntaggedTagRequest,
+    UntaggedTagResponse,
 )
 from .event_import import (
     add_spotify_track_to_event,
@@ -418,6 +423,47 @@ async def redownload_missing_entry(content_id: str) -> MissingActionResponse:
     )
 
 
+@app.get("/api/rekordbox/untagged", response_model=UntaggedReport)
+def rekordbox_untagged() -> UntaggedReport:
+    try:
+        result = build_rekordbox_adapter().untagged_report()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return UntaggedReport(**result)
+
+
+@app.post("/api/rekordbox/untagged/tag", response_model=UntaggedTagResponse)
+def rekordbox_untagged_tag(request: UntaggedTagRequest) -> UntaggedTagResponse:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.tag_untagged(request.content_ids, request.tag_name, request.category)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        # e.g. RekordboxRunningError — cannot mutate while RB is open.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    logger.info(
+        "Tagged %s untagged track(s) with '%s'%s",
+        result["tagged"],
+        result["tag_name"],
+        " (created tag)" if result["created_tag"] else "",
+    )
+    return UntaggedTagResponse(**result)
+
+
+@app.post("/api/rekordbox/untagged/delete", response_model=UntaggedDeleteResponse)
+def rekordbox_untagged_delete(request: UntaggedDeleteRequest) -> UntaggedDeleteResponse:
+    adapter = build_rekordbox_adapter()
+    try:
+        result = adapter.delete_untagged(request.content_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    logger.info("Soft-deleted %s untagged track(s) from the collection", result["removed"])
+    return UntaggedDeleteResponse(**result)
+
+
 @app.post("/api/storage/ensure", response_model=StorageLayout)
 def ensure_storage() -> StorageLayout:
     return build_rekordbox_adapter().ensure_storage_layout()
@@ -481,7 +527,12 @@ async def sync_library_source_endpoint(source_id: int) -> LibraryReview:
             source_id,
         )
     except SpotifyAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        logger.warning("sync source %s: Spotify auth failed: %s", source_id, exc)
+        raise HTTPException(
+            status_code=401,
+            detail="Spotify sign-in has expired or was revoked. "
+            "Reconnect Spotify in Settings, then sync again.",
+        ) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -495,16 +546,28 @@ async def sync_all_library_sources() -> list[LibraryReview]:
     client = SpotifyClient(database)
     results: list[LibraryReview] = []
     failures: list[str] = []
+    auth_failed = False
     for source in sources:
         try:
             review = await sync_library_source(database, adapter, client, source.id)
             results.append(review)
+        except SpotifyAuthError as exc:
+            # The token is dead for every source — stop hammering Spotify.
+            auth_failed = True
+            logger.warning("sync-all: Spotify auth failed: %s", exc)
+            break
         except Exception as exc:
             failures.append(source.spotify_playlist_name)
             logger.warning(
                 "sync-all: source %s (%s) failed: %s",
                 source.id, source.spotify_playlist_name, exc,
             )
+    if auth_failed and not results:
+        raise HTTPException(
+            status_code=401,
+            detail="Spotify sign-in has expired or was revoked. "
+            "Reconnect Spotify in Settings, then sync again.",
+        )
     if failures and not results:
         raise HTTPException(
             status_code=503,

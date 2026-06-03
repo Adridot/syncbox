@@ -9,6 +9,7 @@ import {
   ListChecks,
   Loader2,
   Stethoscope,
+  Tag,
 } from "@lucide/vue";
 import type { ViewKey } from "../types/ui";
 import { useEventsStore } from "../stores/events";
@@ -25,7 +26,8 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
   { key: "events", label: "Events", icon: CalendarDays },
   { key: "downloadCenter", label: "Download & Match", icon: ListChecks },
   { key: "duplicates", label: "Duplicates", icon: Copy },
-  { key: "missing", label: "Missing Files", icon: FileSearch }
+  { key: "missing", label: "Missing Files", icon: FileSearch },
+  { key: "untagged", label: "Untagged", icon: Tag }
 ];
 </script>
 

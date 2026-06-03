@@ -35,6 +35,7 @@ export const useUiStore = defineStore("ui", () => {
     if (activeView.value === "downloadCenter") return "Download & Match Center";
     if (activeView.value === "duplicates") return "Duplicates";
     if (activeView.value === "missing") return "Missing Files";
+    if (activeView.value === "untagged") return "Untagged Tracks";
     if (activeView.value === "doctor") return "Doctor";
     return "Settings";
   });
