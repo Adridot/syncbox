@@ -94,18 +94,6 @@ export type TagPlaylistMapping = {
   enabled: boolean;
 };
 
-export type SyncProposal = {
-  id: number;
-  proposalType: string;
-  status: string;
-  spotifyTrackId?: string | null;
-  rekordboxContentId?: string | null;
-  filePath?: string | null;
-  reason: string;
-  payload: Record<string, unknown>;
-  createdAt: string;
-};
-
 export type TrackReview = {
   id: number;
   spotifyTrackId: string;
@@ -445,15 +433,6 @@ export type RekordboxTag = {
   id: string;
   name: string;
   parentId?: string | null;
-};
-
-export type RekordboxPlaylist = {
-  id: string;
-  name: string;
-  parentId?: string | null;
-  isFolder: boolean;
-  isSmartPlaylist: boolean;
-  trackCount: number;
 };
 
 export type EventTrackReview = {

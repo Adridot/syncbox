@@ -11,7 +11,6 @@ from ..models import (
     GlobalAcquisitionJob,
     LibrarySource,
     LibraryTrackReview,
-    SyncProposal,
 )
 
 
@@ -47,20 +46,6 @@ def count_by_status(items: Iterable[Any], keys: Sequence[str]) -> dict[str, int]
         if item.status in counts:
             counts[item.status] += 1
     return counts
-
-
-def proposal_from_row(row: sqlite3.Row) -> SyncProposal:
-    return SyncProposal(
-        id=int(row["id"]),
-        proposalType=str(row["proposal_type"]),
-        status=str(row["status"]),
-        spotifyTrackId=row["spotify_track_id"],
-        rekordboxContentId=row["rekordbox_content_id"],
-        filePath=row["file_path"],
-        reason=str(row["reason"]),
-        payload=parse_json_object(row["payload_json"]),
-        createdAt=str(row["created_at"]),
-    )
 
 
 def library_source_from_row(row: sqlite3.Row) -> LibrarySource:

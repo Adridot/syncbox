@@ -18,7 +18,6 @@ const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue
 import { useRefreshManager } from "./composables/useRefreshManager";
 import { useEventsStore } from "./stores/events";
 import { useLibraryStore } from "./stores/library";
-import { useProposalsStore } from "./stores/proposals";
 import { useSettingsStore } from "./stores/settings";
 import { useSpotifyStore } from "./stores/spotify";
 import { useSystemStore } from "./stores/system";
@@ -30,7 +29,6 @@ const settings = useSettingsStore();
 const events = useEventsStore();
 const library = useLibraryStore();
 const spotify = useSpotifyStore();
-const proposals = useProposalsStore();
 
 useRefreshManager();
 
@@ -42,7 +40,6 @@ onMounted(async () => {
     library.refreshTagRules(),
     library.refreshSources(),
     library.refreshMappings(),
-    proposals.refresh(),
     events.refreshSummaries(),
     events.refreshGlobalJobs(),
     spotify.refreshRekordboxTags(),

@@ -278,7 +278,6 @@ async def run_auto_acquisition(
     *,
     deemix_client: DeemixClient | None = None,
     deezer_resolver: DeezerResolver | None = None,
-    retry: bool = False,
 ) -> EventAcquisitionResponse:
     review = require_event_review(database, event_id)
     missing_tracks = [track for track in review.tracks if track.status == "missing"]
@@ -291,7 +290,7 @@ async def run_auto_acquisition(
     eligible_tracks = [
         track
         for track in missing_tracks
-        if retry or should_create_acquisition_job(existing_jobs.get(track.spotify_track_id))
+        if should_create_acquisition_job(existing_jobs.get(track.spotify_track_id))
     ]
     created = sum(1 for track in eligible_tracks if track.spotify_track_id not in existing_jobs)
 
@@ -340,22 +339,6 @@ async def run_auto_acquisition(
         await refresh_acquisition_jobs(database, event_id, deemix_client=client)
 
     return build_acquisition_response(database, event_id, created=created)
-
-
-async def retry_acquisition(
-    database: LocalDatabase,
-    event_id: int,
-    *,
-    deemix_client: DeemixClient | None = None,
-    deezer_resolver: DeezerResolver | None = None,
-) -> EventAcquisitionResponse:
-    return await run_auto_acquisition(
-        database,
-        event_id,
-        deemix_client=deemix_client,
-        deezer_resolver=deezer_resolver,
-        retry=True,
-    )
 
 
 async def refresh_acquisition_jobs(

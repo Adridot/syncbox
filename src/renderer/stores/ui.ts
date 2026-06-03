@@ -23,7 +23,6 @@ export const useUiStore = defineStore("ui", () => {
   // on `if (!ui.errorMessage)` right after an awaited action.
   const errorMessage = ref("");
   const successMessage = ref("");
-  const searchQuery = ref("");
 
   const toasts = ref<Toast[]>([]);
   let nextToastId = 1;
@@ -56,10 +55,6 @@ export const useUiStore = defineStore("ui", () => {
       setTimeout(() => dismissToast(id), ms);
     }
     return id;
-  }
-
-  function notify(kind: ToastKind, message: string): void {
-    pushToast(kind, message);
   }
 
   function setMessage(kind: "success" | "error", message: string): void {
@@ -100,13 +95,11 @@ export const useUiStore = defineStore("ui", () => {
     loading,
     errorMessage,
     successMessage,
-    searchQuery,
     toasts,
     pageTitle,
     navigateTo,
     setMessage,
     clearMessages,
-    notify,
     pushToast,
     dismissToast,
     withLoading,

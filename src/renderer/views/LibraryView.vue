@@ -16,7 +16,6 @@ import StatusBadge from "../components/StatusBadge.vue";
 import TrackReviewTable from "../components/TrackReviewTable.vue";
 import type { LibrarySource } from "../lib/api";
 import { useLibraryStore } from "../stores/library";
-import { useProposalsStore } from "../stores/proposals";
 import { useSpotifyStore } from "../stores/spotify";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
@@ -25,7 +24,6 @@ const ui = useUiStore();
 const system = useSystemStore();
 const library = useLibraryStore();
 const spotify = useSpotifyStore();
-const proposals = useProposalsStore();
 
 const drawerTagInput = ref("");
 const sourceSearch = ref("");
@@ -89,12 +87,6 @@ const selectedTagNames = computed(() => {
   }
   return [...names].sort((a, b) => a.localeCompare(b));
 });
-
-const pendingLibraryProposals = computed(() =>
-  proposals.proposals.filter(
-    (p) => p.status === "pending" && p.payload?.sourceId === library.activeReview?.source.id
-  )
-);
 
 const reviewStats = computed(() => {
   const r = library.activeReview;
@@ -289,15 +281,6 @@ function removeDrawerTag(tagName: string): void {
             @toggle-select-all="(tracks, checked) => library.toggleAllTracks(tracks, checked)"
           />
 
-          <div
-            v-if="pendingLibraryProposals.length > 0"
-            class="mt-6 rounded-lg border border-tertiary/30 bg-tertiary/5 p-4"
-          >
-            <h3 class="mb-2 font-bold text-on-surface">Pending removal proposals</h3>
-            <p class="text-xs text-on-surface-variant">
-              {{ pendingLibraryProposals.length }} track(s) were removed from Spotify and need manual review.
-            </p>
-          </div>
         </div>
 
         <!-- Batch tagging bar (does not steal width from the track list) -->

@@ -32,12 +32,10 @@ import type {
   RekordboxCollectionStats,
   SettingsBackup,
   SettingsImportResponse,
-  RekordboxPlaylist,
   RekordboxStatus,
   RekordboxTag,
   SpotifyPlaylistsResponse,
   StorageLayout,
-  SyncProposal,
   TagPlaylistMapping,
   TagRule,
   UntaggedDeleteResponse,
@@ -257,18 +255,6 @@ export class ApiClient {
     return this.get("/api/rekordbox/tags");
   }
 
-  async listRekordboxPlaylists(): Promise<RekordboxPlaylist[]> {
-    return this.get("/api/rekordbox/playlists");
-  }
-
-  async listProposals(): Promise<SyncProposal[]> {
-    return this.get("/api/sync/proposals");
-  }
-
-  async resolveProposal(proposalId: number, status: string): Promise<SyncProposal> {
-    return this.post(`/api/sync/proposals/${proposalId}/resolve`, { status });
-  }
-
   async listGlobalAcquisitionJobs(params: {
     scope?: string | null;
     status?: string | null;
@@ -359,10 +345,6 @@ export class ApiClient {
 
   async listAcquisitionJobs(eventId: number): Promise<AcquisitionJob[]> {
     return this.get(`/api/events/${eventId}/acquisition/jobs`);
-  }
-
-  async retryAcquisition(eventId: number): Promise<EventAcquisitionResponse> {
-    return this.post(`/api/events/${eventId}/acquisition/retry`, {});
   }
 
   async searchEventDeezer(eventId: number, query: string): Promise<DeezerSearchResult[]> {

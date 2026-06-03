@@ -70,12 +70,8 @@ def test_library_sync_uses_snapshot_and_marks_removed_tracks(tmp_path: Path) -> 
             source.id,
         )
     )
-    proposals = database.list_proposals()
-
     assert second_review.removed_tracks == 1
     assert second_review.source.spotify_snapshot_id == "snapshot-2"
-    assert proposals[0].proposal_type == "remove_from_rekordbox"
-    assert proposals[0].payload["sourceId"] == source.id
 
 
 def test_library_sync_detects_imported_track_deleted_from_rekordbox(

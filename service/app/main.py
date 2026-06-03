@@ -23,7 +23,6 @@ from .acquisition import (
     get_deemix_status,
     queue_event_manual_deezer,
     refresh_acquisition_jobs,
-    retry_acquisition,
     run_auto_acquisition,
 )
 from .db import LocalDatabase
@@ -68,15 +67,12 @@ from .models import (
     RekordboxCollectionStats,
     SettingsBackup,
     SettingsImportResponse,
-    RekordboxPlaylist,
     RekordboxTag,
     SpotifyAuthUrlRequest,
     SpotifyAuthUrlResponse,
     SpotifyEventAnalyzeRequest,
     SpotifyPlaylistsResponse,
     StorageLayout,
-    SyncProposal,
-    SyncProposalResolveRequest,
     TagPlaylistMapping,
     TagPlaylistMappingIn,
     TagRule,
@@ -733,14 +729,6 @@ def list_rekordbox_tags() -> list[RekordboxTag]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.get("/api/rekordbox/playlists", response_model=list[RekordboxPlaylist])
-def list_rekordbox_playlists() -> list[RekordboxPlaylist]:
-    try:
-        return build_rekordbox_adapter().list_playlists()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
 @app.get("/api/providers/deemix/status", response_model=DeemixStatus)
 async def provider_deemix_status() -> DeemixStatus:
     return await get_deemix_status()
@@ -805,22 +793,6 @@ async def stream_acquisition_jobs(request: Request) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-@app.get("/api/sync/proposals", response_model=list[SyncProposal])
-def list_sync_proposals() -> list[SyncProposal]:
-    return database.list_proposals()
-
-
-@app.post("/api/sync/proposals/{proposal_id}/resolve", response_model=SyncProposal)
-def resolve_sync_proposal(
-    proposal_id: int,
-    request: SyncProposalResolveRequest,
-) -> SyncProposal:
-    proposal = database.resolve_proposal(proposal_id, request.status)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail=f"Proposal {proposal_id} was not found.")
-    return proposal
 
 
 
@@ -1006,20 +978,6 @@ async def list_event_acquisition_jobs(event_id: int) -> list[AcquisitionJob]:
     return await refresh_acquisition_jobs(database, event_id)
 
 
-@app.post(
-    "/api/events/{event_id}/acquisition/retry",
-    response_model=EventAcquisitionResponse,
-)
-async def retry_event_acquisition(event_id: int) -> EventAcquisitionResponse:
-    try:
-        response = await retry_acquisition(database, event_id)
-        return response.model_copy(
-            update={"review": enrich_review_with_rekordbox_tracks(response.review)}
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
 @app.post("/api/events/{event_id}/matches", response_model=EventReview)
 def update_event_match(event_id: int, request: EventTrackUpdateRequest) -> EventReview:
     try:
@@ -1064,21 +1022,6 @@ async def apply_event(event_id: int) -> dict[str, Any]:
         "smartPlaylist": apply_result["smart_playlist"],
         "warnings": [],
     }
-
-
-@app.post("/api/events/{event_id}/repair-rekordbox-structure")
-def repair_event_rekordbox_structure(event_id: int) -> dict[str, Any]:
-    try:
-        review = require_event_review(database, event_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    try:
-        repair_result = build_rekordbox_adapter().repair_event_import_structure(review)
-    except Exception as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    return {"eventId": event_id, **repair_result}
 
 
 @app.get("/api/events/{event_id}/search-deezer", response_model=list[DeezerSearchResult])

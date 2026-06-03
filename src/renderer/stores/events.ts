@@ -14,7 +14,6 @@ import type {
 import type { ImportFormState } from "../types/ui";
 import { useSystemStore } from "./system";
 import { useUiStore } from "./ui";
-import { useProposalsStore } from "./proposals";
 
 export const useEventsStore = defineStore("events", () => {
   const summaries = ref<EventSummary[]>([]);

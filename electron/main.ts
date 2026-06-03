@@ -162,7 +162,6 @@ function createWindow(): void {
 }
 
 ipcMain.handle("app:get-api-base-url", () => apiBaseUrl);
-ipcMain.handle("app:get-version", () => app.getVersion());
 ipcMain.handle("app:open-external", async (_event, url: string) => {
   const parsed = new URL(url);
   if (!["https:", "http:"].includes(parsed.protocol)) {

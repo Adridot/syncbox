@@ -5,7 +5,6 @@ import type { GlobalAcquisitionJob } from "../lib/api";
 import StatusBadge from "../components/StatusBadge.vue";
 import { useEventsStore } from "../stores/events";
 import { useLibraryStore } from "../stores/library";
-import { useProposalsStore } from "../stores/proposals";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
 
@@ -13,11 +12,7 @@ const ui = useUiStore();
 const system = useSystemStore();
 const events = useEventsStore();
 const library = useLibraryStore();
-const proposals = useProposalsStore();
 
-const pendingProposals = computed(() =>
-  proposals.proposals.filter((p) => p.status === "pending")
-);
 const conflictTracks = computed(() =>
   events.activeEvent?.tracks.filter((t) => t.status === "ambiguous") ?? []
 );
@@ -42,17 +37,6 @@ function jobTone(job: GlobalAcquisitionJob): "ok" | "warn" | "active" | "muted" 
   if (job.status === "acquisition_failed" || job.status === "acquisition_ambiguous") return "warn";
   if (["queued", "downloading", "resolved"].includes(job.status)) return "active";
   return "muted";
-}
-
-const proposalLabels: Record<string, string> = {
-  remove_from_rekordbox: "Remove from Rekordbox",
-  protect_manual_track: "Protected — manual collection",
-  manual_match: "Manual match needed",
-  add_to_rekordbox: "Missing from Rekordbox",
-};
-
-function proposalLabel(type: string): string {
-  return proposalLabels[type] ?? type;
 }
 
 async function openEventInEvents(event: { id: number; eventName: string }): Promise<void> {
@@ -235,77 +219,6 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
             <div v-if="conflictTracks.length === 0 && libraryConflictTracks.length === 0" class="flex items-center gap-2 text-sm text-on-surface-variant">
               <Search :size="16" aria-hidden="true" />
               No metadata conflicts in the selected context.
-            </div>
-          </div>
-        </section>
-
-        <section class="rounded-xl border border-outline-variant bg-surface-container-high p-5">
-          <div class="mb-4 flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <AlertTriangle class="text-tertiary" :size="18" aria-hidden="true" />
-              <h3 class="font-bold text-on-surface">Sync Proposals</h3>
-            </div>
-            <span v-if="pendingProposals.length > 0" class="text-xs text-on-surface-variant">
-              {{ pendingProposals.length }} pending
-            </span>
-          </div>
-          <div class="space-y-3">
-            <div
-              v-for="proposal in pendingProposals.slice(0, 8)"
-              :key="proposal.id"
-              class="rounded border bg-surface-container p-3"
-              :class="proposal.proposalType === 'remove_from_rekordbox' ? 'border-error/30' : 'border-outline-variant'"
-            >
-              <div class="mb-2 flex items-start justify-between gap-2">
-                <StatusBadge :tone="proposal.proposalType === 'remove_from_rekordbox' ? 'error' : 'muted'">
-                  {{ proposalLabel(proposal.proposalType) }}
-                </StatusBadge>
-              </div>
-
-              <strong class="block truncate text-sm text-on-surface">
-                {{ (proposal.payload as any).title || "Unknown track" }}
-              </strong>
-              <span class="block truncate text-xs text-on-surface-variant">
-                {{ (proposal.payload as any).artist || (proposal.payload as any).artists?.join(", ") || "" }}
-              </span>
-              <span
-                v-if="proposal.filePath"
-                class="mt-1 block truncate text-[10px] text-on-surface-variant"
-                :title="proposal.filePath"
-              >
-                {{ proposal.filePath.split("/").slice(-2).join("/") }}
-              </span>
-
-              <p class="mt-2 text-[11px] italic text-on-surface-variant">{{ proposal.reason }}</p>
-
-              <div class="mt-3 flex flex-wrap gap-2">
-                <button
-                  class="rounded border border-outline bg-surface px-2.5 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
-                  type="button"
-                  @click="proposals.resolve(proposal.id, 'ignored')"
-                >
-                  Ignore
-                </button>
-                <button
-                  v-if="proposal.proposalType === 'remove_from_rekordbox'"
-                  class="rounded border border-error/40 bg-error/10 px-2.5 py-1 text-[11px] font-bold text-error transition-colors hover:border-error"
-                  type="button"
-                  @click="proposals.resolve(proposal.id, 'approved')"
-                >
-                  Remove from Rekordbox
-                </button>
-                <button
-                  class="rounded border border-outline bg-surface px-2.5 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-secondary"
-                  type="button"
-                  @click="proposals.resolve(proposal.id, 'protected')"
-                >
-                  Protect
-                </button>
-              </div>
-            </div>
-            <div v-if="pendingProposals.length === 0" class="flex items-center gap-2 text-sm text-on-surface-variant">
-              <CheckCircle2 :size="15" aria-hidden="true" />
-              No pending proposals.
             </div>
           </div>
         </section>
