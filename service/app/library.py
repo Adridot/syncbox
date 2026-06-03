@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,9 @@ from .acquisition import (
     acquisition_job_payload,
     acquisition_status_counts,
     compact_deezer_payload,
-    deezer_candidate_from_payload,
+    deemix_event_settings,
     extract_download_ids,
-    extract_queue_items,
-    map_deemix_queue_status,
+    iter_queue_status_changes,
     match_manual_deezer_jobs,
     optional_text,
 )
@@ -25,7 +25,6 @@ from .matching import match_spotify_track
 from .models import (
     LibraryReview,
     LibrarySource,
-    LibrarySourceIn,
     LibraryTrackDownloadRequest,
     LibraryTrackReview,
     LibraryTrackUpdateRequest,
@@ -46,8 +45,10 @@ async def sync_library_source(
     source_id: int,
 ) -> LibraryReview:
     source = require_library_source(database, source_id)
-    playlist = await client.get_playlist(source.spotify_playlist_id)
-    playlist_items = await client.get_playlist_items(source.spotify_playlist_id)
+    playlist, playlist_items = await asyncio.gather(
+        client.get_playlist(source.spotify_playlist_id),
+        client.get_playlist_items(source.spotify_playlist_id),
+    )
     spotify_tracks = playlist_items_to_tracks(playlist_items)
     library = adapter.read_library_snapshot()
     rekordbox_tracks = [
@@ -432,9 +433,11 @@ async def download_library_tracks(
     )
     review = require_library_review(database, request.source_id)
     selected_ids = set(request.spotify_track_ids or [])
+    all_jobs = database.list_library_acquisition_jobs(request.source_id, DEEMIX_PROVIDER)
+    existing_job_ids = {job.spotify_track_id for job in all_jobs}
     active_jobs = {
         job.spotify_track_id: job
-        for job in database.list_library_acquisition_jobs(request.source_id, DEEMIX_PROVIDER)
+        for job in all_jobs
         if job.status in {"resolved", "queued", "downloading", "downloaded", "ready"}
     }
     eligible_tracks = [
@@ -452,7 +455,7 @@ async def download_library_tracks(
     status = await client.status()
     if not status.available or not status.authenticated:
         for track in eligible_tracks:
-            if database.get_library_acquisition_job(request.source_id, track.spotify_track_id) is None:
+            if track.spotify_track_id not in existing_job_ids:
                 created += 1
             database.upsert_library_acquisition_job(
                 request.source_id,
@@ -467,7 +470,7 @@ async def download_library_tracks(
 
     resolved_tracks: list[tuple[LibraryTrackReview, DeezerResolveResult]] = []
     for track in eligible_tracks:
-        if database.get_library_acquisition_job(request.source_id, track.spotify_track_id) is None:
+        if track.spotify_track_id not in existing_job_ids:
             created += 1
         try:
             result = await resolver.resolve(track)
@@ -530,7 +533,9 @@ async def queue_library_tracks(
 
     output_dir = Path(adapter.storage_layout().permanent)
     try:
-        await client.update_settings(deemix_permanent_settings(output_dir))
+        await client.update_settings(
+            deemix_event_settings(output_dir, quality=PERMANENT_DOWNLOAD_QUALITY)
+        )
         response = await client.download_batch(track_ids, review.source.spotify_playlist_name)
     except Exception as exc:
         for track, result in resolved_tracks:
@@ -590,26 +595,8 @@ async def sync_library_deemix_queue(
         return
 
     queue_payload = await client.queue()
-    queue_items = extract_queue_items(queue_payload)
-    items_by_id = {
-        optional_text(item.get("id") or item.get("downloadId") or item.get("uuid")): item
-        for item in queue_items
-    }
-    items_by_track_id = {
-        optional_text(item.get("trackId") or item.get("deezerTrackId")): item
-        for item in queue_items
-    }
     changed_to_downloaded = False
-    for job in active_jobs:
-        item = items_by_id.get(job.download_id) if job.download_id else None
-        if item is None and job.deezer_track_id:
-            item = items_by_track_id.get(job.deezer_track_id)
-        if item is None:
-            continue
-
-        mapped_status = map_deemix_queue_status(item)
-        if mapped_status == job.status:
-            continue
+    for job, item, mapped_status in iter_queue_status_changes(active_jobs, queue_payload):
         payload_update: dict[str, Any] = {"queueStatus": mapped_status}
         if mapped_status == "downloaded":
             album_folder_val = optional_text(
@@ -728,11 +715,6 @@ def mark_library_ready_after_scan(
         for file_info in audio_files
     ]
     available_paths = {candidate.content_id for candidate in candidates}
-    claimed = {
-        track.staging_file_path
-        for track in review.tracks
-        if track.staging_file_path and track.status in {"ready", "imported"}
-    }
     for track in review.tracks:
         if track.status != "ready":
             continue
@@ -897,24 +879,6 @@ def build_library_download_response(
         "ambiguous": counts["acquisition_ambiguous"],
         "jobs": jobs,
         "review": review,
-    }
-
-
-def deemix_permanent_settings(audio_dir: Path) -> dict[str, Any]:
-    return {
-        "downloadPath": str(audio_dir),
-        "quality": PERMANENT_DOWNLOAD_QUALITY,
-        "createArtistFolder": False,
-        "createAlbumFolder": False,
-        "createPlaylistFolder": False,
-        "createCDFolder": False,
-        "createPlaylistStructure": False,
-        "createSinglesStructure": False,
-        "overwriteFiles": "rename",
-        "bitrateFallback": True,
-        "trackNameTemplate": "%artist% - %title%",
-        "albumTrackTemplate": "%artist% - %title%",
-        "playlistTrackTemplate": "%artist% - %title%",
     }
 
 

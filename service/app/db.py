@@ -12,6 +12,7 @@ from __future__ import annotations
 from .repositories._base import BaseRepository
 from .repositories._mappers import (
     acquisition_job_from_row,
+    count_by_status,
     global_acquisition_job_from_row,
     library_source_from_row,
     library_track_from_row,
@@ -33,6 +34,7 @@ __all__ = [
     "utc_now",
     "parse_json_object",
     "optional_string",
+    "count_by_status",
     "proposal_from_row",
     "library_source_from_row",
     "library_track_from_row",

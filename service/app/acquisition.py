@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -7,7 +8,7 @@ from typing import Any, Callable
 import httpx
 
 from .audio import scan_audio_files
-from .db import LocalDatabase
+from .db import LocalDatabase, count_by_status, optional_string as optional_text
 from .event_import import require_event_review, scan_event_staging
 from .matching import duration_score, text_similarity
 from .models import (
@@ -417,6 +418,42 @@ async def queue_resolved_tracks(
         )
 
 
+def iter_queue_status_changes(
+    active_jobs: list[Any],
+    queue_payload: dict[str, Any],
+) -> "Iterator[tuple[Any, dict[str, Any], str]]":
+    """Yield ``(job, queue_item, mapped_status)`` for each active acquisition job
+    whose Deemix queue status has changed.
+
+    Shared by the event and library queue-reconciliation loops so the queue
+    parsing and job↔item matching lives in exactly one place; each caller keeps
+    its own write/post-processing.
+    """
+    queue_items = extract_queue_items(queue_payload)
+    items_by_id = {
+        optional_text(item.get("id") or item.get("downloadId") or item.get("uuid")): item
+        for item in queue_items
+    }
+    items_by_track_id = {
+        optional_text(
+            item.get("trackId")
+            or item.get("deezerTrackId")
+            or nested_value(item, ["track", "id"])
+        ): item
+        for item in queue_items
+    }
+    for job in active_jobs:
+        item = items_by_id.get(job.download_id) if job.download_id else None
+        if item is None and job.deezer_track_id:
+            item = items_by_track_id.get(job.deezer_track_id)
+        if item is None:
+            continue
+        mapped_status = map_deemix_queue_status(item)
+        if mapped_status == job.status:
+            continue
+        yield job, item, mapped_status
+
+
 async def sync_deemix_queue(
     database: LocalDatabase,
     event_id: int,
@@ -432,32 +469,8 @@ async def sync_deemix_queue(
         return
 
     queue_payload = await client.queue()
-    queue_items = extract_queue_items(queue_payload)
-    items_by_id = {
-        optional_text(item.get("id") or item.get("downloadId") or item.get("uuid")): item
-        for item in queue_items
-    }
-    items_by_track_id = {
-        optional_text(
-            item.get("trackId")
-            or item.get("deezerTrackId")
-            or nested_value(item, ["track", "id"])
-        ): item
-        for item in queue_items
-    }
     changed_to_downloaded = False
-    for job in active_jobs:
-        item = None
-        if job.download_id:
-            item = items_by_id.get(job.download_id)
-        if item is None and job.deezer_track_id:
-            item = items_by_track_id.get(job.deezer_track_id)
-        if item is None:
-            continue
-
-        mapped_status = map_deemix_queue_status(item)
-        if mapped_status == job.status:
-            continue
+    for job, item, mapped_status in iter_queue_status_changes(active_jobs, queue_payload):
         if mapped_status == "acquisition_failed":
             database.update_acquisition_job(
                 event_id,
@@ -601,18 +614,17 @@ def build_acquisition_response(
 
 
 def acquisition_status_counts(jobs: list[AcquisitionJob]) -> dict[str, int]:
-    counts = {
-        "queued": 0,
-        "downloading": 0,
-        "downloaded": 0,
-        "ready": 0,
-        "acquisition_failed": 0,
-        "acquisition_ambiguous": 0,
-    }
-    for job in jobs:
-        if job.status in counts:
-            counts[job.status] += 1
-    return counts
+    return count_by_status(
+        jobs,
+        (
+            "queued",
+            "downloading",
+            "downloaded",
+            "ready",
+            "acquisition_failed",
+            "acquisition_ambiguous",
+        ),
+    )
 
 
 def should_create_acquisition_job(job: AcquisitionJob | None) -> bool:
@@ -668,10 +680,10 @@ def compact_deezer_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
-def deemix_event_settings(audio_dir: Path) -> dict[str, Any]:
+def deemix_event_settings(audio_dir: Path, quality: str = "MP3_320") -> dict[str, Any]:
     return {
         "downloadPath": str(audio_dir),
-        "quality": "MP3_320",
+        "quality": quality,
         "createArtistFolder": False,
         "createAlbumFolder": False,
         "createPlaylistFolder": False,
@@ -764,13 +776,6 @@ def nested_value(payload: dict[str, Any], path: list[str]) -> Any:
             return None
         current = current.get(part)
     return current
-
-
-def optional_text(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value)
-    return text or None
 
 
 async def queue_event_manual_deezer(

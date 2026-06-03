@@ -13,6 +13,7 @@ import {
 } from "@lucide/vue";
 import { onMounted, ref } from "vue";
 import type { UntaggedSuggestion } from "../lib/api";
+import { formatDuration } from "../lib/format";
 import { useSystemStore } from "../stores/system";
 import { useUntaggedStore } from "../stores/untagged";
 
@@ -58,14 +59,6 @@ const filterChips: Array<{ key: UntaggedSuggestion | "all"; label: string }> = [
   { key: "dup_of_tagged", label: "Already tagged elsewhere" },
   { key: "alt_version", label: "Alt versions" },
 ];
-
-function formatDuration(ms: number | null): string {
-  if (!ms || ms <= 0) return "—";
-  const total = Math.round(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 async function applyTag(): Promise<void> {
   const name = tagInput.value.trim();

@@ -4,6 +4,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from functools import lru_cache
 
 from .models import RekordboxTrack, SpotifyTrack
 
@@ -22,6 +23,7 @@ class MatchResult:
     reason: str = ""
 
 
+@lru_cache(maxsize=8192)
 def normalize_text(value: str) -> str:
     ascii_value = (
         unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")

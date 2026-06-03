@@ -11,6 +11,7 @@ import {
 } from "@lucide/vue";
 import { onMounted } from "vue";
 import type { DiagnosticStatus } from "../lib/api";
+import { formatBytes, formatDate } from "../lib/format";
 import { useDoctorStore } from "../stores/doctor";
 import { useSettingsStore } from "../stores/settings";
 import { useSystemStore } from "../stores/system";
@@ -41,17 +42,6 @@ const statusColor: Record<DiagnosticStatus, string> = {
   warn: "text-tertiary",
   error: "text-error",
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDate(epochSeconds: number): string {
-  if (!epochSeconds) return "unknown";
-  return new Date(epochSeconds * 1000).toLocaleString();
-}
 
 async function openLogs(): Promise<void> {
   await window.desktop?.openLogs();

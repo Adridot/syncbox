@@ -12,6 +12,7 @@ from ..models import (
     StagingFile,
 )
 from ._mappers import (
+    count_by_status,
     optional_string,
     parse_json_object,
     utc_now,
@@ -455,17 +456,10 @@ class EventsMixin:
             )
             for row in file_rows
         ]
-        counts = {
-            "matched": 0,
-            "missing": 0,
-            "ambiguous": 0,
-            "ready": 0,
-            "applied": 0,
-            "ignored": 0,
-        }
-        for track in tracks:
-            if track.status in counts:
-                counts[track.status] += 1
+        counts = count_by_status(
+            tracks,
+            ("matched", "missing", "ambiguous", "ready", "applied", "ignored"),
+        )
         return EventReview(
             id=int(event["id"]),
             eventName=str(event["event_name"]),

@@ -11,6 +11,7 @@ from ..models import (
     LibrarySourceIn,
 )
 from ._mappers import (
+    count_by_status,
     library_source_from_row,
     library_track_from_row,
     utc_now,
@@ -367,19 +368,19 @@ class LibraryMixin:
                 (source_id,),
             ).fetchall()
         tracks = [library_track_from_row(row) for row in rows]
-        counts = {
-            "new": 0,
-            "matched": 0,
-            "missing": 0,
-            "ready": 0,
-            "imported": 0,
-            "ignored": 0,
-            "conflict": 0,
-            "removed_from_source": 0,
-        }
-        for track in tracks:
-            if track.status in counts:
-                counts[track.status] += 1
+        counts = count_by_status(
+            tracks,
+            (
+                "new",
+                "matched",
+                "missing",
+                "ready",
+                "imported",
+                "ignored",
+                "conflict",
+                "removed_from_source",
+            ),
+        )
         return LibraryReview(
             source=source,
             totalTracks=len(tracks),

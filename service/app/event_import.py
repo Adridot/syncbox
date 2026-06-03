@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -77,8 +77,10 @@ async def analyze_spotify_event(
     request: SpotifyEventAnalyzeRequest,
 ) -> EventReview:
     playlist_id = parse_playlist_id(str(request.playlist_url))
-    playlist = await client.get_playlist(playlist_id)
-    playlist_items = await client.get_playlist_items(playlist_id)
+    playlist, playlist_items = await asyncio.gather(
+        client.get_playlist(playlist_id),
+        client.get_playlist_items(playlist_id),
+    )
     spotify_tracks = playlist_items_to_tracks(playlist_items)
     rekordbox_tracks, library = _load_rekordbox_snapshot(adapter)
 

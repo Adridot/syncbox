@@ -68,13 +68,11 @@ from .models import (
     RekordboxCollectionStats,
     SettingsBackup,
     SettingsImportResponse,
-    RekordboxTrack,
     RekordboxPlaylist,
     RekordboxTag,
     SpotifyAuthUrlRequest,
     SpotifyAuthUrlResponse,
     SpotifyEventAnalyzeRequest,
-    SpotifyEventPreviewRequest,
     SpotifyPlaylistsResponse,
     StorageLayout,
     SyncProposal,
@@ -99,7 +97,6 @@ from .event_import import (
 )
 from .live_import import build_live_import_package
 from .library import (
-    deemix_permanent_settings,
     download_library_tracks,
     queue_library_tracks,
     refresh_library_acquisition_jobs,
@@ -112,15 +109,18 @@ from .rekordbox import RekordboxAdapter
 from .spotify import (
     SpotifyAuthError,
     SpotifyClient,
-    parse_playlist_id,
     summarize_playlist_page,
 )
-from .sync import generate_bidirectional_proposals
 
 
 logger = configure_logging()
 config = load_config()
 database = LocalDatabase(config.app_database_path)
+
+SPOTIFY_AUTH_EXPIRED_DETAIL = (
+    "Spotify sign-in has expired or was revoked. "
+    "Reconnect Spotify in Settings, then sync again."
+)
 
 
 @asynccontextmanager
@@ -530,8 +530,7 @@ async def sync_library_source_endpoint(source_id: int) -> LibraryReview:
         logger.warning("sync source %s: Spotify auth failed: %s", source_id, exc)
         raise HTTPException(
             status_code=401,
-            detail="Spotify sign-in has expired or was revoked. "
-            "Reconnect Spotify in Settings, then sync again.",
+            detail=SPOTIFY_AUTH_EXPIRED_DETAIL,
         ) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -565,8 +564,7 @@ async def sync_all_library_sources() -> list[LibraryReview]:
     if auth_failed and not results:
         raise HTTPException(
             status_code=401,
-            detail="Spotify sign-in has expired or was revoked. "
-            "Reconnect Spotify in Settings, then sync again.",
+            detail=SPOTIFY_AUTH_EXPIRED_DETAIL,
         )
     if failures and not results:
         raise HTTPException(
@@ -1328,12 +1326,14 @@ def tracks_ready_for_rekordbox_apply(review: EventReview) -> list[EventTrackRevi
 
 
 def next_event_status_after_apply(review: EventReview) -> str:
-    if review.matched_tracks > 0 or review.ready_tracks > 0:
-        return "partially_applied"
-    if review.missing_tracks > 0 or review.ambiguous_tracks > 0:
+    if (
+        review.matched_tracks
+        or review.ready_tracks
+        or review.missing_tracks
+        or review.ambiguous_tracks
+    ):
         return "partially_applied"
     return "applied"
-
 
 
 async def add_library_tracks_to_spotify(review: LibraryReview) -> int:
