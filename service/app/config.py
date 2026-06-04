@@ -5,6 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# Stable, absolute default so the database is ALWAYS in the same place. The old
+# default was the relative "./.local", which resolved against the current working
+# directory — so launching from a different cwd (or an update that changed it)
+# pointed at a different, empty database and looked like "all settings reset".
+# The packaged app overrides this with RBSYNC_DATA_DIR=<userData>, the same dir.
+DEFAULT_DATA_DIR = Path("~/Library/Application Support/syncbox").expanduser()
+
 DEFAULT_REKORDBOX_DIR = Path("/Users/adriendidot/Library/Pioneer/rekordbox")
 DEFAULT_STORAGE_ROOT = Path(
     "/Users/adriendidot/Library/CloudStorage/"
@@ -25,7 +32,11 @@ class ServiceConfig:
 
 
 def load_config() -> ServiceConfig:
-    data_dir = Path(os.environ.get("RBSYNC_DATA_DIR", ".local")).expanduser().resolve()
+    data_dir = (
+        Path(os.environ.get("RBSYNC_DATA_DIR") or DEFAULT_DATA_DIR)
+        .expanduser()
+        .resolve()
+    )
     api_port = int(os.environ.get("RBSYNC_SERVICE_PORT", "8765"))
     rekordbox_dir = Path(
         os.environ.get("RBSYNC_REKORDBOX_DATABASE_DIR", str(DEFAULT_REKORDBOX_DIR))

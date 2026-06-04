@@ -281,7 +281,7 @@ export const useEventsStore = defineStore("events", () => {
       summaries.value = await system.api!.listEvents();
       ui.setMessage(
         result.warnings.length > 0 ? "error" : "success",
-        `Event applied. Imported ${result.imported}, tagged ${result.tagged}, Spotify additions ${result.spotifyAdded}. ${result.warnings.join(" ")}`
+        `Event applied. Imported ${result.imported}, tagged ${result.tagged}.${result.warnings.length ? " " + result.warnings.join(" ") : ""}`
       );
     });
   }

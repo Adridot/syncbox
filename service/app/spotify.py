@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
-import secrets
 import time
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -14,21 +12,12 @@ from .db import LocalDatabase
 from .models import SpotifyTrack
 
 
-# Serialises token refreshes across concurrent requests: in the PKCE flow Spotify
-# rotates the refresh token on every refresh, so simultaneous refreshes would
-# invalidate each other's token and force a re-login. The lock (plus the
-# inside-lock freshness re-check) guarantees a single refresh wins.
-_refresh_lock = asyncio.Lock()
+# Serialises Client-Credentials token fetches across concurrent requests so a
+# burst doesn't trigger several token requests at once.
+_token_lock = asyncio.Lock()
 
 SPOTIFY_ACCOUNTS_URL = "https://accounts.spotify.com"
 SPOTIFY_API_URL = "https://api.spotify.com/v1"
-SPOTIFY_SCOPES = [
-    "playlist-read-private",
-    "playlist-modify-private",
-    "playlist-modify-public",
-    "user-library-read",
-    "user-library-modify",
-]
 
 
 class SpotifyAuthError(RuntimeError):
@@ -39,70 +28,20 @@ class SpotifyClient:
     def __init__(self, database: LocalDatabase) -> None:
         self.database = database
 
-    def build_authorization_url(self, client_id: str, redirect_uri: str) -> dict[str, str]:
-        if not client_id.strip():
-            raise SpotifyAuthError("Spotify Client ID is required.")
-
-        verifier = create_code_verifier()
-        state = secrets.token_urlsafe(32)
-        challenge = create_code_challenge(verifier)
-
-        self.database.set_setting("spotify_client_id", client_id.strip())
-        self.database.set_setting("spotify_redirect_uri", redirect_uri.strip())
-        self.database.set_setting("spotify_pkce_verifier", verifier)
-        self.database.set_setting("spotify_oauth_state", state)
-
-        query = urlencode(
-            {
-                "response_type": "code",
-                "client_id": client_id.strip(),
-                "scope": " ".join(SPOTIFY_SCOPES),
-                "redirect_uri": redirect_uri.strip(),
-                "state": state,
-                "code_challenge_method": "S256",
-                "code_challenge": challenge,
-            }
-        )
+    async def test_connection(self) -> dict[str, Any]:
+        """Validate the Client ID/Secret (app token) and the username — backs the
+        Settings "Test Connection" button. Raises SpotifyAuthError with a readable
+        message on failure."""
+        await self._get_app_token(force=True)
+        username = self.database.get_setting("spotify_username").strip()
+        if not username:
+            raise SpotifyAuthError("Spotify username is required.")
+        profile = await self._request("GET", f"/users/{username}", params={})
         return {
-            "authorizationUrl": f"{SPOTIFY_ACCOUNTS_URL}/authorize?{query}",
-            "state": state,
+            "connected": True,
+            "username": username,
+            "displayName": str(profile.get("display_name") or username),
         }
-
-    async def exchange_callback(self, code: str, state: str) -> None:
-        expected_state = self.database.get_setting("spotify_oauth_state")
-        if not expected_state or state != expected_state:
-            raise SpotifyAuthError("Spotify OAuth state mismatch.")
-
-        client_id = self.database.get_setting("spotify_client_id")
-        redirect_uri = self.database.get_setting("spotify_redirect_uri")
-        verifier = self.database.get_setting("spotify_pkce_verifier")
-        if not all([client_id, redirect_uri, verifier]):
-            raise SpotifyAuthError("Spotify OAuth session is incomplete.")
-
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.post(
-                    f"{SPOTIFY_ACCOUNTS_URL}/api/token",
-                    data={
-                        "grant_type": "authorization_code",
-                        "code": code,
-                        "redirect_uri": redirect_uri,
-                        "client_id": client_id,
-                        "code_verifier": verifier,
-                    },
-                    headers=self._token_headers(client_id),
-                )
-        except httpx.HTTPError as exc:
-            # Network/SSL failure reaching Spotify — surface a readable message
-            # instead of a bare 500 (e.g. missing CA bundle in a frozen build).
-            raise SpotifyAuthError(
-                f"Could not reach Spotify to complete sign-in: {exc}"
-            ) from exc
-        if response.status_code >= 400:
-            raise SpotifyAuthError(response.text)
-
-        payload = response.json()
-        self._store_tokens(payload)
 
     async def get_playlist(self, playlist_id: str) -> dict[str, Any]:
         return await self._request(
@@ -144,20 +83,18 @@ class SpotifyClient:
     async def get_current_user_playlists(
         self, limit: int = 50, offset: int = 0
     ) -> dict[str, Any]:
+        """The user's *public* playlists, fetched by username with an app token —
+        no browser sign-in needed."""
+        username = self.database.get_setting("spotify_username").strip()
+        if not username:
+            raise SpotifyAuthError("Set your Spotify username in Settings.")
         limit = max(1, min(limit, 50))
         offset = max(0, offset)
         return await self._request(
             "GET",
-            "/me/playlists",
+            f"/users/{username}/playlists",
             params={"limit": limit, "offset": offset},
         )
-
-    async def get_current_user_id(self) -> str:
-        payload = await self._request("GET", "/me", params={})
-        user_id = payload.get("id")
-        if not user_id:
-            raise SpotifyAuthError("Could not resolve the current Spotify user.")
-        return str(user_id)
 
     async def get_track(self, track_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/tracks/{track_id}", params={})
@@ -170,33 +107,6 @@ class SpotifyClient:
         )
         return payload.get("tracks", {}).get("items", []) or []
 
-    async def create_playlist(
-        self, name: str, *, public: bool = False, description: str = ""
-    ) -> dict[str, Any]:
-        user_id = await self.get_current_user_id()
-        payload = await self._request(
-            "POST",
-            f"/users/{user_id}/playlists",
-            json={"name": name, "public": public, "description": description},
-        )
-        external_urls = payload.get("external_urls") or {}
-        return {
-            "id": str(payload.get("id", "")),
-            "name": str(payload.get("name", name)),
-            "url": str(
-                external_urls.get("spotify")
-                or f"https://open.spotify.com/playlist/{payload.get('id', '')}"
-            ),
-        }
-
-    async def add_tracks_to_playlist(self, playlist_id: str, uris: list[str]) -> None:
-        for start in range(0, len(uris), 100):
-            await self._request(
-                "POST",
-                f"/playlists/{playlist_id}/items",
-                json={"uris": uris[start : start + 100]},
-            )
-
     async def _request(
         self,
         method: str,
@@ -205,8 +115,8 @@ class SpotifyClient:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        access_token = await self._get_access_token()
-        headers = {"Authorization": f"Bearer {access_token}"}
+        token = await self._get_app_token()
+        headers = {"Authorization": f"Bearer {token}"}
 
         async with httpx.AsyncClient(timeout=30) as client:
             for attempt in range(4):
@@ -225,8 +135,8 @@ class SpotifyClient:
                     await sleep_seconds(retry_after + attempt)
                     continue
                 if response.status_code == 401 and attempt == 0:
-                    access_token = await self._refresh_access_token(force=True)
-                    headers = {"Authorization": f"Bearer {access_token}"}
+                    token = await self._get_app_token(force=True)
+                    headers = {"Authorization": f"Bearer {token}"}
                     continue
                 if response.status_code >= 400:
                     raise SpotifyAuthError(response.text)
@@ -235,81 +145,64 @@ class SpotifyClient:
                 return response.json()
         raise SpotifyAuthError("Spotify request failed after retries.")
 
-    async def _get_access_token(self) -> str:
-        access_token = self.database.get_setting("spotify_access_token")
-        expires_at = int(self.database.get_setting("spotify_expires_at", "0") or "0")
-        if not access_token:
-            raise SpotifyAuthError("Spotify is not authenticated.")
-        if expires_at <= int(time.time()) + 60:
-            return await self._refresh_access_token()
-        return access_token
+    async def _get_app_token(self, *, force: bool = False) -> str:
+        """Client-Credentials app token (client_id + client_secret, no browser).
+        Cached in settings and refreshed automatically when it expires."""
 
-    async def _refresh_access_token(self, *, force: bool = False) -> str:
-        async with _refresh_lock:
-            # A concurrent request may have already refreshed while we waited on
-            # the lock — reuse that token instead of refreshing again (which, in
-            # the PKCE flow, would invalidate the just-issued refresh token).
+        def _cached() -> str | None:
+            token = self.database.get_setting("spotify_app_token")
+            expires_at = int(
+                self.database.get_setting("spotify_app_token_expires_at", "0") or "0"
+            )
+            if token and expires_at > int(time.time()) + 60:
+                return token
+            return None
+
+        if not force:
+            token = _cached()
+            if token:
+                return token
+
+        async with _token_lock:
+            # A concurrent caller may have refreshed while we waited on the lock.
             if not force:
-                access_token = self.database.get_setting("spotify_access_token")
-                expires_at = int(
-                    self.database.get_setting("spotify_expires_at", "0") or "0"
+                token = _cached()
+                if token:
+                    return token
+
+            client_id = self.database.get_setting("spotify_client_id").strip()
+            client_secret = self.database.get_setting("spotify_client_secret").strip()
+            if not client_id or not client_secret:
+                raise SpotifyAuthError(
+                    "Spotify Client ID and Client Secret are required (Settings)."
                 )
-                if access_token and expires_at > int(time.time()) + 60:
-                    return access_token
-
-            refresh_token = self.database.get_setting("spotify_refresh_token")
-            client_id = self.database.get_setting("spotify_client_id")
-            if not refresh_token or not client_id:
-                raise SpotifyAuthError("Spotify refresh token is missing.")
-
-            async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.post(
-                    f"{SPOTIFY_ACCOUNTS_URL}/api/token",
-                    data={
-                        "grant_type": "refresh_token",
-                        "refresh_token": refresh_token,
-                        "client_id": client_id,
-                    },
-                    headers=self._token_headers(client_id),
-                )
-            if response.status_code >= 400:
-                raise SpotifyAuthError(response.text)
-            payload = response.json()
-            self._store_tokens(payload, keep_refresh=True)
-            return str(payload["access_token"])
-
-    def _token_headers(self, client_id: str) -> dict[str, str]:
-        """Headers for a token endpoint call. When a client secret is configured
-        we authenticate as a *confidential* client (HTTP Basic), which makes
-        Spotify issue a stable, non-rotating refresh token — so the user signs in
-        once and Syncbox refreshes silently forever. Without a secret we stay on
-        the public PKCE flow (client_id only)."""
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        client_secret = self.database.get_setting("spotify_client_secret")
-        if client_secret:
             basic = base64.b64encode(
                 f"{client_id}:{client_secret}".encode("utf-8")
             ).decode("ascii")
-            headers["Authorization"] = f"Basic {basic}"
-        return headers
-
-    def _store_tokens(self, payload: dict[str, Any], keep_refresh: bool = False) -> None:
-        self.database.set_setting("spotify_access_token", str(payload["access_token"]))
-        if payload.get("refresh_token") or not keep_refresh:
+            try:
+                async with httpx.AsyncClient(timeout=20) as client:
+                    response = await client.post(
+                        f"{SPOTIFY_ACCOUNTS_URL}/api/token",
+                        data={"grant_type": "client_credentials"},
+                        headers={
+                            "Authorization": f"Basic {basic}",
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                    )
+            except httpx.HTTPError as exc:
+                raise SpotifyAuthError(f"Could not reach Spotify: {exc}") from exc
+            if response.status_code >= 400:
+                raise SpotifyAuthError(
+                    f"Spotify rejected the Client ID/Secret: {response.text}"
+                )
+            payload = response.json()
+            token = str(payload["access_token"])
+            self.database.set_setting("spotify_app_token", token)
             self.database.set_setting(
-                "spotify_refresh_token", str(payload.get("refresh_token", ""))
+                "spotify_app_token_expires_at",
+                str(int(time.time()) + int(payload.get("expires_in", 3600))),
             )
-        expires_at = int(time.time()) + int(payload.get("expires_in", 3600))
-        self.database.set_setting("spotify_expires_at", str(expires_at))
-
-
-def create_code_verifier() -> str:
-    return secrets.token_urlsafe(64)[:128]
-
-
-def create_code_challenge(verifier: str) -> str:
-    digest = hashlib.sha256(verifier.encode("ascii")).digest()
-    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+            return token
 
 
 def _parse_spotify_id(value: str, kind: str) -> str:

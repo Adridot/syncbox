@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { Plus, Tags, X } from "@lucide/vue";
+import { Plus, X } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import PlaylistCard from "./PlaylistCard.vue";
 import { useLibraryStore } from "../stores/library";
 import { useSpotifyStore } from "../stores/spotify";
 
-const props = defineProps<{ initialTab?: "follow" | "mappings" }>();
 const emit = defineEmits<{ close: [] }>();
 
 const library = useLibraryStore();
 const spotify = useSpotifyStore();
 
-const tab = ref<"follow" | "mappings">(props.initialTab ?? "follow");
 const playlistSearch = ref("");
 
 const availablePlaylists = computed(() => {
@@ -27,11 +25,6 @@ function onKey(event: KeyboardEvent): void {
 }
 onMounted(() => window.addEventListener("keydown", onKey));
 onUnmounted(() => window.removeEventListener("keydown", onKey));
-
-const tabClass = (active: boolean) =>
-  active
-    ? "bg-surface-container-high text-on-surface"
-    : "text-on-surface-variant hover:text-on-surface";
 </script>
 
 <template>
@@ -44,27 +37,9 @@ const tabClass = (active: boolean) =>
     >
       <header class="flex items-center gap-3 border-b border-outline-variant px-5 py-3">
         <h2 class="text-base font-bold text-on-surface">Manage sources</h2>
-        <div class="ml-auto flex gap-1 rounded-lg bg-surface p-1">
-          <button
-            type="button"
-            class="rounded px-3 py-1 text-sm font-semibold transition-colors"
-            :class="tabClass(tab === 'follow')"
-            @click="tab = 'follow'"
-          >
-            Follow a playlist
-          </button>
-          <button
-            type="button"
-            class="rounded px-3 py-1 text-sm font-semibold transition-colors"
-            :class="tabClass(tab === 'mappings')"
-            @click="tab = 'mappings'"
-          >
-            Tag mappings
-          </button>
-        </div>
         <button
           type="button"
-          class="rounded p-1 text-on-surface-variant hover:text-on-surface"
+          class="ml-auto rounded p-1 text-on-surface-variant hover:text-on-surface"
           aria-label="Close"
           @click="emit('close')"
         >
@@ -74,7 +49,7 @@ const tabClass = (active: boolean) =>
 
       <div class="overflow-y-auto p-5">
         <!-- Follow a playlist -->
-        <div v-if="tab === 'follow'" class="flex flex-col gap-6">
+        <div class="flex flex-col gap-6">
           <form
             class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
             @submit.prevent="library.saveTagRule()"
@@ -174,62 +149,6 @@ const tabClass = (active: boolean) =>
           </div>
         </div>
 
-        <!-- Tag → Spotify mappings -->
-        <div v-else class="flex flex-col gap-5">
-          <div class="flex items-center gap-2">
-            <Tags class="text-secondary" :size="18" aria-hidden="true" />
-            <p class="text-sm text-on-surface-variant">
-              Permanent tracks carrying a MyTag are added to the mapped Spotify playlist.
-            </p>
-          </div>
-          <form
-            class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
-            @submit.prevent="library.saveTagPlaylistMapping()"
-          >
-            <label class="grid gap-2">
-              <span class="text-sm font-bold text-on-surface">Existing MyTag</span>
-              <input
-                class="rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
-                v-model="library.mappingForm.tagName"
-                list="setup-mapping-tags"
-                placeholder="MyTag"
-              />
-              <datalist id="setup-mapping-tags">
-                <option v-for="tagName in spotify.availableTagNames" :key="tagName" :value="tagName" />
-              </datalist>
-            </label>
-            <label class="grid gap-2">
-              <span class="text-sm font-bold text-on-surface">Spotify playlist</span>
-              <select
-                class="rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
-                v-model="library.mappingForm.spotifyPlaylistId"
-                required
-                @change="library.selectMappingPlaylist(($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">Select playlist</option>
-                <option v-for="playlist in spotify.playlists" :key="playlist.id" :value="playlist.id">
-                  {{ playlist.name }}
-                </option>
-              </select>
-            </label>
-            <button class="self-end rounded bg-primary px-5 py-2 text-sm font-bold text-white" type="submit">
-              Save
-            </button>
-          </form>
-          <div class="grid gap-2 md:grid-cols-2">
-            <div
-              v-for="mapping in library.tagPlaylistMappings"
-              :key="mapping.id"
-              class="rounded border border-outline-variant bg-surface-container-high p-3 text-sm"
-            >
-              <strong class="text-on-surface">{{ mapping.tagName }}</strong>
-              <span class="text-on-surface-variant"> → {{ mapping.spotifyPlaylistName }}</span>
-            </div>
-            <div v-if="library.tagPlaylistMappings.length === 0" class="text-sm text-on-surface-variant">
-              No mappings configured.
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>

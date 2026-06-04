@@ -29,10 +29,7 @@ class RekordboxStatus(BaseModel):
 class AppSettings(BaseModel):
     spotify_client_id: str = Field(default="", alias="spotifyClientId")
     spotify_client_secret: str = Field(default="", alias="spotifyClientSecret")
-    spotify_redirect_uri: str = Field(
-        default="http://127.0.0.1:8765/api/spotify/callback",
-        alias="spotifyRedirectUri",
-    )
+    spotify_username: str = Field(default="", alias="spotifyUsername")
     rekordbox_database_dir: str = Field(alias="rekordboxDatabaseDir")
     storage_root: str = Field(alias="storageRoot")
     permanent_path: str = Field(default="", alias="permanentPath")
@@ -86,26 +83,10 @@ class TagRule(TagRuleIn):
     id: int
 
 
-class TagPlaylistMappingIn(BaseModel):
-    id: int | None = None
-    tag_name: str = Field(alias="tagName", min_length=1)
-    spotify_playlist_id: str = Field(alias="spotifyPlaylistId", min_length=1)
-    spotify_playlist_name: str = Field(alias="spotifyPlaylistName", min_length=1)
-    enabled: bool = True
-
-
-class TagPlaylistMapping(TagPlaylistMappingIn):
-    id: int
-
-
-class SpotifyAuthUrlRequest(BaseModel):
-    client_id: str = Field(alias="clientId")
-    redirect_uri: str = Field(alias="redirectUri")
-
-
-class SpotifyAuthUrlResponse(BaseModel):
-    authorization_url: str = Field(alias="authorizationUrl")
-    state: str
+class SpotifyConnectionStatus(BaseModel):
+    connected: bool = False
+    username: str = ""
+    display_name: str = Field(default="", alias="displayName")
 
 
 class SpotifyPlaylistSummary(BaseModel):
@@ -170,7 +151,6 @@ class EventApplyResponse(BaseModel):
     backup_path: str = Field(alias="backupPath")
     imported: int
     tagged: int
-    spotify_added: int = Field(alias="spotifyAdded")
     smart_playlist: str | None = Field(default=None, alias="smartPlaylist")
     warnings: list[str] = Field(default_factory=list)
 
@@ -444,7 +424,6 @@ class LibraryApplyResponse(BaseModel):
     backup_path: str = Field(alias="backupPath")
     imported: int
     tagged: int
-    spotify_added: int = Field(alias="spotifyAdded")
     warnings: list[str] = Field(default_factory=list)
 
 

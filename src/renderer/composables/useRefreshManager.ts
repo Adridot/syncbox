@@ -60,7 +60,6 @@ export function useRefreshManager() {
         library.refreshTagRules(),
         library.refreshSources(),
         events.refreshSummaries(),
-        library.refreshMappings(),
         spotify.refreshRekordboxTags(),
         refreshGlobalJobs(),
       ]);

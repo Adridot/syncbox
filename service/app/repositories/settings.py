@@ -9,8 +9,15 @@ from ..models import (
 class SettingsMixin:
     """Settings persistence (mixed into LocalDatabase)."""
 
-    # Transient OAuth handshake values are never exported/imported.
-    _NON_PORTABLE_SETTINGS = {"spotify_oauth_state", "spotify_pkce_verifier"}
+    # Transient/derived auth values that must never land in a portable backup:
+    # leftover OAuth handshake state and the short-lived Spotify app bearer token
+    # (re-derived on demand from the Client ID + Secret).
+    _NON_PORTABLE_SETTINGS = {
+        "spotify_oauth_state",
+        "spotify_pkce_verifier",
+        "spotify_app_token",
+        "spotify_app_token_expires_at",
+    }
 
     def export_settings(self) -> dict[str, str]:
         """All persisted settings as a flat dict (for portable backup)."""
@@ -69,8 +76,8 @@ class SettingsMixin:
             spotifyClientSecret=self.get_setting(
                 "spotify_client_secret", defaults.spotify_client_secret
             ),
-            spotifyRedirectUri=self.get_setting(
-                "spotify_redirect_uri", defaults.spotify_redirect_uri
+            spotifyUsername=self.get_setting(
+                "spotify_username", defaults.spotify_username
             ),
             rekordboxDatabaseDir=self.get_setting(
                 "rekordbox_database_dir", defaults.rekordbox_database_dir
@@ -86,11 +93,17 @@ class SettingsMixin:
             ),
         )
 
+    # Credentials we refuse to overwrite with a blank value — protects against a
+    # round-trip (or a UI that doesn't echo a secret back) silently wiping them.
+    _CREDENTIAL_KEYS = frozenset(
+        {"spotify_client_id", "spotify_client_secret", "spotify_username", "deemix_arl"}
+    )
+
     def save_app_settings(self, settings: AppSettings) -> AppSettings:
         values = {
             "spotify_client_id": settings.spotify_client_id,
             "spotify_client_secret": settings.spotify_client_secret,
-            "spotify_redirect_uri": settings.spotify_redirect_uri,
+            "spotify_username": settings.spotify_username,
             "rekordbox_database_dir": settings.rekordbox_database_dir,
             "storage_root": settings.storage_root,
             "permanent_path": settings.permanent_path,
@@ -98,6 +111,12 @@ class SettingsMixin:
             "deemix_arl": settings.deemix_arl,
             "backup_retention": str(settings.backup_retention),
         }
+        # Keep a stored credential when the incoming value is blank.
+        for key in self._CREDENTIAL_KEYS:
+            if not str(values.get(key, "")).strip():
+                existing = self.get_setting(key)
+                if existing:
+                    values[key] = existing
         with self.connect() as connection:
             connection.executemany(
                 """
@@ -107,4 +126,5 @@ class SettingsMixin:
                 """,
                 values.items(),
             )
-        return settings
+        # Reflect what's actually stored (incl. any preserved credentials).
+        return self.get_app_settings(settings)

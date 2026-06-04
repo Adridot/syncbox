@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Archive, CheckCircle2, CloudDownload, Download, ExternalLink, FolderOpen, Key, Loader2, Play, Save, Settings2, Upload } from "@lucide/vue";
+import { AlertTriangle, Archive, CheckCircle2, CloudDownload, Download, FolderOpen, Key, Loader2, Play, Save, Settings2, Upload } from "@lucide/vue";
 import { onMounted, onUnmounted, ref } from "vue";
 import type { DeemixDesktopStatus } from "../types/electron";
 import { useSettingsStore } from "../stores/settings";
@@ -141,26 +141,27 @@ async function onDataFile(event: Event): Promise<void> {
                   v-model="settings.settings.spotifyClientSecret"
                 />
                 <small class="text-xs text-on-surface-variant">
-                  Stored locally. Enables permanent auto-refresh — sign in once, no repeated re-auth.
+                  Stored locally. Used with the Client ID for app authentication — no browser sign-in.
                 </small>
               </label>
               <label class="grid gap-2">
-                <span class="text-sm font-bold text-on-surface">Spotify Redirect URI</span>
+                <span class="text-sm font-bold text-on-surface">Spotify Username</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
-                  v-model="settings.settings.spotifyRedirectUri"
+                  v-model="settings.settings.spotifyUsername"
                 />
                 <small class="text-xs text-on-surface-variant">
-                  Add this exact value in the Spotify Developer Dashboard.
+                  Your Spotify user ID — used to read your public playlists.
                 </small>
               </label>
               <button
-                class="inline-flex items-center gap-2 rounded border border-outline bg-surface px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary"
+                class="inline-flex items-center gap-2 rounded border border-outline bg-surface px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary disabled:opacity-60"
                 type="button"
-                @click="settings.openSpotifyAuth()"
+                :disabled="ui.loading"
+                @click="settings.testSpotify()"
               >
-                <ExternalLink :size="17" aria-hidden="true" />
-                Connect Spotify
+                <CheckCircle2 :size="17" aria-hidden="true" />
+                Test Connection
               </button>
             </div>
           </section>

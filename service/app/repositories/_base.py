@@ -213,16 +213,6 @@ class BaseRepository:
                     UNIQUE(event_id, spotify_track_id, provider)
                 );
 
-                CREATE TABLE IF NOT EXISTS tag_playlist_mappings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tag_name TEXT NOT NULL UNIQUE,
-                    spotify_playlist_id TEXT NOT NULL,
-                    spotify_playlist_name TEXT NOT NULL,
-                    enabled INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     version INTEGER PRIMARY KEY,
                     applied_at TEXT NOT NULL
