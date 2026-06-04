@@ -87,8 +87,14 @@ function statusTone(status: string): "ok" | "warn" | "active" | "muted" | "neutr
   return "neutral";
 }
 
+const jobsByTrackId = computed(() => {
+  const map = new Map<string, AcquisitionJob>();
+  for (const job of props.acquisitionJobs ?? []) map.set(job.spotifyTrackId, job);
+  return map;
+});
+
 function jobFor(track: TrackReview): AcquisitionJob | undefined {
-  return props.acquisitionJobs?.find((j) => j.spotifyTrackId === track.spotifyTrackId);
+  return jobsByTrackId.value.get(track.spotifyTrackId);
 }
 
 function jobLabel(job?: AcquisitionJob): string {
@@ -101,6 +107,25 @@ function jobTone(job?: AcquisitionJob): "ok" | "warn" | "active" | "muted" {
   if (job.status === "ready" || job.status === "downloaded") return "ok";
   if (job.status === "acquisition_failed" || job.status === "acquisition_ambiguous") return "warn";
   return "active";
+}
+
+// One badge per track instead of two (track status + job status, which mostly
+// duplicated each other). For a still-"missing" track the download job is the
+// live signal (queued → downloading → downloaded/ready, or failed/ambiguous) so
+// show it; otherwise the track status already says it all.
+function displayStatus(track: TrackReview): {
+  label: string;
+  tone: "ok" | "warn" | "active" | "muted" | "neutral";
+} {
+  const job = jobFor(track);
+  if (track.status === "missing" && job) {
+    return { label: jobLabel(job), tone: jobTone(job) };
+  }
+  return { label: track.status.replaceAll("_", " "), tone: statusTone(track.status) };
+}
+
+function jobError(track: TrackReview): string | undefined {
+  return jobFor(track)?.error ?? undefined;
 }
 </script>
 
@@ -217,18 +242,17 @@ function jobTone(job?: AcquisitionJob): "ok" | "warn" | "active" | "muted" {
 
             <!-- Status -->
             <td class="px-4 py-3 align-top">
-              <div class="grid justify-items-start gap-2">
-                <StatusBadge :tone="statusTone(track.status)">
-                  {{ track.status.replaceAll("_", " ") }}
+              <div class="grid max-w-[240px] justify-items-start gap-1.5">
+                <StatusBadge :tone="displayStatus(track).tone">
+                  {{ displayStatus(track).label }}
                 </StatusBadge>
-                <template v-if="acquisitionJobs !== undefined">
-                  <StatusBadge v-if="jobFor(track)" :tone="jobTone(jobFor(track))">
-                    {{ jobLabel(jobFor(track)) }}
-                  </StatusBadge>
-                  <span v-if="jobFor(track)?.error" class="max-w-[220px] text-xs text-tertiary">
-                    {{ jobFor(track)?.error }}
-                  </span>
-                </template>
+                <span
+                  v-if="jobError(track)"
+                  class="line-clamp-2 w-[220px] whitespace-normal break-words text-[11px] leading-snug text-tertiary"
+                  :title="jobError(track)"
+                >
+                  {{ jobError(track) }}
+                </span>
               </div>
             </td>
 
