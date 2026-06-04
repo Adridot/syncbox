@@ -231,7 +231,7 @@ export const useLibraryStore = defineStore("library", () => {
       selectedTrackIds.value = [];
       ui.setMessage(
         result.warnings.length > 0 ? "error" : "success",
-        `Library imported. Imported ${result.imported}, tagged ${result.tagged}. ${result.warnings.join(" ")}`
+        `Library imported. Imported ${result.imported}, tagged ${result.tagged}.${result.warnings.length ? " " + result.warnings.join(" ") : ""}`
       );
     });
   }

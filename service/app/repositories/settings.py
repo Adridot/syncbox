@@ -9,8 +9,15 @@ from ..models import (
 class SettingsMixin:
     """Settings persistence (mixed into LocalDatabase)."""
 
-    # Transient OAuth handshake values are never exported/imported.
-    _NON_PORTABLE_SETTINGS = {"spotify_oauth_state", "spotify_pkce_verifier"}
+    # Transient/derived auth values that must never land in a portable backup:
+    # leftover OAuth handshake state and the short-lived Spotify app bearer token
+    # (re-derived on demand from the Client ID + Secret).
+    _NON_PORTABLE_SETTINGS = {
+        "spotify_oauth_state",
+        "spotify_pkce_verifier",
+        "spotify_app_token",
+        "spotify_app_token_expires_at",
+    }
 
     def export_settings(self) -> dict[str, str]:
         """All persisted settings as a flat dict (for portable backup)."""
