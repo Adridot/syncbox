@@ -17,9 +17,21 @@ SUPPORTED_AUDIO_EXTENSIONS = {
 }
 
 
-def build_live_import_package(events_root: Path, event_name: str) -> dict[str, object]:
-    event_slug = safe_event_slug(event_name)
-    event_dir = events_root / event_slug
+def build_live_import_package(
+    events_root: Path, event_name: str, *, unique: bool = False
+) -> dict[str, object]:
+    # Event scaffolding passes unique=True so each event gets its OWN fresh folder.
+    # Reusing an existing slug's folder is wrong twice over there: it mixes two
+    # events' audio, and on a cloud drive (Dropbox/iCloud) macOS won't let this
+    # process write into a folder another process created — `<slug>.m3u8` then
+    # fails with PermissionError and the whole create 500s. Live M3U8 import keeps
+    # the default (unique=False): it intentionally targets an existing named
+    # folder to list the audio already in it.
+    if unique:
+        event_slug, event_dir = claim_event_dir(events_root, event_name)
+    else:
+        event_slug = safe_event_slug(event_name)
+        event_dir = events_root / event_slug
     audio_dir = event_dir / "audio"
     playlist_path = event_dir / f"{event_slug}.m3u8"
 
@@ -43,6 +55,28 @@ def safe_event_slug(event_name: str) -> str:
     ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_name).strip("-").lower()
     return slug or "untitled-event"
+
+
+def claim_event_dir(events_root: Path, event_name: str) -> tuple[str, Path]:
+    """Atomically create a fresh event folder; return its (slug, dir).
+
+    The directory creation IS the claim: ``mkdir(exist_ok=False)`` fails if the
+    slug is taken, so we retry the next suffix (test, test-2, test-3, …). Doing
+    the check-and-create as one step avoids the race where two concurrent creates
+    both see a slug as free and then write into the same folder. mkdir's
+    underlying stat works on cloud-synced folders even when they can't be listed.
+    """
+    base = safe_event_slug(event_name)
+    candidate = base
+    suffix = 2
+    while True:
+        event_dir = events_root / candidate
+        try:
+            event_dir.mkdir(parents=True, exist_ok=False)
+            return candidate, event_dir
+        except FileExistsError:
+            candidate = f"{base}-{suffix}"
+            suffix += 1
 
 
 def list_audio_files(audio_dir: Path) -> list[Path]:
