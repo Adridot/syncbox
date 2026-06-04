@@ -28,8 +28,19 @@ const currentPage = ref(1);
 
 const EXCLUDED_FROM_ACTIONABLE = new Set(["imported", "applied", "removed_from_source", "ignored"]);
 
+// In the Actionable view, float the tracks that actually need a decision to the
+// top: missing first, then ambiguous, then everything else (ready/matched…).
+// Lower rank = higher in the list.
+const ACTIONABLE_RANK: Record<string, number> = { missing: 0, ambiguous: 1 };
+const actionableRank = (status: string): number => ACTIONABLE_RANK[status] ?? 2;
+
 const filteredTracks = computed(() => {
-  if (filter.value === "actionable") return props.tracks.filter((t) => !EXCLUDED_FROM_ACTIONABLE.has(t.status));
+  if (filter.value === "actionable") {
+    return props.tracks
+      .filter((t) => !EXCLUDED_FROM_ACTIONABLE.has(t.status))
+      // Stable sort keeps the original order within each rank.
+      .sort((a, b) => actionableRank(a.status) - actionableRank(b.status));
+  }
   if (filter.value === "ready") return props.tracks.filter((t) => t.status === "ready" || t.status === "matched");
   return props.tracks;
 });
