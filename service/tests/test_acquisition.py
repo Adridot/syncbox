@@ -302,6 +302,50 @@ def test_acquisition_jobs_are_persisted(tmp_path: Path) -> None:
     assert jobs[0].payload == {"source": "test"}
 
 
+def test_reconcile_event_job_statuses_fixes_stale_jobs(tmp_path: Path) -> None:
+    from app.acquisition import reconcile_event_job_statuses
+    from app.event_import import require_event_review
+
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    event_id = create_event(database, tmp_path)
+    database.upsert_event_tracks(
+        event_id,
+        [
+            event_track(
+                "spotify-ready", "Ready Song", "ready", staging_file_path="/x/ready.mp3"
+            ),
+            event_track("spotify-missing", "Missing Song", "missing"),
+        ],
+    )
+    # A download job stuck "failed" although its track is now ready (file located),
+    # and a "ready" job whose track actually has no file.
+    database.upsert_acquisition_job(
+        event_id,
+        {
+            "spotify_track_id": "spotify-ready",
+            "provider": "deemix",
+            "status": "acquisition_failed",
+            "error": "Staged file is missing from the event folder.",
+        },
+    )
+    database.upsert_acquisition_job(
+        event_id,
+        {"spotify_track_id": "spotify-missing", "provider": "deemix", "status": "ready"},
+    )
+
+    reconcile_event_job_statuses(
+        database, event_id, require_event_review(database, event_id)
+    )
+
+    jobs = {
+        j.spotify_track_id: j.status
+        for j in database.list_acquisition_jobs(event_id, "deemix")
+    }
+    assert jobs["spotify-ready"] == "ready"  # stale failure cleared
+    assert jobs["spotify-missing"] == "acquisition_failed"  # ready job, no file
+
+
 def test_auto_acquisition_queues_only_missing_tracks(tmp_path: Path) -> None:
     database = LocalDatabase(tmp_path / "app.sqlite3")
     database.migrate()
