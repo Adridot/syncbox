@@ -1,6 +1,7 @@
 import type {
   AcquisitionJob,
   AppSettings,
+  AuthUrlResponse,
   BackupPruneResponse,
   BackupRestoreResponse,
   DataImportResponse,
@@ -269,6 +270,18 @@ export class ApiClient {
 
   async testSpotifyConnection(): Promise<SpotifyConnectionStatus> {
     return this.post("/api/spotify/test", {});
+  }
+
+  async getSpotifyStatus(): Promise<SpotifyConnectionStatus> {
+    return this.get("/api/spotify/status");
+  }
+
+  async getSpotifyAuthUrl(clientId: string): Promise<AuthUrlResponse> {
+    return this.post("/api/spotify/auth-url", { clientId });
+  }
+
+  async disconnectSpotify(): Promise<SpotifyConnectionStatus> {
+    return this.post("/api/spotify/disconnect", {});
   }
 
   async listSpotifyPlaylists(offset = 0, limit = 50): Promise<SpotifyPlaylistsResponse> {

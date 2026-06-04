@@ -10,13 +10,20 @@ class SettingsMixin:
     """Settings persistence (mixed into LocalDatabase)."""
 
     # Transient/derived auth values that must never land in a portable backup:
-    # leftover OAuth handshake state and the short-lived Spotify app bearer token
-    # (re-derived on demand from the Client ID + Secret).
+    # leftover OAuth handshake state, the short-lived Spotify app bearer token
+    # (re-derived on demand from the Client ID + Secret), and the per-device user
+    # OAuth tokens/identity (tied to one machine's sign-in — never cross devices).
     _NON_PORTABLE_SETTINGS = {
         "spotify_oauth_state",
         "spotify_pkce_verifier",
+        "spotify_redirect_uri",
         "spotify_app_token",
         "spotify_app_token_expires_at",
+        "spotify_user_access_token",
+        "spotify_user_refresh_token",
+        "spotify_user_expires_at",
+        "spotify_user_id",
+        "spotify_user_display_name",
     }
 
     def export_settings(self) -> dict[str, str]:

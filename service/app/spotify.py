@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import secrets
 import time
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
@@ -16,8 +18,22 @@ from .models import SpotifyTrack
 # burst doesn't trigger several token requests at once.
 _token_lock = asyncio.Lock()
 
+# Serialises *user* token refreshes. With a public PKCE client Spotify rotates the
+# refresh token on every refresh, so simultaneous refreshes would invalidate each
+# other and force a re-login. The lock (plus the inside-lock freshness re-check)
+# guarantees a single refresh wins. (With a client secret the refresh token is
+# stable, but the lock is still correct and cheap.)
+_refresh_lock = asyncio.Lock()
+
 SPOTIFY_ACCOUNTS_URL = "https://accounts.spotify.com"
 SPOTIFY_API_URL = "https://api.spotify.com/v1"
+
+# Read-only scopes: enough to list the user's own private/collaborative/followed
+# playlists. No modify scopes — Syncbox never writes back to Spotify.
+SPOTIFY_SCOPES = [
+    "playlist-read-private",
+    "playlist-read-collaborative",
+]
 
 
 class SpotifyAuthError(RuntimeError):
@@ -36,11 +52,142 @@ class SpotifyClient:
         username = self.database.get_setting("spotify_username").strip()
         if not username:
             raise SpotifyAuthError("Spotify username is required.")
-        profile = await self._request("GET", f"/users/{username}", params={})
+        profile = await self._request(
+            "GET", f"/users/{username}", params={}, use_user_token=False
+        )
         return {
             "connected": True,
+            "mode": "app",
             "username": username,
             "displayName": str(profile.get("display_name") or username),
+        }
+
+    # --- Optional user account (Authorization Code + PKCE) --------------------
+    # The app token (Client Credentials) only reaches *public* playlists. When the
+    # user signs in with their own account, we use their token instead, which
+    # reaches private + collaborative + followed playlists.
+
+    def build_authorization_url(self, client_id: str, redirect_uri: str) -> dict[str, str]:
+        """Build the Spotify consent URL and persist the PKCE verifier + CSRF state.
+        Returns the URL for the renderer to open in the browser."""
+        client_id = client_id.strip()
+        redirect_uri = redirect_uri.strip()
+        if not client_id:
+            raise SpotifyAuthError("Spotify Client ID is required.")
+        if not redirect_uri:
+            raise SpotifyAuthError("Spotify redirect URI is required.")
+
+        verifier = create_code_verifier()
+        state = secrets.token_urlsafe(32)
+        challenge = create_code_challenge(verifier)
+
+        self.database.set_setting("spotify_client_id", client_id)
+        self.database.set_setting("spotify_redirect_uri", redirect_uri)
+        self.database.set_setting("spotify_pkce_verifier", verifier)
+        self.database.set_setting("spotify_oauth_state", state)
+
+        query = urlencode(
+            {
+                "response_type": "code",
+                "client_id": client_id,
+                "scope": " ".join(SPOTIFY_SCOPES),
+                "redirect_uri": redirect_uri,
+                "state": state,
+                "code_challenge_method": "S256",
+                "code_challenge": challenge,
+            }
+        )
+        return {
+            "authorizationUrl": f"{SPOTIFY_ACCOUNTS_URL}/authorize?{query}",
+            "state": state,
+            "redirectUri": redirect_uri,
+        }
+
+    async def exchange_callback(self, code: str, state: str) -> None:
+        """Complete the OAuth handshake: validate state, swap the code for tokens,
+        store them, and record the signed-in user's identity."""
+        expected_state = self.database.get_setting("spotify_oauth_state")
+        if not expected_state or state != expected_state:
+            raise SpotifyAuthError("Spotify OAuth state mismatch.")
+
+        client_id = self.database.get_setting("spotify_client_id")
+        redirect_uri = self.database.get_setting("spotify_redirect_uri")
+        verifier = self.database.get_setting("spotify_pkce_verifier")
+        if not all([client_id, redirect_uri, verifier]):
+            raise SpotifyAuthError("Spotify OAuth session is incomplete.")
+
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    f"{SPOTIFY_ACCOUNTS_URL}/api/token",
+                    data={
+                        "grant_type": "authorization_code",
+                        "code": code,
+                        "redirect_uri": redirect_uri,
+                        "client_id": client_id,
+                        "code_verifier": verifier,
+                    },
+                    headers=self._token_headers(client_id),
+                )
+        except httpx.HTTPError as exc:
+            # Network/SSL failure reaching Spotify — surface a readable message
+            # instead of a bare 500 (e.g. missing CA bundle in a frozen build).
+            raise SpotifyAuthError(
+                f"Could not reach Spotify to complete sign-in: {exc}"
+            ) from exc
+        if response.status_code >= 400:
+            raise SpotifyAuthError(response.text)
+
+        self._store_user_tokens(response.json())
+        # One-shot handshake values are spent — clear them.
+        self.database.set_setting("spotify_oauth_state", "")
+        self.database.set_setting("spotify_pkce_verifier", "")
+
+        # Record who just signed in (for the "Connected as …" badge).
+        try:
+            profile = await self._request("GET", "/me", params={}, use_user_token=True)
+            self.database.set_setting("spotify_user_id", str(profile.get("id") or ""))
+            self.database.set_setting(
+                "spotify_user_display_name",
+                str(profile.get("display_name") or profile.get("id") or ""),
+            )
+        except SpotifyAuthError:
+            # Tokens are stored; identity is cosmetic — don't fail the sign-in.
+            pass
+
+    def is_account_connected(self) -> bool:
+        return bool(self.database.get_setting("spotify_user_refresh_token").strip())
+
+    def disconnect_account(self) -> None:
+        for key in (
+            "spotify_user_access_token",
+            "spotify_user_refresh_token",
+            "spotify_user_expires_at",
+            "spotify_user_id",
+            "spotify_user_display_name",
+        ):
+            self.database.set_setting(key, "")
+
+    def connection_status(self, redirect_uri: str = "") -> dict[str, Any]:
+        """Report the current Spotify auth state for the Settings badge."""
+        if self.is_account_connected():
+            display = self.database.get_setting("spotify_user_display_name").strip()
+            user_id = self.database.get_setting("spotify_user_id").strip()
+            return {
+                "connected": True,
+                "mode": "oauth",
+                "username": user_id,
+                "displayName": display or user_id,
+                "redirectUri": redirect_uri,
+            }
+        username = self.database.get_setting("spotify_username").strip()
+        client_id = self.database.get_setting("spotify_client_id").strip()
+        return {
+            "connected": bool(client_id and username),
+            "mode": "app" if (client_id and username) else "",
+            "username": username,
+            "displayName": username,
+            "redirectUri": redirect_uri,
         }
 
     async def get_playlist(self, playlist_id: str) -> dict[str, Any]:
@@ -83,17 +230,28 @@ class SpotifyClient:
     async def get_current_user_playlists(
         self, limit: int = 50, offset: int = 0
     ) -> dict[str, Any]:
-        """The user's *public* playlists, fetched by username with an app token —
-        no browser sign-in needed."""
+        """List playlists for "Manage sources".
+
+        When a user account is connected, use their token and ``/me/playlists``
+        (private + collaborative + followed). Otherwise fall back to the app token
+        and ``/users/{username}/playlists`` (public only, no browser sign-in)."""
+        limit = max(1, min(limit, 50))
+        offset = max(0, offset)
+        if self.is_account_connected():
+            return await self._request(
+                "GET",
+                "/me/playlists",
+                params={"limit": limit, "offset": offset},
+                use_user_token=True,
+            )
         username = self.database.get_setting("spotify_username").strip()
         if not username:
             raise SpotifyAuthError("Set your Spotify username in Settings.")
-        limit = max(1, min(limit, 50))
-        offset = max(0, offset)
         return await self._request(
             "GET",
             f"/users/{username}/playlists",
             params={"limit": limit, "offset": offset},
+            use_user_token=False,
         )
 
     async def get_track(self, track_id: str) -> dict[str, Any]:
@@ -114,8 +272,23 @@ class SpotifyClient:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        use_user_token: bool | None = None,
     ) -> dict[str, Any]:
-        token = await self._get_app_token()
+        # use_user_token: True forces the signed-in user's token, False forces the
+        # app token. None auto-selects — the user's token when an account is
+        # connected, else the app token (both reach public catalog data).
+        prefer_user = (
+            self.is_account_connected() if use_user_token is None else use_user_token
+        )
+
+        async def _token(force: bool) -> str:
+            return (
+                await self._get_user_token(force=force)
+                if prefer_user
+                else await self._get_app_token(force=force)
+            )
+
+        token = await _token(force=False)
         headers = {"Authorization": f"Bearer {token}"}
 
         async with httpx.AsyncClient(timeout=30) as client:
@@ -135,7 +308,7 @@ class SpotifyClient:
                     await sleep_seconds(retry_after + attempt)
                     continue
                 if response.status_code == 401 and attempt == 0:
-                    token = await self._get_app_token(force=True)
+                    token = await _token(force=True)
                     headers = {"Authorization": f"Bearer {token}"}
                     continue
                 if response.status_code >= 400:
@@ -203,6 +376,98 @@ class SpotifyClient:
                 str(int(time.time()) + int(payload.get("expires_in", 3600))),
             )
             return token
+
+    async def _get_user_token(self, *, force: bool = False) -> str:
+        """The signed-in user's access token, refreshed via the stored refresh
+        token when stale. Mirrors the app-token cache pattern, but uses the
+        ``spotify_user_*`` keys and the OAuth refresh grant."""
+        access_token = self.database.get_setting("spotify_user_access_token")
+        expires_at = int(
+            self.database.get_setting("spotify_user_expires_at", "0") or "0"
+        )
+        if not access_token and not self.database.get_setting(
+            "spotify_user_refresh_token"
+        ):
+            raise SpotifyAuthError("Spotify account is not connected.")
+        if not force and access_token and expires_at > int(time.time()) + 60:
+            return access_token
+        return await self._refresh_user_token(force=force)
+
+    async def _refresh_user_token(self, *, force: bool = False) -> str:
+        async with _refresh_lock:
+            # A concurrent caller may have refreshed while we waited on the lock —
+            # reuse that token instead of refreshing again (which, on a public PKCE
+            # client, would invalidate the just-issued refresh token).
+            if not force:
+                access_token = self.database.get_setting("spotify_user_access_token")
+                expires_at = int(
+                    self.database.get_setting("spotify_user_expires_at", "0") or "0"
+                )
+                if access_token and expires_at > int(time.time()) + 60:
+                    return access_token
+
+            refresh_token = self.database.get_setting("spotify_user_refresh_token")
+            client_id = self.database.get_setting("spotify_client_id")
+            if not refresh_token or not client_id:
+                raise SpotifyAuthError("Spotify account is not connected.")
+
+            try:
+                async with httpx.AsyncClient(timeout=20) as client:
+                    response = await client.post(
+                        f"{SPOTIFY_ACCOUNTS_URL}/api/token",
+                        data={
+                            "grant_type": "refresh_token",
+                            "refresh_token": refresh_token,
+                            "client_id": client_id,
+                        },
+                        headers=self._token_headers(client_id),
+                    )
+            except httpx.HTTPError as exc:
+                raise SpotifyAuthError(f"Could not reach Spotify: {exc}") from exc
+            if response.status_code >= 400:
+                raise SpotifyAuthError(response.text)
+            payload = response.json()
+            self._store_user_tokens(payload, keep_refresh=True)
+            return str(payload["access_token"])
+
+    def _token_headers(self, client_id: str) -> dict[str, str]:
+        """Headers for a token-endpoint call. When a client secret is configured we
+        authenticate as a *confidential* client (HTTP Basic), which makes Spotify
+        issue a stable, non-rotating refresh token — so the user signs in once and
+        Syncbox refreshes silently forever. Without a secret we stay on the public
+        PKCE flow (client_id only, rotating refresh token)."""
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        client_secret = self.database.get_setting("spotify_client_secret")
+        if client_secret:
+            basic = base64.b64encode(
+                f"{client_id}:{client_secret}".encode("utf-8")
+            ).decode("ascii")
+            headers["Authorization"] = f"Basic {basic}"
+        return headers
+
+    def _store_user_tokens(
+        self, payload: dict[str, Any], keep_refresh: bool = False
+    ) -> None:
+        self.database.set_setting(
+            "spotify_user_access_token", str(payload["access_token"])
+        )
+        # On refresh, Spotify may omit refresh_token (stable confidential client) —
+        # keep the existing one in that case rather than blanking it.
+        if payload.get("refresh_token") or not keep_refresh:
+            self.database.set_setting(
+                "spotify_user_refresh_token", str(payload.get("refresh_token", ""))
+            )
+        expires_at = int(time.time()) + int(payload.get("expires_in", 3600))
+        self.database.set_setting("spotify_user_expires_at", str(expires_at))
+
+
+def create_code_verifier() -> str:
+    return secrets.token_urlsafe(64)[:128]
+
+
+def create_code_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def _parse_spotify_id(value: str, kind: str) -> str:

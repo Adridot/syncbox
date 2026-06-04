@@ -53,7 +53,7 @@ export const useUiStore = defineStore("ui", () => {
     return id;
   }
 
-  function setMessage(kind: "success" | "error", message: string): void {
+  function setMessage(kind: ToastKind, message: string): void {
     pushToast(kind, message);
   }
 
