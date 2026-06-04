@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { FileAudio, FolderOpen, Link2, Plus, RefreshCw, ShieldCheck, Trash2 } from "@lucide/vue";
+import { Download, FileAudio, FolderOpen, Link2, Plus, RefreshCw, ShieldCheck, Trash2 } from "@lucide/vue";
 import DeezerSearchPanel from "./DeezerSearchPanel.vue";
 import StatusBadge from "./StatusBadge.vue";
 import TrackReviewTable from "./TrackReviewTable.vue";
@@ -105,6 +105,17 @@ async function openDesktopPath(path: string): Promise<void> {
             >
               <RefreshCw :size="14" aria-hidden="true" />
               Refresh
+            </button>
+            <button
+              v-if="events.activeEvent.missingTracks > 0"
+              class="inline-flex items-center gap-2 rounded border border-tertiary/60 bg-tertiary/10 px-3 py-1.5 text-xs font-bold text-tertiary transition-colors hover:border-tertiary disabled:opacity-60"
+              type="button"
+              :disabled="ui.loading"
+              title="Re-attempt downloading the tracks still missing"
+              @click="events.downloadMissing()"
+            >
+              <Download :size="14" aria-hidden="true" />
+              Download missing ({{ events.activeEvent.missingTracks }})
             </button>
             <button
               class="inline-flex items-center gap-2 rounded bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02] disabled:opacity-60"
