@@ -40,6 +40,16 @@ _STATUS_CACHE_TTL = 25.0
 _applied_arl: str | None = None
 
 
+class DeemixHTTPError(RuntimeError):
+    """Deemix returned a >=400 response. Subclasses RuntimeError so existing
+    ``except RuntimeError`` handlers keep working, but carries the status code so
+    callers can react to it (e.g. tolerate Deezer rate-limiting on 429)."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 @dataclass(frozen=True)
 class DeezerTrackCandidate:
     id: str
@@ -72,12 +82,13 @@ class DeemixClient:
         self.timeout = timeout
 
     async def status(self) -> DeemixStatus:
-        now = time.monotonic()
         cached = _STATUS_CACHE.get(self.base_url)
-        if cached is not None and now - cached[0] < _STATUS_CACHE_TTL:
+        if cached is not None and time.monotonic() - cached[0] < _STATUS_CACHE_TTL:
             return cached[1]
         result = await self._fetch_status(previous=cached[1] if cached else None)
-        _STATUS_CACHE[self.base_url] = (now, result)
+        # Stamp *after* the (possibly slow) fetch so the TTL reflects the age of
+        # the cached value, not when the request started.
+        _STATUS_CACHE[self.base_url] = (time.monotonic(), result)
         return result
 
     async def _fetch_status(self, *, previous: DeemixStatus | None) -> DeemixStatus:
@@ -98,8 +109,10 @@ class DeemixClient:
         except Exception as exc:
             # A 429 from Deezer means the session is live but throttled — keep the
             # last known authenticated state instead of flapping the indicator.
-            if previous is not None and (
-                "429" in str(exc) or "Too Many Requests" in str(exc)
+            if (
+                previous is not None
+                and isinstance(exc, DeemixHTTPError)
+                and exc.status_code == 429
             ):
                 return DeemixStatus(
                     baseUrl=self.base_url,
@@ -179,7 +192,9 @@ class DeemixClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.request(method, f"{self.base_url}{path}", json=json)
         if response.status_code >= 400:
-            raise RuntimeError(response.text or response.reason_phrase)
+            raise DeemixHTTPError(
+                response.status_code, response.text or response.reason_phrase
+            )
         if response.status_code == 204:
             return {}
         payload = response.json()

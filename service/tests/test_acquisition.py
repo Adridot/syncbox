@@ -105,6 +105,36 @@ def test_status_is_cached_to_spare_deezer(monkeypatch) -> None:
     acquisition._STATUS_CACHE.clear()
 
 
+def test_status_keeps_auth_state_when_rate_limited(monkeypatch) -> None:
+    from app import acquisition
+
+    acquisition._STATUS_CACHE.clear()
+    state = {"rate_limited": False}
+
+    class FlakyClient(DeemixClient):
+        async def health(self) -> dict[str, Any]:
+            return {"version": "1.0.0"}
+
+        async def auth_status(self) -> dict[str, Any]:
+            if state["rate_limited"]:
+                raise acquisition.DeemixHTTPError(429, "Too Many Requests")
+            return {"authenticated": True}
+
+    client = FlakyClient(base_url="http://127.0.0.1:9998")
+    first = asyncio.run(client.status())
+    assert first.authenticated
+
+    # Expire the cached entry, then have Deezer rate-limit the next auth check.
+    ts, value = acquisition._STATUS_CACHE[client.base_url]
+    acquisition._STATUS_CACHE[client.base_url] = (ts - 1000.0, value)
+    state["rate_limited"] = True
+
+    second = asyncio.run(client.status())
+    # 429 -> keep the previous authenticated state instead of flapping to red.
+    assert second.authenticated
+    acquisition._STATUS_CACHE.clear()
+
+
 def test_deezer_resolver_matches_isrc_exactly() -> None:
     resolver = FakeDeezerResolver(
         {
