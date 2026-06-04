@@ -24,15 +24,15 @@ const icons: Record<ToastKind, unknown> = {
       <div
         v-for="toast in ui.toasts"
         :key="toast.id"
-        class="pointer-events-auto flex min-h-11 items-center gap-3 rounded border px-4 py-2.5 text-sm shadow-xl backdrop-blur"
+        class="pointer-events-auto flex min-h-11 items-start gap-3 rounded border px-4 py-2.5 text-sm shadow-xl backdrop-blur"
         :class="styles[toast.kind]"
         role="status"
       >
-        <component :is="icons[toast.kind]" :size="18" aria-hidden="true" class="shrink-0" />
-        <span class="min-w-0 flex-1 break-words">{{ toast.message }}</span>
+        <component :is="icons[toast.kind]" :size="18" aria-hidden="true" class="mt-0.5 shrink-0" />
+        <span class="line-clamp-5 min-w-0 flex-1 break-words" :title="toast.message">{{ toast.message }}</span>
         <button
           type="button"
-          class="shrink-0 opacity-60 transition-opacity hover:opacity-100"
+          class="mt-0.5 shrink-0 opacity-60 transition-opacity hover:opacity-100"
           aria-label="Dismiss"
           @click="ui.dismissToast(toast.id)"
         >
