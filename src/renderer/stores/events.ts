@@ -286,18 +286,20 @@ export const useEventsStore = defineStore("events", () => {
   }
 
   // Manual retry: re-attempt the download of the event's still-missing tracks.
-  // run_auto_acquisition only (re)queues tracks that are missing AND whose job is
-  // absent/failed/ambiguous, so this is safe to click repeatedly — in-progress
-  // and ready tracks are left untouched.
-  async function downloadMissing(): Promise<void> {
+  // run_auto_acquisition only (re)queues a missing track whose job is absent or
+  // in {pending, failed, ambiguous}, leaving in-progress/ready tracks untouched —
+  // so this is safe to click repeatedly.
+  function downloadMissing(): void {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api || !activeEvent.value) return;
     const eventId = activeEvent.value.id;
     requestedEventId.value = eventId; // keep autoDownload's anti-oscillation guard happy
-    await ui.withLoading(async () => {
-      await autoDownload(eventId);
-    });
+    ui.pushToast("info", "Retrying downloads for the missing tracks…");
+    // Fire outside any loading overlay (like event creation does) so the
+    // workspace stays interactive and per-track progress streams in live,
+    // instead of hiding it behind the global spinner until queueing finishes.
+    void autoDownload(eventId);
   }
 
   async function applyActiveEvent(): Promise<void> {
