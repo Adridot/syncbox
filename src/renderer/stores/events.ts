@@ -285,6 +285,21 @@ export const useEventsStore = defineStore("events", () => {
     }
   }
 
+  // Manual retry: re-attempt the download of the event's still-missing tracks.
+  // run_auto_acquisition only (re)queues tracks that are missing AND whose job is
+  // absent/failed/ambiguous, so this is safe to click repeatedly — in-progress
+  // and ready tracks are left untouched.
+  async function downloadMissing(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || !activeEvent.value) return;
+    const eventId = activeEvent.value.id;
+    requestedEventId.value = eventId; // keep autoDownload's anti-oscillation guard happy
+    await ui.withLoading(async () => {
+      await autoDownload(eventId);
+    });
+  }
+
   async function applyActiveEvent(): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -474,6 +489,7 @@ export const useEventsStore = defineStore("events", () => {
     addTrackToEvent,
     createLiveImportPackage,
     refreshEventFolder,
+    downloadMissing,
     applyActiveEvent,
     deleteActiveEvent,
     assignStagingFile,
