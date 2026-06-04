@@ -303,6 +303,14 @@ def scan_event_staging(database: LocalDatabase, event_id: int) -> EventReview:
 
     audio_dir = Path(review.audio_dir)
     matched_files = staged_files_already_claimed(review, current_file_paths)
+    # Which ISRC already owns each staged file, so a genuine duplicate (the same
+    # track listed twice in the playlist → same single download) can share it,
+    # while two *distinct* tracks can't both grab one file.
+    file_owner_isrc: dict[str, str] = {
+        track.staging_file_path: (track.isrc or "").strip()
+        for track in review.tracks
+        if track.staging_file_path and track.status in {"ready", "applied"}
+    }
     missing_tracks = [track for track in review.tracks if track.status == "missing"]
     for track in missing_tracks:
         # Cloud-safe first pass: locate the file Deemix wrote for THIS track by
@@ -310,21 +318,31 @@ def scan_event_staging(database: LocalDatabase, event_id: int) -> EventReview:
         # listed via scandir. This recovers downloads a directory-listing scan
         # can't see — the common case on the user's cloud-synced collection.
         found = locate_downloaded_file_for_track(database, event_id, audio_dir, track)
-        if found and found not in matched_files:
-            matched_files.add(found)
-            database.update_event_track(
-                event_id,
-                track.spotify_track_id,
-                status="ready",
-                staging_file_path=found,
-                # Distinct from "staging:" so it isn't subject to the metadata
-                # revalidation below (there's no readable metadata on a cloud
-                # file): existence is the validation.
-                match_method="staged-file:filename",
-                confidence=100,
-                reason="Downloaded audio file located in the event folder.",
+        if found:
+            track_isrc = (track.isrc or "").strip()
+            owner_isrc = file_owner_isrc.get(found)
+            # Free file → claim it. Already claimed → share only when it's the
+            # same recording (same ISRC), i.e. a real duplicate listed twice in
+            # the playlist; otherwise leave this track for the metadata pass.
+            can_claim = owner_isrc is None or (
+                bool(track_isrc) and track_isrc == owner_isrc
             )
-            continue
+            if can_claim:
+                file_owner_isrc[found] = track_isrc
+                matched_files.add(found)
+                database.update_event_track(
+                    event_id,
+                    track.spotify_track_id,
+                    status="ready",
+                    staging_file_path=found,
+                    # Distinct from "staging:" so it isn't subject to the metadata
+                    # revalidation below (there's no readable metadata on a cloud
+                    # file): existence is the validation.
+                    match_method="staged-file:filename",
+                    confidence=100,
+                    reason="Downloaded audio file located in the event folder.",
+                )
+                continue
 
         available_candidates = [
             candidate

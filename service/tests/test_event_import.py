@@ -521,6 +521,56 @@ def test_scan_event_staging_revalidates_stale_automatic_match(
     assert review.staging_files[0].matched_spotify_track_id is None
 
 
+def test_scan_event_staging_shares_file_for_duplicate_isrc(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # The playlist lists the same recording twice (same ISRC) -> Deemix wrote one
+    # file; both entries should resolve to it (not one ready + one stuck missing).
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    audio_dir = tmp_path / "event" / "audio"
+    audio_dir.mkdir(parents=True)
+    track_path = audio_dir / "Dalida - Le temps des fleurs.mp3"
+    track_path.write_bytes(b"audio")
+    event_id = database.create_event_import(
+        {
+            "event_name": "Client Event",
+            "event_slug": "client-event",
+            "spotify_playlist_id": "playlist",
+            "spotify_playlist_name": "Client Playlist",
+            "default_tag": "Client Event",
+            "event_dir": str(tmp_path / "event"),
+            "audio_dir": str(audio_dir),
+            "playlist_path": str(tmp_path / "event" / "client-event.m3u8"),
+        }
+    )
+    database.upsert_event_tracks(
+        event_id,
+        [
+            {
+                "spotify_track_id": f"spotify-{n}",
+                "spotify_uri": f"spotify:track:spotify-{n}",
+                "title": "Le temps des fleurs",
+                "artists": ["Dalida"],
+                "duration_ms": 200000,
+                "isrc": "FRZ016800470",
+                "status": "missing",
+                "reason": "No match.",
+            }
+            for n in (1, 2)
+        ],
+    )
+    monkeypatch.setattr(event_import, "scan_audio_files", lambda _p, *, fresh=False: [])
+
+    review = scan_event_staging(database, event_id)
+    statuses = {t.spotify_track_id: t.status for t in review.tracks}
+
+    assert statuses == {"spotify-1": "ready", "spotify-2": "ready"}
+    assert all(
+        t.staging_file_path == str(track_path) for t in review.tracks
+    )
+
+
 def test_scan_event_staging_assigns_each_file_once(
     tmp_path: Path, monkeypatch
 ) -> None:
