@@ -17,13 +17,13 @@ from ..models import (
 from ..logging_setup import get_logger
 from ..safety import assert_rekordbox_can_mutate, find_rekordbox_processes
 from .paths import (
+    content_folder_path,
     content_path_lookup,
     find_content_by_path,
     path_is_under_roots,
     path_lookup_keys,
     resolve_volume_path,
     safe_timestamp,
-    to_volume_relative,
 )
 from ..dedup import build_resolution_plan, find_duplicate_groups
 from .content import (
@@ -1324,7 +1324,10 @@ def _point_content_at_file(
     """Re-point a content row at ``new_path`` (FolderPath/name/size/type), so a
     re-linked or re-downloaded file is adopted while keeping cues/tags/playlists.
     """
-    content.FolderPath = to_volume_relative(new_path, storage_root)
+    # Volume-relative only inside the managed library, absolute elsewhere (a
+    # relink target may live in event/permanent staging outside it) — otherwise
+    # Rekordbox can't resolve it. See content_folder_path.
+    content.FolderPath = content_folder_path(new_path, storage_root)
     content.FileNameL = new_path.name
     try:
         content.FileSize = new_path.stat().st_size

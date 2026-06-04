@@ -46,6 +46,18 @@ def test_resolve_volume_path_leaves_full_paths() -> None:
     assert resolve_volume_path("/Users/x/Music/z.mp3", STORAGE_ROOT) == "/Users/x/Music/z.mp3"
 
 
+def test_content_folder_path_relative_only_inside_managed_library() -> None:
+    from app.rekordbox import content_folder_path
+
+    in_lib = STORAGE_ROOT + "/rekordbox/Collection/ABBA - SOS.mp3"
+    assert content_folder_path(in_lib, STORAGE_ROOT) == "/Musique/rekordbox/Collection/ABBA - SOS.mp3"
+    # Outside the managed library (event staging) -> absolute.
+    staging = STORAGE_ROOT + "/_rekordbox_sync/events/gig/audio/x.mp3"
+    assert content_folder_path(staging, STORAGE_ROOT) == staging
+    # No storage_root -> absolute.
+    assert content_folder_path("/Users/x/Music/z.mp3", None) == "/Users/x/Music/z.mp3"
+
+
 def test_delete_event_import_builds_preview_before_session_closes(tmp_path: Path, monkeypatch) -> None:
     # Regression: committing the mutation expires the ORM rows, so the delete
     # preview (which reads each content's Title for deletedSamples) must be built
@@ -440,6 +452,32 @@ def test_add_rekordbox_content_uses_string_ids_for_varchar_primary_keys(tmp_path
     assert content.MasterDBID == "master-1"
     assert database.added_rows == [content]
     assert database.flushed
+
+
+def test_add_rekordbox_content_path_is_relative_only_inside_managed_library(
+    tmp_path: Path,
+) -> None:
+    storage_root = tmp_path / "Musique"
+
+    # Inside <storage_root>/rekordbox/… -> volume-relative (Rekordbox resolves it).
+    collection = storage_root / "rekordbox" / "Collection"
+    collection.mkdir(parents=True)
+    in_lib = collection / "ABBA - SOS.mp3"
+    in_lib.write_bytes(b"audio")
+    content = add_rekordbox_content(
+        FakeRekordboxDatabase(), FakeTables, str(in_lib), storage_root=storage_root
+    )
+    assert content.FolderPath == "/Musique/rekordbox/Collection/ABBA - SOS.mp3"
+
+    # Outside it (event staging) -> ABSOLUTE, or Rekordbox can't find the file.
+    staging = storage_root / "_rekordbox_sync" / "events" / "gig" / "audio"
+    staging.mkdir(parents=True)
+    out_lib = staging / "Daft Punk - One More Time.mp3"
+    out_lib.write_bytes(b"audio")
+    content = add_rekordbox_content(
+        FakeRekordboxDatabase(), FakeTables, str(out_lib), storage_root=storage_root
+    )
+    assert content.FolderPath == str(out_lib)
 
 
 class _ArtistFakeQuery:

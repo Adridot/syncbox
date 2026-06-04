@@ -7,8 +7,8 @@ from ..models import (
     EventReview,
 )
 from .paths import (
+    content_folder_path,
     path_is_under_roots,
-    to_volume_relative,
 )
 
 
@@ -292,11 +292,9 @@ def add_rekordbox_content(
     from pyrekordbox.db6.tables import FileType
 
     file_path = Path(path)  # real, full path on disk
-    # Store the path volume-relative ("/Musique/…") when under the storage root,
-    # to stay uniform with Rekordbox's native collection entries.
-    path_string = (
-        to_volume_relative(file_path, storage_root) if storage_root else str(file_path)
-    )
+    # Volume-relative only inside the managed library, absolute elsewhere — else
+    # Rekordbox shows "file could not be found". See content_folder_path.
+    path_string = content_folder_path(file_path, storage_root)
     existing = database.query(tables.DjmdContent).filter_by(FolderPath=path_string)
     if existing.count() > 0:
         raise ValueError(f"Track with path '{file_path}' already exists in database")
