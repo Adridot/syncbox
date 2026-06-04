@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,27 @@ DEEZER_API_URL = "https://api.deezer.com"
 DEEMIX_PROVIDER = "deemix"
 AUTO_MATCH_THRESHOLD = 85
 REVIEW_MATCH_THRESHOLD = 70
+
+# Deemix's /api/auth/status proxies to Deezer, which rate-limits hard (429) when
+# polled often. The status indicator is polled every few seconds, so cache the
+# result briefly to keep Deezer load (and the resulting 429s that spill over into
+# real downloads) low.
+_STATUS_CACHE: dict[str, tuple[float, "DeemixStatus"]] = {}
+_STATUS_CACHE_TTL = 25.0
+
+# The ARL last successfully pushed to Deemix in this process — so the download
+# flows can guarantee Deemix is configured without re-hitting Deezer every time.
+_applied_arl: str | None = None
+
+
+class DeemixHTTPError(RuntimeError):
+    """Deemix returned a >=400 response. Subclasses RuntimeError so existing
+    ``except RuntimeError`` handlers keep working, but carries the status code so
+    callers can react to it (e.g. tolerate Deezer rate-limiting on 429)."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -60,6 +82,16 @@ class DeemixClient:
         self.timeout = timeout
 
     async def status(self) -> DeemixStatus:
+        cached = _STATUS_CACHE.get(self.base_url)
+        if cached is not None and time.monotonic() - cached[0] < _STATUS_CACHE_TTL:
+            return cached[1]
+        result = await self._fetch_status(previous=cached[1] if cached else None)
+        # Stamp *after* the (possibly slow) fetch so the TTL reflects the age of
+        # the cached value, not when the request started.
+        _STATUS_CACHE[self.base_url] = (time.monotonic(), result)
+        return result
+
+    async def _fetch_status(self, *, previous: DeemixStatus | None) -> DeemixStatus:
         try:
             health = await self.health()
         except Exception as exc:
@@ -74,7 +106,21 @@ class DeemixClient:
         auth_payload = health
         try:
             auth_payload = {**health, **await self.auth_status()}
-        except Exception:
+        except Exception as exc:
+            # A 429 from Deezer means the session is live but throttled — keep the
+            # last known authenticated state instead of flapping the indicator.
+            if (
+                previous is not None
+                and isinstance(exc, DeemixHTTPError)
+                and exc.status_code == 429
+            ):
+                return DeemixStatus(
+                    baseUrl=self.base_url,
+                    available=True,
+                    authenticated=previous.authenticated,
+                    detail=previous.detail,
+                    version=optional_text(health.get("version")),
+                )
             auth_payload = health
 
         authenticated = bool(
@@ -105,7 +151,13 @@ class DeemixClient:
     async def login_arl(self, arl: str) -> dict[str, Any]:
         """Authenticate Deemix's Deezer session with an ARL token. Lets Syncbox
         own the ARL so the user never has to open Deemix's own UI."""
-        return await self._request("POST", "/api/auth/login", json={"arl": arl})
+        result = await self._request("POST", "/api/auth/login", json={"arl": arl})
+        # Auth state just changed: drop the cached status and remember the ARL so
+        # the lazy download-flow check doesn't re-apply it needlessly.
+        global _applied_arl
+        _STATUS_CACHE.pop(self.base_url, None)
+        _applied_arl = arl
+        return result
 
     async def settings(self) -> dict[str, Any]:
         return await self._request("GET", "/api/settings")
@@ -140,7 +192,9 @@ class DeemixClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.request(method, f"{self.base_url}{path}", json=json)
         if response.status_code >= 400:
-            raise RuntimeError(response.text or response.reason_phrase)
+            raise DeemixHTTPError(
+                response.status_code, response.text or response.reason_phrase
+            )
         if response.status_code == 204:
             return {}
         payload = response.json()
@@ -279,16 +333,19 @@ async def get_deemix_status(client: DeemixClient | None = None) -> DeemixStatus:
 
 
 async def ensure_deemix_authenticated(database: LocalDatabase, client: DeemixClient) -> None:
-    """If an ARL is stored in Syncbox settings and Deemix isn't currently
-    authenticated, push the ARL so downloads work without the user opening
-    Deemix. Best-effort: silent if Deemix is down or the ARL is rejected."""
+    """Apply the stored Deezer ARL to Deemix once per process (or whenever it
+    changes) so downloads work without opening Deemix.
+
+    Deliberately does NOT call ``status()`` first: that proxies to Deezer and,
+    polled before every download, gets rate-limited (429) — which then spills
+    over into the actual ``download/batch`` call. ``login_arl`` is idempotent, so
+    applying the same ARL once is enough. Best-effort: silent on failure (and a
+    failure leaves ``_applied_arl`` unset, so it retries next time)."""
     arl = database.get_setting("deemix_arl")
-    if not arl:
+    if not arl or arl == _applied_arl:
         return
     try:
-        if (await client.status()).authenticated:
-            return
-        await client.login_arl(arl)
+        await client.login_arl(arl)  # records _applied_arl on success
     except asyncio.CancelledError:
         raise
     except Exception:

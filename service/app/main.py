@@ -21,6 +21,7 @@ from .acquisition import (
     DeezerResolver,
     DeezerResolveResult,
     acquisition_job_payload,
+    ensure_deemix_authenticated,
     get_deemix_status,
     queue_event_manual_deezer,
     refresh_acquisition_jobs,
@@ -130,15 +131,8 @@ async def lifespan(_app: FastAPI):
     logger.info("Database ready at %s", database.path)
     # Best-effort: push a stored Deezer ARL to Deemix on boot so downloads work
     # without opening Deemix. Deemix may not be up yet — the download flows also
-    # re-auth lazily via ensure_deemix_authenticated, so failure here is fine.
-    arl = database.get_setting("deemix_arl")
-    if arl:
-        try:
-            await DeemixClient().login_arl(arl)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.info("Deemix ARL not applied at startup: %s", exc)
+    # apply it lazily via ensure_deemix_authenticated, so failure here is fine.
+    await ensure_deemix_authenticated(database, DeemixClient())
     yield
     logger.info("Syncbox service shutting down")
 
