@@ -37,7 +37,29 @@ SPOTIFY_SCOPES = [
 
 
 class SpotifyAuthError(RuntimeError):
-    pass
+    """A Spotify request failed. Carries the HTTP status code (when it came from
+    a Spotify response) so callers can react — e.g. turn a 404 on a playlist into
+    actionable "it may be private, sign in" guidance."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _spotify_error_message(response: "httpx.Response") -> str:
+    """Pull Spotify's human error message out of the JSON body when present
+    (``{"error": {"message": ...}}``), else fall back to the raw text."""
+    try:
+        data = response.json()
+        if isinstance(data, dict):
+            error = data.get("error")
+            if isinstance(error, dict) and error.get("message"):
+                return str(error["message"])
+            if isinstance(error, str) and error:
+                return error
+    except Exception:
+        pass
+    return response.text or f"Spotify request failed ({response.status_code})."
 
 
 class SpotifyClient:
@@ -190,36 +212,63 @@ class SpotifyClient:
             "redirectUri": redirect_uri,
         }
 
-    async def get_playlist(self, playlist_id: str) -> dict[str, Any]:
-        return await self._request(
-            "GET",
-            f"/playlists/{playlist_id}",
-            params={
-                "fields": (
-                    "id,name,snapshot_id,public,images,"
-                    "items.total,tracks.total,external_urls,owner(display_name,id)"
-                )
-            },
+    def _translate_playlist_error(self, exc: SpotifyAuthError) -> SpotifyAuthError:
+        """Spotify returns 404 (not 403) for a playlist the current token can't
+        see — including any *private* playlist when no user account is connected.
+        It never says "private" explicitly, so infer it: a 404 while signed out is
+        almost always a private playlist, and the fix is to connect the account."""
+        if exc.status_code != 404:
+            return exc
+        if not self.is_account_connected():
+            return SpotifyAuthError(
+                "Playlist not found. If it's private, connect your Spotify "
+                "account in Settings — private playlists are only visible once "
+                "you're signed in.",
+                status_code=404,
+            )
+        return SpotifyAuthError(
+            "Spotify playlist not found. If it's your own private playlist, try "
+            "reconnecting your Spotify account in Settings; otherwise check the "
+            "link — it may be private (someone else's) or deleted.",
+            status_code=404,
         )
+
+    async def get_playlist(self, playlist_id: str) -> dict[str, Any]:
+        try:
+            return await self._request(
+                "GET",
+                f"/playlists/{playlist_id}",
+                params={
+                    "fields": (
+                        "id,name,snapshot_id,public,images,"
+                        "items.total,tracks.total,external_urls,owner(display_name,id)"
+                    )
+                },
+            )
+        except SpotifyAuthError as exc:
+            raise self._translate_playlist_error(exc) from exc
 
     async def get_playlist_items(self, playlist_id: str) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         offset = 0
         limit = 50
         while True:
-            payload = await self._request(
-                "GET",
-                f"/playlists/{playlist_id}/items",
-                params={
-                    "limit": limit,
-                    "offset": offset,
-                    "additional_types": "track",
-                    "fields": (
-                        "items(added_at,track(id,uri,name,artists(name),duration_ms,"
-                        "external_ids,is_local,type)),total,next,limit,offset"
-                    ),
-                },
-            )
+            try:
+                payload = await self._request(
+                    "GET",
+                    f"/playlists/{playlist_id}/items",
+                    params={
+                        "limit": limit,
+                        "offset": offset,
+                        "additional_types": "track",
+                        "fields": (
+                            "items(added_at,track(id,uri,name,artists(name),duration_ms,"
+                            "external_ids,is_local,type)),total,next,limit,offset"
+                        ),
+                    },
+                )
+            except SpotifyAuthError as exc:
+                raise self._translate_playlist_error(exc) from exc
             page_items = payload.get("items", [])
             items.extend(page_items)
             if not payload.get("next") or not page_items:
@@ -312,7 +361,10 @@ class SpotifyClient:
                     headers = {"Authorization": f"Bearer {token}"}
                     continue
                 if response.status_code >= 400:
-                    raise SpotifyAuthError(response.text)
+                    raise SpotifyAuthError(
+                        _spotify_error_message(response),
+                        status_code=response.status_code,
+                    )
                 if response.status_code == 204:
                     return {}
                 return response.json()
