@@ -71,26 +71,37 @@ def find_downloaded_file(
     """
     from .matching import text_similarity
 
-    def sanitize_filename(s: str) -> str:
+    def sanitize_filename(s: str, *, strip_trailing: bool = True) -> str:
         cleaned = re.sub(r'[\\/:*?"<>|]', "", s).strip()
-        # Deemix strips trailing dots/spaces from filename components (Windows-safe),
-        # e.g. the title "APT." is written to disk as "Artist - APT.mp3".
-        return cleaned.rstrip(" .")
+        # Deemix strips trailing dots/spaces only from the *final* filename
+        # component (the title, e.g. "APT." -> "Artist - APT.mp3"). An interior
+        # component (the artist) keeps its dot, e.g. "Boney M." stays
+        # "Boney M. - Ma Baker.mp3" — so the artist is tried both ways below.
+        return cleaned.rstrip(" .") if strip_trailing else cleaned
 
     # Build expected filenames from the Deemix naming template "%artist% - %title%"
     # and common variants produced by overwriteFiles:"rename" and playlist numbering.
     if title:
-        base = f"{sanitize_filename(artist)} - {sanitize_filename(title)}" if artist else sanitize_filename(title)
+        title_clean = sanitize_filename(title)
+        if artist:
+            artist_forms = {
+                sanitize_filename(artist),
+                sanitize_filename(artist, strip_trailing=False),
+            }
+            bases = [f"{art} - {title_clean}" for art in artist_forms]
+        else:
+            bases = [title_clean]
         candidate_names = []
-        for ext in (".mp3", ".flac", ".m4a", ".ogg"):
-            candidate_names.append(f"{base}{ext}")
-            for n in range(1, 8):
-                candidate_names.append(f"{base} ({n}){ext}")
-            # Playlist batch adds a track number prefix (e.g. "001 - ")
-            for prefix in ("001", "002", "003"):
-                candidate_names.append(f"{prefix} - {base}{ext}")
-                for n in range(1, 5):
-                    candidate_names.append(f"{prefix} - {base} ({n}){ext}")
+        for base in bases:
+            for ext in (".mp3", ".flac", ".m4a", ".ogg"):
+                candidate_names.append(f"{base}{ext}")
+                for n in range(1, 8):
+                    candidate_names.append(f"{base} ({n}){ext}")
+                # Playlist batch adds a track number prefix (e.g. "001 - ")
+                for prefix in ("001", "002", "003"):
+                    candidate_names.append(f"{prefix} - {base}{ext}")
+                    for n in range(1, 5):
+                        candidate_names.append(f"{prefix} - {base} ({n}){ext}")
 
         for name in candidate_names:
             path = folder / name

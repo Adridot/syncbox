@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from .audio import scan_audio_files
+from .audio import find_downloaded_file, scan_audio_files
 from .db import LocalDatabase
 from .live_import import build_live_import_package
 from .matching import match_spotify_track
@@ -301,9 +301,31 @@ def scan_event_staging(database: LocalDatabase, event_id: int) -> EventReview:
         for file_info in staging_files
     ]
 
+    audio_dir = Path(review.audio_dir)
     matched_files = staged_files_already_claimed(review, current_file_paths)
     missing_tracks = [track for track in review.tracks if track.status == "missing"]
     for track in missing_tracks:
+        # Cloud-safe first pass: locate the file Deemix wrote for THIS track by
+        # existence (stat), which works on Dropbox/iCloud folders that can't be
+        # listed via scandir. This recovers downloads a directory-listing scan
+        # can't see — the common case on the user's cloud-synced collection.
+        found = locate_downloaded_file_for_track(database, event_id, audio_dir, track)
+        if found and found not in matched_files:
+            matched_files.add(found)
+            database.update_event_track(
+                event_id,
+                track.spotify_track_id,
+                status="ready",
+                staging_file_path=found,
+                # Distinct from "staging:" so it isn't subject to the metadata
+                # revalidation below (there's no readable metadata on a cloud
+                # file): existence is the validation.
+                match_method="staged-file:filename",
+                confidence=100,
+                reason="Downloaded audio file located in the event folder.",
+            )
+            continue
+
         available_candidates = [
             candidate
             for candidate in candidates
@@ -340,6 +362,36 @@ def scan_event_staging(database: LocalDatabase, event_id: int) -> EventReview:
     return require_event_review(database, event_id)
 
 
+def locate_downloaded_file_for_track(
+    database: LocalDatabase,
+    event_id: int,
+    audio_dir: Path,
+    track: Any,
+) -> str | None:
+    """Find the audio file Deemix downloaded for ``track`` by existence (stat).
+
+    Deemix names files from the **Deezer** metadata it resolved (stored on the
+    acquisition job payload), which often differs from Spotify's title/artist
+    (e.g. Spotify "Cambodia - Single Version" vs Deezer "Cambodia"). Match on the
+    Deezer names first, then fall back to the Spotify ones. Existence checks use
+    stat(), so this works on cloud folders that can't be listed via scandir.
+    """
+    from .acquisition import DEEMIX_PROVIDER
+
+    job = database.get_acquisition_job(event_id, track.spotify_track_id, DEEMIX_PROVIDER)
+    payload = job.payload if job and isinstance(job.payload, dict) else {}
+    deezer_title = payload.get("title")
+    deezer_artist = payload.get("artist") or ""
+    isrc = payload.get("isrc") or track.isrc
+    if deezer_title:
+        found = find_downloaded_file(audio_dir, isrc, str(deezer_title), str(deezer_artist))
+        if found:
+            return found
+
+    primary_artist = track.artists[0] if track.artists else ""
+    return find_downloaded_file(audio_dir, track.isrc, track.title, primary_artist)
+
+
 def reconcile_staged_tracks(
     database: LocalDatabase,
     review: EventReview,
@@ -348,7 +400,19 @@ def reconcile_staged_tracks(
     for track in review.tracks:
         if not track.staging_file_path:
             continue
-        if track.staging_file_path not in current_file_paths:
+        # A staged file counts as present if the directory listing saw it, or —
+        # because scandir is blocked on cloud folders (Dropbox/iCloud via macOS
+        # TCC) and returns nothing — if it still exists on disk. Path.exists()
+        # uses stat(), which works on cloud paths. Without this fallback every
+        # staged file on a cloud drive is wrongly reported missing and its
+        # download marked failed.
+        present = track.staging_file_path in current_file_paths
+        if not present:
+            try:
+                present = Path(track.staging_file_path).exists()
+            except OSError:
+                present = False
+        if not present:
             clear_staging_match(
                 database,
                 review,
@@ -357,6 +421,9 @@ def reconcile_staged_tracks(
                 acquisition_failed=True,
             )
             continue
+        # Keep it visible to the downstream claimed/matched helpers, which also
+        # key off current_file_paths.
+        current_file_paths.add(track.staging_file_path)
 
         if track.status == "ready" and is_automatic_staging_match(track.match_method):
             clear_staging_match(

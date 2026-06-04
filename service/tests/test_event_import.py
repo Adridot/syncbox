@@ -341,6 +341,54 @@ def test_scan_event_staging_matches_missing_track(tmp_path: Path, monkeypatch) -
     assert review.tracks[0].staging_file_path == str(track_path)
 
 
+def test_scan_event_staging_recovers_download_when_folder_unlistable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # On cloud folders (Dropbox/iCloud) macOS blocks scandir, so scan_audio_files
+    # returns nothing even though the downloaded file is on disk. The track must
+    # still be recovered via an existence (stat) check, not declared missing.
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    audio_dir = tmp_path / "event" / "audio"
+    audio_dir.mkdir(parents=True)
+    # The file Deemix wrote is present on disk...
+    track_path = audio_dir / "Artist - New Song.mp3"
+    track_path.write_bytes(b"audio")
+    event_id = database.create_event_import(
+        {
+            "event_name": "Client Event",
+            "event_slug": "client-event",
+            "spotify_playlist_id": "playlist",
+            "spotify_playlist_name": "Client Playlist",
+            "default_tag": "Client Event",
+            "event_dir": str(tmp_path / "event"),
+            "audio_dir": str(audio_dir),
+            "playlist_path": str(tmp_path / "event" / "client-event.m3u8"),
+        }
+    )
+    database.upsert_event_tracks(
+        event_id,
+        [
+            {
+                "spotify_track_id": "spotify-1",
+                "spotify_uri": "spotify:track:spotify-1",
+                "title": "New Song",
+                "artists": ["Artist"],
+                "duration_ms": 180000,
+                "status": "missing",
+                "reason": "No match.",
+            }
+        ],
+    )
+    # ...but the folder cannot be listed (simulate cloud TCC): scan returns empty.
+    monkeypatch.setattr(event_import, "scan_audio_files", lambda _p, *, fresh=False: [])
+
+    review = scan_event_staging(database, event_id)
+
+    assert review.tracks[0].status == "ready"
+    assert review.tracks[0].staging_file_path == str(track_path)
+
+
 def test_scan_event_staging_invalidates_removed_ready_file(tmp_path: Path) -> None:
     database = LocalDatabase(tmp_path / "app.sqlite3")
     database.migrate()
