@@ -46,6 +46,68 @@ def test_login_arl_posts_arl_body(monkeypatch) -> None:
     assert result == {"success": True}
 
 
+def test_request_retries_transient_429_then_succeeds(monkeypatch) -> None:
+    from app import acquisition
+
+    calls = {"n": 0}
+
+    class FakeResponse:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+            self.text = ""
+            self.reason_phrase = "OK"
+
+        def json(self) -> dict[str, Any]:
+            return {"ok": True}
+
+    async def flaky_request(self, method, url, **kwargs):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        # First call rate-limited, second call succeeds.
+        return FakeResponse(429 if calls["n"] == 1 else 200)
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", flaky_request)
+    # Don't actually sleep through the backoff in the test.
+    async def _no_sleep(_seconds):  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr(acquisition.asyncio, "sleep", _no_sleep)
+
+    result = asyncio.run(DeemixClient().queue())
+
+    assert result == {"ok": True}
+    assert calls["n"] == 2  # retried once, then succeeded
+
+
+def test_request_raises_after_exhausting_retries(monkeypatch) -> None:
+    from app import acquisition
+
+    calls = {"n": 0}
+
+    class FakeResponse:
+        status_code = 503
+        text = "down"
+        reason_phrase = "Service Unavailable"
+
+    async def always_503(self, method, url, **kwargs):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", always_503)
+
+    async def _no_sleep(_seconds):  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr(acquisition.asyncio, "sleep", _no_sleep)
+
+    try:
+        asyncio.run(DeemixClient().queue())
+    except acquisition.DeemixHTTPError as exc:
+        assert exc.status_code == 503
+    else:
+        raise AssertionError("Expected DeemixHTTPError after exhausting retries")
+    assert calls["n"] == acquisition._RETRY_ATTEMPTS  # tried every attempt
+
+
 def test_ensure_deemix_authenticated_applies_arl_once(tmp_path: Path, monkeypatch) -> None:
     from app import acquisition
 
@@ -323,7 +385,7 @@ def test_completed_queue_scans_staging_and_marks_ready(tmp_path: Path, monkeypat
     monkeypatch.setattr(
         event_import,
         "scan_audio_files",
-        lambda _: [
+        lambda _, *, fresh=False: [
             {
                 "file_path": str(track_path),
                 "title": "Missing Song",

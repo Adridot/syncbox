@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,8 @@ from .models import (
 from .rekordbox import RekordboxAdapter
 from .spotify import SpotifyClient, playlist_image_url, playlist_items_to_tracks
 
+
+logger = logging.getLogger(__name__)
 
 PERMANENT_DOWNLOAD_QUALITY = "MP3_320"
 
@@ -557,7 +560,13 @@ async def refresh_library_acquisition_jobs(
     try:
         await sync_library_deemix_queue(database, adapter, source_id, client)
     except Exception:
-        pass
+        # Surface (don't swallow) — a silent pass here froze library jobs at
+        # "queued" with no trace. The caller still returns the last known jobs.
+        logger.warning(
+            "Deemix queue sync failed for library source %s; jobs may be stale",
+            source_id,
+            exc_info=True,
+        )
     return database.list_library_acquisition_jobs(source_id, DEEMIX_PROVIDER)
 
 
@@ -682,7 +691,9 @@ def mark_library_ready_after_scan(
     source_id: int,
 ) -> None:
     review = require_library_review(database, source_id)
-    audio_files = scan_audio_files(Path(adapter.storage_layout().permanent))
+    # fresh=True: this confirms whether just-downloaded files have landed, so it
+    # must not read a stale cached listing (cloud FS may not bump the dir mtime).
+    audio_files = scan_audio_files(Path(adapter.storage_layout().permanent), fresh=True)
     candidates = [
         RekordboxTrack(
             contentId=file_info["file_path"],

@@ -864,6 +864,13 @@ class RekordboxAdapter:
                     Path(self.storage_layout().manual_collection),
                 ],
             )
+            # Build the preview *before* leaving the session: committing expires
+            # the ORM rows, so reading their titles (deletedSamples) afterwards
+            # raises "instance is not bound to a Session". Capture it now while
+            # the rows are still live.
+            preview = event_delete_preview_from_plan(review, plan)
+            deleted_count = len(plan["delete_contents"])
+            removed_tag_count = len(plan["event_tag_rows"])
             for row in plan["event_tag_rows"]:
                 mark_rekordbox_row_deleted(row)
             for content in plan["delete_contents"]:
@@ -878,12 +885,11 @@ class RekordboxAdapter:
         _remove_playlist_from_xml(self.database_dir, review.default_tag)
         _remove_playlist_from_xml(self.database_dir, f"{review.default_tag} - Smart")
 
-        preview = event_delete_preview_from_plan(review, plan)
         return EventDeleteResponse(
             **preview.model_dump(by_alias=True),
             backupPath=str(backup_path),
-            deletedFromRekordbox=len(plan["delete_contents"]),
-            removedEventTags=len(plan["event_tag_rows"]),
+            deletedFromRekordbox=deleted_count,
+            removedEventTags=removed_tag_count,
             localEventDeleted=True,
         )
 

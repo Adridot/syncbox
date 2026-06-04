@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import random
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -22,11 +24,28 @@ from .models import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_DEEMIX_BASE_URL = "http://127.0.0.1:6595"
 DEEZER_API_URL = "https://api.deezer.com"
 DEEMIX_PROVIDER = "deemix"
 AUTO_MATCH_THRESHOLD = 85
 REVIEW_MATCH_THRESHOLD = 70
+
+# Transient-failure retry policy for the Deemix local API. Deezer (which Deemix
+# proxies) rate-limits with 429s and the local API can briefly time out under
+# load; retrying with exponential backoff + jitter absorbs those blips instead of
+# permanently failing a whole download batch on the first hiccup.
+_RETRY_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 0.5
+_RETRY_MAX_DELAY = 4.0
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _retry_delay(attempt: int) -> float:
+    """Exponential backoff (0.5s, 1s, 2s, …) capped, with +/-20% jitter."""
+    base = min(_RETRY_BASE_DELAY * (2**attempt), _RETRY_MAX_DELAY)
+    return base * (1.0 + random.uniform(-0.2, 0.2))
 
 # Deemix's /api/auth/status proxies to Deezer, which rate-limits hard (429) when
 # polled often. The status indicator is polled every few seconds, so cache the
@@ -189,8 +208,40 @@ class DeemixClient:
         *,
         json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.request(method, f"{self.base_url}{path}", json=json)
+        url = f"{self.base_url}{path}"
+        last_exc: Exception | None = None
+        for attempt in range(_RETRY_ATTEMPTS):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.request(method, url, json=json)
+            except httpx.TransportError as exc:
+                # Network-level blip — timeout, connection reset, protocol error
+                # (TimeoutException is itself a TransportError): retry.
+                last_exc = exc
+            else:
+                if response.status_code in _RETRYABLE_STATUS:
+                    last_exc = DeemixHTTPError(
+                        response.status_code, response.text or response.reason_phrase
+                    )
+                else:
+                    return self._parse_response(response)
+            if attempt < _RETRY_ATTEMPTS - 1:
+                delay = _retry_delay(attempt)
+                logger.warning(
+                    "Deemix %s %s failed (%s); retrying in %.1fs (attempt %d/%d)",
+                    method,
+                    path,
+                    last_exc,
+                    delay,
+                    attempt + 1,
+                    _RETRY_ATTEMPTS,
+                )
+                await asyncio.sleep(delay)
+        assert last_exc is not None  # loop always sets it before exhausting
+        raise last_exc
+
+    @staticmethod
+    def _parse_response(response: httpx.Response) -> dict[str, Any]:
         if response.status_code >= 400:
             raise DeemixHTTPError(
                 response.status_code, response.text or response.reason_phrase
@@ -432,7 +483,14 @@ async def refresh_acquisition_jobs(
     try:
         await sync_deemix_queue(database, event_id, client)
     except Exception:
-        pass
+        # Never let a transient Deemix/Deezer error abort the response, but do
+        # surface it: a silent `pass` here is exactly what left jobs frozen at
+        # "queued" with no trace. The caller still returns the last known jobs.
+        logger.warning(
+            "Deemix queue sync failed for event %s; jobs may be stale",
+            event_id,
+            exc_info=True,
+        )
     return database.list_acquisition_jobs(event_id, DEEMIX_PROVIDER)
 
 

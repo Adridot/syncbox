@@ -238,27 +238,43 @@ def _find_artist_by_name(database: Any, name: str) -> Any | None:
 
 
 def ensure_artist(database: Any, name: str) -> Any | None:
-    """Return an existing (active) DjmdArtist by exact name, creating if needed."""
+    """Return an existing (active) DjmdArtist by exact name, creating if needed.
+
+    The artist row is created with a **string** ID via ``generated_rekordbox_id``
+    to stay uniform with every existing ``DjmdArtist.ID`` (all stored as strings).
+    pyrekordbox's own ``add_artist`` assigns an *int* ID, which makes SQLAlchemy
+    crash on flush ("'<' not supported between instances of 'int' and 'str'")
+    whenever string-keyed rows are pending in the same session — exactly what
+    happens the moment an import touches an artist that isn't already in the
+    collection. Creating the row ourselves keeps the primary-key types uniform.
+    """
+    from uuid import uuid4
+
+    from pyrekordbox.db6 import tables
+
     name = (name or "").strip()
     if not name:
         return None
     existing = _find_artist_by_name(database, name)
     if existing is not None:
         return existing
-    try:
-        return database.add_artist(name)
-    except ValueError:
-        # add_artist's duplicate check counts soft-deleted rows too, so a
-        # rb_local_deleted artist with this exact name is blocking creation.
-        # Reactivate and reuse it.
-        from pyrekordbox.db6 import tables
-
-        row = database.query(tables.DjmdArtist).filter_by(Name=name).first()
-        if row is not None:
-            if is_rekordbox_row_deleted(row):
-                reactivate_rekordbox_row(row)
-            return row
-        return None
+    # add_artist's duplicate check counts soft-deleted rows too, so a
+    # rb_local_deleted artist with this exact name would block creation.
+    # Detect it up front, reactivate, and reuse it.
+    duplicate = database.query(tables.DjmdArtist).filter_by(Name=name).first()
+    if duplicate is not None:
+        if is_rekordbox_row_deleted(duplicate):
+            reactivate_rekordbox_row(duplicate)
+        return duplicate
+    artist = tables.DjmdArtist.create(
+        ID=generated_rekordbox_id(database, tables.DjmdArtist),
+        Name=name,
+        SearchStr=None,
+        UUID=str(uuid4()),
+    )
+    database.add(artist)
+    database.flush()
+    return artist
 
 
 def add_rekordbox_content(
