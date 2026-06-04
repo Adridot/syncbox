@@ -2,8 +2,8 @@ from pathlib import Path
 
 from app.live_import import (
     build_live_import_package,
+    claim_event_dir,
     safe_event_slug,
-    unique_event_slug,
 )
 
 
@@ -11,14 +11,13 @@ def test_safe_event_slug_normalizes_names() -> None:
     assert safe_event_slug("Mariage été 2026 !!!") == "mariage-ete-2026"
 
 
-def test_unique_event_slug_avoids_existing_folders(tmp_path: Path) -> None:
+def test_claim_event_dir_atomically_creates_fresh_folders(tmp_path: Path) -> None:
     events_root = tmp_path / "events"
-    events_root.mkdir()
-    assert unique_event_slug(events_root, "Test") == "test"
-    (events_root / "test").mkdir()
-    assert unique_event_slug(events_root, "Test") == "test-2"
-    (events_root / "test-2").mkdir()
-    assert unique_event_slug(events_root, "Test") == "test-3"
+    # Each claim CREATES the folder, so the next claim must pick the next suffix.
+    assert claim_event_dir(events_root, "Test") == ("test", events_root / "test")
+    assert claim_event_dir(events_root, "Test") == ("test-2", events_root / "test-2")
+    assert claim_event_dir(events_root, "Test") == ("test-3", events_root / "test-3")
+    assert (events_root / "test").is_dir()
 
 
 def test_build_live_import_package_unique_never_reuses_a_folder(tmp_path: Path) -> None:

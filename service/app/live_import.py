@@ -27,12 +27,11 @@ def build_live_import_package(
     # fails with PermissionError and the whole create 500s. Live M3U8 import keeps
     # the default (unique=False): it intentionally targets an existing named
     # folder to list the audio already in it.
-    event_slug = (
-        unique_event_slug(events_root, event_name)
-        if unique
-        else safe_event_slug(event_name)
-    )
-    event_dir = events_root / event_slug
+    if unique:
+        event_slug, event_dir = claim_event_dir(events_root, event_name)
+    else:
+        event_slug = safe_event_slug(event_name)
+        event_dir = events_root / event_slug
     audio_dir = event_dir / "audio"
     playlist_path = event_dir / f"{event_slug}.m3u8"
 
@@ -58,19 +57,26 @@ def safe_event_slug(event_name: str) -> str:
     return slug or "untitled-event"
 
 
-def unique_event_slug(events_root: Path, event_name: str) -> str:
-    """A slug whose folder under ``events_root`` doesn't exist yet.
+def claim_event_dir(events_root: Path, event_name: str) -> tuple[str, Path]:
+    """Atomically create a fresh event folder; return its (slug, dir).
 
-    ``Path.exists()`` uses stat(), which works on cloud-synced folders even when
-    they can't be listed, so an existing event folder is reliably detected.
+    The directory creation IS the claim: ``mkdir(exist_ok=False)`` fails if the
+    slug is taken, so we retry the next suffix (test, test-2, test-3, …). Doing
+    the check-and-create as one step avoids the race where two concurrent creates
+    both see a slug as free and then write into the same folder. mkdir's
+    underlying stat works on cloud-synced folders even when they can't be listed.
     """
     base = safe_event_slug(event_name)
     candidate = base
     suffix = 2
-    while (events_root / candidate).exists():
-        candidate = f"{base}-{suffix}"
-        suffix += 1
-    return candidate
+    while True:
+        event_dir = events_root / candidate
+        try:
+            event_dir.mkdir(parents=True, exist_ok=False)
+            return candidate, event_dir
+        except FileExistsError:
+            candidate = f"{base}-{suffix}"
+            suffix += 1
 
 
 def list_audio_files(audio_dir: Path) -> list[Path]:
