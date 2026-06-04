@@ -1,32 +1,43 @@
 name: Release on merge to master
 
-# Creates a GitHub Release automatically every time something is merged into
-# master. The release version is read from package.json (the single source of
-# truth — service/app/version.py reads the same file), and the release notes are
-# taken from the description of the pull request that was merged.
+# Builds the macOS app and creates a GitHub Release automatically on every merge
+# into master. The version comes from package.json (single source of truth —
+# service/app/version.py reads the same file); the release notes are the merged
+# PR's description; the built .dmg is attached as the release asset.
+#
+# Pull requests targeting master run the SAME build (without releasing) so a
+# broken build is caught on the PR instead of on a merge.
 #
 # Contract (handled per-PR by the author):
-#   - Bump the "version" field in package.json in every PR that should ship.
-#     If the version is unchanged (tag already exists) the workflow no-ops, so
-#     forgetting to bump simply means "no release", never a failure.
+#   - Bump "version" in package.json in every PR that should ship. If unchanged
+#     (tag already exists) the release is skipped — a no-op, never a failure.
 #   - Write the PR description as the changelog — it becomes the release body.
 
 on:
   push:
     branches: [master]
+  pull_request:
+    branches: [master]
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "src/**"
+      - "service/**"
+      - "build/**"
+      - "electron.vite.config.*"
+      - ".github/workflows/release.yml"
 
-# Allow the workflow to create tags + releases, and read PRs for the notes.
 permissions:
   contents: write
   pull-requests: read
 
 concurrency:
-  group: release-master
-  cancel-in-progress: false
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build-and-release:
+    runs-on: macos-latest
     steps:
       - name: Checkout (full history for tag lookup)
         uses: actions/checkout@v4
@@ -41,18 +52,72 @@ jobs:
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $version"
 
-      - name: Skip if this version was already released
-        id: guard
+      - name: Decide what to do
+        id: plan
         run: |
+          tag_exists=false
           if git rev-parse "refs/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Tag ${{ steps.ver.outputs.tag }} already exists — no release (bump package.json to ship)."
+            tag_exists=true
+          fi
+          # Release only on a push to master whose version isn't released yet.
+          if [ "${{ github.event_name }}" = "push" ] && [ "$tag_exists" = "false" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Validate the build on PRs, but never release.
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag ${{ steps.ver.outputs.tag }} already exists — nothing to build or release (bump package.json to ship)."
           fi
 
+      - name: Setup Node
+        if: steps.plan.outputs.build == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup uv (Python)
+        if: steps.plan.outputs.build == 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install JS dependencies
+        if: steps.plan.outputs.build == 'true'
+        run: npm ci
+
+      - name: Sync Python dependencies
+        if: steps.plan.outputs.build == 'true'
+        working-directory: service
+        run: uv sync
+
+      - name: Generate seed database (bundled as extraResource)
+        if: steps.plan.outputs.build == 'true'
+        working-directory: service
+        run: |
+          uv run python -c "from pathlib import Path; from app.db import LocalDatabase; p=Path('.local/syncbox.sqlite3'); p.parent.mkdir(parents=True, exist_ok=True); LocalDatabase(p).migrate()"
+
+      - name: Build macOS .dmg (unsigned)
+        if: steps.plan.outputs.build == 'true'
+        env:
+          # Unsigned build (build.mac.identity is null) — don't probe the keychain.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:dmg
+
+      - name: Upload .dmg as workflow artifact
+        if: steps.plan.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncbox-${{ steps.ver.outputs.version }}-dmg
+          path: release/*.dmg
+          if-no-files-found: error
+
       - name: Build release notes from the merged PR
-        if: steps.guard.outputs.exists == 'false'
+        if: steps.plan.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
@@ -62,35 +127,29 @@ jobs:
           set -euo pipefail
           body=""
           title=""
-          # Resolve the PR deterministically from the merge/squash commit message
+          # Resolve the PR deterministically from the merge/squash commit subject
           # ("Merge pull request #N …" or "Title (#N)"). The commit->PR association
-          # API (commits/{sha}/pulls) lags a few seconds after a merge, so relying
-          # on it raced and produced empty notes; the number in the commit subject
-          # is available immediately.
+          # API lags a few seconds after a merge, so the number in the subject is
+          # the reliable source.
           pr_number="$(git log -1 --pretty='%s%n%b' | grep -oiE '#[0-9]+' | head -1 | tr -dc '0-9' || true)"
           if [ -n "$pr_number" ]; then
             body="$(gh api "repos/$REPO/pulls/$pr_number" --jq '.body // ""' || true)"
             title="$(gh api "repos/$REPO/pulls/$pr_number" --jq '.title // ""' || true)"
           fi
-          # Fallback 1: the association API (covers PRs whose number isn't in the subject).
           if [ -z "${body//[[:space:]]/}" ]; then
             body="$(gh api "repos/$REPO/commits/$COMMIT_SHA/pulls" --jq '.[0].body // ""' 2>/dev/null || true)"
             title="$(gh api "repos/$REPO/commits/$COMMIT_SHA/pulls" --jq '.[0].title // ""' 2>/dev/null || true)"
           fi
-          # Fallback 2: direct push, or a PR with an empty body -> the commit message.
           if [ -z "${body//[[:space:]]/}" ]; then
             title="$(git log -1 --pretty=%s)"
             body="$(git log -1 --pretty=%b)"
           fi
           [ -n "${title//[[:space:]]/}" ] || title="$FALLBACK_TITLE"
-          # Write notes to a file + title to env so the create step never has to
-          # interpolate untrusted PR text into a shell command (quotes/backticks
-          # in a PR body would otherwise break or inject the command).
           printf '%s\n' "$body" > "$RUNNER_TEMP/release_notes.md"
           printf '%s\n' "RELEASE_TITLE=$title" >> "$GITHUB_ENV"
 
-      - name: Create GitHub Release
-        if: steps.guard.outputs.exists == 'false'
+      - name: Create GitHub Release with the .dmg attached
+        if: steps.plan.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.ver.outputs.tag }}
@@ -100,5 +159,6 @@ jobs:
           gh release create "$TAG" \
             --target "$COMMIT_SHA" \
             --title "$RELEASE_TITLE" \
-            --notes-file "$RUNNER_TEMP/release_notes.md"
-          echo "::notice::Released $TAG"
+            --notes-file "$RUNNER_TEMP/release_notes.md" \
+            release/*.dmg
+          echo "::notice::Released $TAG with the macOS .dmg attached"
