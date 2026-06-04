@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 
 from ..models import (
-    TagPlaylistMapping,
-    TagPlaylistMappingIn,
     TagRule,
     TagRuleIn,
 )
@@ -92,82 +90,3 @@ class TagsMixin:
                 next_id = int(cursor.fetchone()["id"])
 
         return TagRule(id=next_id, **rule.model_dump(by_alias=True, exclude={"id"}))
-
-    def list_tag_playlist_mappings(self) -> list[TagPlaylistMapping]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT id, tag_name, spotify_playlist_id, spotify_playlist_name, enabled
-                FROM tag_playlist_mappings
-                ORDER BY tag_name COLLATE NOCASE
-                """
-            ).fetchall()
-        return [
-            TagPlaylistMapping(
-                id=int(row["id"]),
-                tagName=str(row["tag_name"]),
-                spotifyPlaylistId=str(row["spotify_playlist_id"]),
-                spotifyPlaylistName=str(row["spotify_playlist_name"]),
-                enabled=bool(row["enabled"]),
-            )
-            for row in rows
-        ]
-
-    def upsert_tag_playlist_mapping(
-        self, mapping: TagPlaylistMappingIn
-    ) -> TagPlaylistMapping:
-        now = utc_now()
-        with self.connect() as connection:
-            if mapping.id:
-                connection.execute(
-                    """
-                    UPDATE tag_playlist_mappings
-                    SET tag_name = ?,
-                        spotify_playlist_id = ?,
-                        spotify_playlist_name = ?,
-                        enabled = ?,
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        mapping.tag_name.strip(),
-                        mapping.spotify_playlist_id.strip(),
-                        mapping.spotify_playlist_name.strip(),
-                        int(mapping.enabled),
-                        now,
-                        mapping.id,
-                    ),
-                )
-                next_id = mapping.id
-            else:
-                cursor = connection.execute(
-                    """
-                    INSERT INTO tag_playlist_mappings (
-                        tag_name,
-                        spotify_playlist_id,
-                        spotify_playlist_name,
-                        enabled,
-                        created_at,
-                        updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(tag_name) DO UPDATE SET
-                        spotify_playlist_id = excluded.spotify_playlist_id,
-                        spotify_playlist_name = excluded.spotify_playlist_name,
-                        enabled = excluded.enabled,
-                        updated_at = excluded.updated_at
-                    RETURNING id
-                    """,
-                    (
-                        mapping.tag_name.strip(),
-                        mapping.spotify_playlist_id.strip(),
-                        mapping.spotify_playlist_name.strip(),
-                        int(mapping.enabled),
-                        now,
-                        now,
-                    ),
-                )
-                next_id = int(cursor.fetchone()["id"])
-        return TagPlaylistMapping(
-            id=next_id, **mapping.model_dump(by_alias=True, exclude={"id"})
-        )

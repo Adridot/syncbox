@@ -22,10 +22,4 @@ export type TagRuleFormState = {
   tags: string[];
 };
 
-export type MappingFormState = {
-  tagName: string;
-  spotifyPlaylistId: string;
-  spotifyPlaylistName: string;
-};
-
 export type AppSettingKey = keyof AppSettings;

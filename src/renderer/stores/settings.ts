@@ -8,7 +8,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const settings = reactive<AppSettings>({
     spotifyClientId: "",
     spotifyClientSecret: "",
-    spotifyRedirectUri: "http://127.0.0.1:8765/api/spotify/callback",
+    spotifyUsername: "",
     rekordboxDatabaseDir: "/Users/adriendidot/Library/Pioneer/rekordbox",
     storageRoot:
       "/Users/adriendidot/Library/CloudStorage/Dropbox-CloudOptionDJteam/Jockey Tricolore/Musique",
@@ -166,21 +166,19 @@ export const useSettingsStore = defineStore("settings", () => {
     });
   }
 
-  async function openSpotifyAuth(): Promise<void> {
+  // Save the Spotify credentials, then verify them with an app token + username
+  // (Client-Credentials flow — no browser sign-in).
+  async function testSpotify(): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api) return;
     await ui.withLoading(async () => {
-      const response = await system.api!.getSpotifyAuthUrl(
-        settings.spotifyClientId,
-        settings.spotifyRedirectUri
+      Object.assign(settings, await system.api!.saveSettings(settings));
+      const status = await system.api!.testSpotifyConnection();
+      ui.setMessage(
+        "success",
+        `Connected to Spotify as ${status.displayName || status.username}.`
       );
-      if (window.desktop) {
-        await window.desktop.openExternal(response.authorizationUrl);
-      } else {
-        window.open(response.authorizationUrl, "_blank", "noopener,noreferrer");
-      }
-      ui.setMessage("success", "Spotify authorization opened in the browser.");
     });
   }
 
@@ -198,7 +196,7 @@ export const useSettingsStore = defineStore("settings", () => {
     importSettingsFromFile,
     exportData,
     importDataFromFile,
-    openSpotifyAuth,
+    testSpotify,
     connectDeezer,
   };
 });

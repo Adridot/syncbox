@@ -37,7 +37,7 @@ export type RekordboxCollectionStats = {
 export type AppSettings = {
   spotifyClientId: string;
   spotifyClientSecret: string;
-  spotifyRedirectUri: string;
+  spotifyUsername: string;
   rekordboxDatabaseDir: string;
   storageRoot: string;
   permanentPath: string;
@@ -88,13 +88,6 @@ export type TagRule = {
   enabled: boolean;
 };
 
-export type TagPlaylistMapping = {
-  id: number;
-  tagName: string;
-  spotifyPlaylistId: string;
-  spotifyPlaylistName: string;
-  enabled: boolean;
-};
 
 export type TrackReview = {
   id: number;
@@ -188,7 +181,6 @@ export type LibraryApplyResponse = {
   backupPath: string;
   imported: number;
   tagged: number;
-  spotifyAdded: number;
   warnings: string[];
 };
 
@@ -397,9 +389,10 @@ export type DuplicateResolutionResponse = {
   warnings: string[];
 };
 
-export type AuthUrlResponse = {
-  authorizationUrl: string;
-  state: string;
+export type SpotifyConnectionStatus = {
+  connected: boolean;
+  username: string;
+  displayName: string;
 };
 
 export type SpotifyPlaylistSummary = {
@@ -510,7 +503,6 @@ export type EventApplyResponse = {
   imported: number;
   tagged: number;
   permanent: number;
-  spotifyAdded: number;
   smartPlaylist?: string | null;
   warnings: string[];
 };

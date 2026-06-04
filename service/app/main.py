@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator
 import httpx
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from .config import load_config
 from .diagnostics import run_diagnostics
@@ -70,13 +70,10 @@ from .models import (
     SettingsBackup,
     SettingsImportResponse,
     RekordboxTag,
-    SpotifyAuthUrlRequest,
-    SpotifyAuthUrlResponse,
+    SpotifyConnectionStatus,
     SpotifyEventAnalyzeRequest,
     SpotifyPlaylistsResponse,
     StorageLayout,
-    TagPlaylistMapping,
-    TagPlaylistMappingIn,
     TagRule,
     TagRuleIn,
     UntaggedDeleteRequest,
@@ -125,9 +122,9 @@ SPOTIFY_AUTH_EXPIRED_DETAIL = (
 async def lifespan(_app: FastAPI):
     logger.info("Syncbox service starting (version %s)", app_version())
     database.migrate()
-    defaults = default_settings()
-    current = database.get_app_settings(defaults)
-    database.save_app_settings(current)
+    # NOTE: never re-save settings on startup. Defaults are applied at read time
+    # (get_app_settings), so a boot-time round-trip is pointless — and it used to
+    # blank out stored credentials on every restart/update.
     logger.info("Database ready at %s", database.path)
     # Best-effort: push a stored Deezer ARL to Deemix on boot so downloads work
     # without opening Deemix. Deemix may not be up yet — the download flows also
@@ -698,12 +695,6 @@ async def apply_library_source(source_id: int) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    warnings: list[str] = []
-    try:
-        spotify_added = await add_library_tracks_to_spotify(apply_review)
-    except Exception as exc:
-        spotify_added = 0
-        warnings.append(f"Spotify playlist update failed: {exc}")
     database.mark_library_tracks_imported(
         source_id, [track.spotify_track_id for track in applicable_tracks]
     )
@@ -712,19 +703,8 @@ async def apply_library_source(source_id: int) -> dict[str, Any]:
         "backupPath": apply_result["backup_path"],
         "imported": apply_result["imported"],
         "tagged": apply_result["tagged"],
-        "spotifyAdded": spotify_added,
-        "warnings": warnings,
+        "warnings": [],
     }
-
-
-@app.get("/api/tag-playlist-mappings", response_model=list[TagPlaylistMapping])
-def list_tag_playlist_mappings() -> list[TagPlaylistMapping]:
-    return database.list_tag_playlist_mappings()
-
-
-@app.post("/api/tag-playlist-mappings", response_model=TagPlaylistMapping)
-def save_tag_playlist_mapping(mapping: TagPlaylistMappingIn) -> TagPlaylistMapping:
-    return database.upsert_tag_playlist_mapping(mapping)
 
 
 @app.get("/api/rekordbox/tags", response_model=list[RekordboxTag])
@@ -826,14 +806,13 @@ async def stream_acquisition_jobs(request: Request) -> StreamingResponse:
 
 
 
-@app.post("/api/spotify/auth-url", response_model=SpotifyAuthUrlResponse)
-def spotify_auth_url(request: SpotifyAuthUrlRequest) -> dict[str, str]:
+@app.post("/api/spotify/test", response_model=SpotifyConnectionStatus)
+async def test_spotify_connection() -> SpotifyConnectionStatus:
     try:
-        return SpotifyClient(database).build_authorization_url(
-            request.client_id, request.redirect_uri
-        )
+        result = await SpotifyClient(database).test_connection()
     except SpotifyAuthError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SpotifyConnectionStatus(**result)
 
 
 @app.get("/api/spotify/playlists", response_model=SpotifyPlaylistsResponse)
@@ -848,23 +827,6 @@ async def list_spotify_playlists(
     except SpotifyAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     return summarize_playlist_page(payload)
-
-
-@app.get("/api/spotify/callback", response_class=HTMLResponse)
-async def spotify_callback(
-    code: str | None = Query(default=None),
-    state: str | None = Query(default=None),
-    error: str | None = Query(default=None),
-) -> str:
-    if error:
-        return callback_page("Spotify Authorization Failed", error)
-    if not code or not state:
-        return callback_page("Spotify Authorization Failed", "Missing code or state.")
-    try:
-        await SpotifyClient(database).exchange_callback(code, state)
-    except SpotifyAuthError as exc:
-        return callback_page("Spotify Authorization Failed", str(exc))
-    return callback_page("Spotify Connected", "You can return to Syncbox.")
 
 
 
@@ -1048,7 +1010,6 @@ async def apply_event(event_id: int) -> dict[str, Any]:
         "backupPath": apply_result["backup_path"],
         "imported": apply_result["imported"],
         "tagged": apply_result["tagged"],
-        "spotifyAdded": 0,
         "smartPlaylist": apply_result["smart_playlist"],
         "warnings": [],
     }
@@ -1106,7 +1067,6 @@ async def deezer_search_results(query: str) -> list[dict[str, Any]]:
 def default_settings() -> AppSettings:
     return AppSettings(
         spotifyClientId="",
-        spotifyRedirectUri=f"http://127.0.0.1:{config.api_port}/api/spotify/callback",
         rekordboxDatabaseDir=str(config.rekordbox_database_dir),
         storageRoot=str(config.storage_root),
     )
@@ -1309,60 +1269,3 @@ def next_event_status_after_apply(review: EventReview) -> str:
     return "applied"
 
 
-async def add_library_tracks_to_spotify(review: LibraryReview) -> int:
-    mappings = {
-        mapping.tag_name: mapping.spotify_playlist_id
-        for mapping in database.list_tag_playlist_mappings()
-        if mapping.enabled
-    }
-    playlist_uris: dict[str, set[str]] = {}
-    for track in review.tracks:
-        for tag_name in track.tags:
-            playlist_id = mappings.get(tag_name)
-            if playlist_id and playlist_id != review.source.spotify_playlist_id:
-                playlist_uris.setdefault(playlist_id, set()).add(track.spotify_uri)
-
-    added = 0
-    client = SpotifyClient(database)
-    for playlist_id, uris in playlist_uris.items():
-        if not uris:
-            continue
-        await client.add_tracks_to_playlist(playlist_id, sorted(uris))
-        added += len(uris)
-    return added
-
-
-def callback_page(title: str, message: str) -> str:
-    return f"""
-    <!doctype html>
-    <html lang="en">
-      <head>
-        <meta charset="utf-8" />
-        <title>{title}</title>
-        <style>
-          body {{
-            margin: 0;
-            min-height: 100vh;
-            display: grid;
-            place-items: center;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            color: #18202f;
-            background: #f7f8fb;
-          }}
-          main {{
-            width: min(520px, calc(100vw - 32px));
-            padding: 28px;
-            background: #fff;
-            border: 1px solid #dfe5ee;
-            border-radius: 8px;
-          }}
-        </style>
-      </head>
-      <body>
-        <main>
-          <h1>{title}</h1>
-          <p>{message}</p>
-        </main>
-      </body>
-    </html>
-    """

@@ -1,7 +1,6 @@
 import type {
   AcquisitionJob,
   AppSettings,
-  AuthUrlResponse,
   BackupPruneResponse,
   BackupRestoreResponse,
   DataImportResponse,
@@ -34,9 +33,9 @@ import type {
   SettingsImportResponse,
   RekordboxStatus,
   RekordboxTag,
+  SpotifyConnectionStatus,
   SpotifyPlaylistsResponse,
   StorageLayout,
-  TagPlaylistMapping,
   TagRule,
   UntaggedDeleteResponse,
   UntaggedReport,
@@ -246,16 +245,6 @@ export class ApiClient {
     return this.post(`/api/library/sources/${sourceId}/tracks/${spotifyTrackId}/queue-deezer`, { deezerTrackId });
   }
 
-  async listTagPlaylistMappings(): Promise<TagPlaylistMapping[]> {
-    return this.get("/api/tag-playlist-mappings");
-  }
-
-  async saveTagPlaylistMapping(
-    input: Omit<TagPlaylistMapping, "id"> & { id?: number }
-  ): Promise<TagPlaylistMapping> {
-    return this.post("/api/tag-playlist-mappings", input);
-  }
-
   async listRekordboxTags(): Promise<RekordboxTag[]> {
     return this.get("/api/rekordbox/tags");
   }
@@ -278,8 +267,8 @@ export class ApiClient {
     return this.delete(`/api/acquisition/jobs/clear${suffix}`);
   }
 
-  async getSpotifyAuthUrl(clientId: string, redirectUri: string): Promise<AuthUrlResponse> {
-    return this.post("/api/spotify/auth-url", { clientId, redirectUri });
+  async testSpotifyConnection(): Promise<SpotifyConnectionStatus> {
+    return this.post("/api/spotify/test", {});
   }
 
   async listSpotifyPlaylists(offset = 0, limit = 50): Promise<SpotifyPlaylistsResponse> {

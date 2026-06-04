@@ -39,7 +39,6 @@ onMounted(async () => {
     settings.load(),
     library.refreshTagRules(),
     library.refreshSources(),
-    library.refreshMappings(),
     events.refreshSummaries(),
     events.refreshGlobalJobs(),
     spotify.refreshRekordboxTags(),

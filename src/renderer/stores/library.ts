@@ -7,11 +7,10 @@ import type {
   LibraryReview,
   LibrarySource,
   LibraryTrackReview,
-  TagPlaylistMapping,
   TagRule,
   TrackReview,
 } from "../lib/api";
-import type { MappingFormState, TagRuleFormState } from "../types/ui";
+import type { TagRuleFormState } from "../types/ui";
 import { useSystemStore } from "./system";
 import { useUiStore } from "./ui";
 import { useSpotifyStore } from "./spotify";
@@ -21,7 +20,6 @@ export const useLibraryStore = defineStore("library", () => {
   const activeReview = ref<LibraryReview | null>(null);
   const selectedTrackIds = ref<string[]>([]);
   const tagRules = ref<TagRule[]>([]);
-  const tagPlaylistMappings = ref<TagPlaylistMapping[]>([]);
   const globalAcquisitionJobs = ref<GlobalAcquisitionJob[]>([]);
   const tagRuleTagInput = ref("");
 
@@ -35,12 +33,6 @@ export const useLibraryStore = defineStore("library", () => {
     sourcePlaylistId: "",
     sourcePlaylistName: "",
     tags: [],
-  });
-
-  const mappingForm = reactive<MappingFormState>({
-    tagName: "",
-    spotifyPlaylistId: "",
-    spotifyPlaylistName: "",
   });
 
   const selectedTracks = computed(() => {
@@ -64,12 +56,6 @@ export const useLibraryStore = defineStore("library", () => {
     const system = useSystemStore();
     if (!system.api) return;
     tagRules.value = await system.api.listTagRules();
-  }
-
-  async function refreshMappings(): Promise<void> {
-    const system = useSystemStore();
-    if (!system.api) return;
-    tagPlaylistMappings.value = await system.api.listTagPlaylistMappings();
   }
 
   async function refreshGlobalJobs(): Promise<void> {
@@ -155,29 +141,6 @@ export const useLibraryStore = defineStore("library", () => {
       selectedTrackIds.value = [];
       ui.setMessage("success", "Permanent playlist source saved and synced.");
       await autoDownloadSource(source.id);
-    });
-  }
-
-  async function saveTagPlaylistMapping(): Promise<void> {
-    const system = useSystemStore();
-    const ui = useUiStore();
-    if (!system.api) return;
-    if (!mappingForm.tagName.trim() || !mappingForm.spotifyPlaylistId.trim()) {
-      ui.setMessage("error", "Select a MyTag and a Spotify playlist.");
-      return;
-    }
-    await ui.withLoading(async () => {
-      await system.api!.saveTagPlaylistMapping({
-        tagName: mappingForm.tagName.trim(),
-        spotifyPlaylistId: mappingForm.spotifyPlaylistId.trim(),
-        spotifyPlaylistName: mappingForm.spotifyPlaylistName.trim(),
-        enabled: true,
-      });
-      mappingForm.tagName = "";
-      mappingForm.spotifyPlaylistId = "";
-      mappingForm.spotifyPlaylistName = "";
-      tagPlaylistMappings.value = await system.api!.listTagPlaylistMappings();
-      ui.setMessage("success", "Tag to Spotify playlist mapping saved.");
     });
   }
 
@@ -268,7 +231,7 @@ export const useLibraryStore = defineStore("library", () => {
       selectedTrackIds.value = [];
       ui.setMessage(
         result.warnings.length > 0 ? "error" : "success",
-        `Library imported. Imported ${result.imported}, tagged ${result.tagged}, Spotify additions ${result.spotifyAdded}. ${result.warnings.join(" ")}`
+        `Library imported. Imported ${result.imported}, tagged ${result.tagged}. ${result.warnings.join(" ")}`
       );
     });
   }
@@ -278,13 +241,6 @@ export const useLibraryStore = defineStore("library", () => {
     const playlist = spotify.playlists.find((p) => p.id === playlistId);
     tagRuleForm.sourcePlaylistId = playlist?.id ?? "";
     tagRuleForm.sourcePlaylistName = playlist?.name ?? "";
-  }
-
-  function selectMappingPlaylist(playlistId: string): void {
-    const spotify = useSpotifyStore();
-    const playlist = spotify.playlists.find((p) => p.id === playlistId);
-    mappingForm.spotifyPlaylistId = playlist?.id ?? "";
-    mappingForm.spotifyPlaylistName = playlist?.name ?? "";
   }
 
   function addTagRuleTag(value = tagRuleTagInput.value): void {
@@ -378,11 +334,9 @@ export const useLibraryStore = defineStore("library", () => {
     activeReview,
     selectedTrackIds,
     tagRules,
-    tagPlaylistMappings,
     globalAcquisitionJobs,
     tagRuleTagInput,
     tagRuleForm,
-    mappingForm,
     selectedTracks,
     readyToApply,
     deezerSearchTrack,
@@ -392,20 +346,17 @@ export const useLibraryStore = defineStore("library", () => {
     refreshSources,
     syncAllSources,
     refreshTagRules,
-    refreshMappings,
     refreshGlobalJobs,
     refreshActiveReview,
     openSource,
     syncSource,
     saveTagRule,
-    saveTagPlaylistMapping,
     toggleTrack,
     toggleAllTracks,
     updateSelectedTags,
     updateTrackTags,
     applySource,
     selectTagRulePlaylist,
-    selectMappingPlaylist,
     addTagRuleTag,
     removeTagRuleTag,
     openDeezerSearch,
