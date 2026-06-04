@@ -1,10 +1,41 @@
 from pathlib import Path
 
-from app.live_import import build_live_import_package, safe_event_slug
+from app.live_import import (
+    build_live_import_package,
+    safe_event_slug,
+    unique_event_slug,
+)
 
 
 def test_safe_event_slug_normalizes_names() -> None:
     assert safe_event_slug("Mariage été 2026 !!!") == "mariage-ete-2026"
+
+
+def test_unique_event_slug_avoids_existing_folders(tmp_path: Path) -> None:
+    events_root = tmp_path / "events"
+    events_root.mkdir()
+    assert unique_event_slug(events_root, "Test") == "test"
+    (events_root / "test").mkdir()
+    assert unique_event_slug(events_root, "Test") == "test-2"
+    (events_root / "test-2").mkdir()
+    assert unique_event_slug(events_root, "Test") == "test-3"
+
+
+def test_build_live_import_package_unique_never_reuses_a_folder(tmp_path: Path) -> None:
+    events_root = tmp_path / "events"
+    first = build_live_import_package(events_root, "Test", unique=True)
+    second = build_live_import_package(events_root, "Test", unique=True)
+    assert first["eventSlug"] == "test"
+    assert second["eventSlug"] == "test-2"
+    assert first["eventDir"] != second["eventDir"]
+
+
+def test_build_live_import_package_default_reuses_named_folder(tmp_path: Path) -> None:
+    # Live M3U8 import keeps targeting the same named folder (default unique=False).
+    events_root = tmp_path / "events"
+    first = build_live_import_package(events_root, "Test")
+    second = build_live_import_package(events_root, "Test")
+    assert first["eventSlug"] == second["eventSlug"] == "test"
 
 
 def test_live_import_package_writes_m3u8_from_audio_files(tmp_path: Path) -> None:

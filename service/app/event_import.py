@@ -40,7 +40,7 @@ def scaffold_event(
 ) -> int:
     """Create the event row and its on-disk staging layout. Returns the event id."""
     layout = adapter.ensure_storage_layout()
-    package = build_live_import_package(Path(layout.events), event_name)
+    package = build_live_import_package(Path(layout.events), event_name, unique=True)
     return database.create_event_import(
         {
             "event_name": event_name,
@@ -108,7 +108,7 @@ def create_manual_event(
     if not name:
         raise ValueError("Event name is required.")
     layout = adapter.ensure_storage_layout()
-    package = build_live_import_package(Path(layout.events), name)
+    package = build_live_import_package(Path(layout.events), name, unique=True)
     event_id = database.create_event_import(
         {
             "event_name": name,
