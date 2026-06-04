@@ -1,0 +1,90 @@
+name: Release on merge to master
+
+# Creates a GitHub Release automatically every time something is merged into
+# master. The release version is read from package.json (the single source of
+# truth — service/app/version.py reads the same file), and the release notes are
+# taken from the description of the pull request that was merged.
+#
+# Contract (handled per-PR by the author):
+#   - Bump the "version" field in package.json in every PR that should ship.
+#     If the version is unchanged (tag already exists) the workflow no-ops, so
+#     forgetting to bump simply means "no release", never a failure.
+#   - Write the PR description as the changelog — it becomes the release body.
+
+on:
+  push:
+    branches: [master]
+
+# Allow the workflow to create tags + releases, and read PRs for the notes.
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release-master
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for tag lookup)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from package.json
+        id: ver
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $version"
+
+      - name: Skip if this version was already released
+        id: guard
+        run: |
+          if git rev-parse "refs/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag ${{ steps.ver.outputs.tag }} already exists — no release (bump package.json to ship)."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release notes from the merged PR
+        if: steps.guard.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          FALLBACK_TITLE: Release ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The PR associated with the pushed (merge/squash) commit.
+          body="$(gh api "repos/$REPO/commits/$COMMIT_SHA/pulls" --jq '.[0].body // ""' 2>/dev/null || true)"
+          title="$(gh api "repos/$REPO/commits/$COMMIT_SHA/pulls" --jq '.[0].title // ""' 2>/dev/null || true)"
+          if [ -z "${body//[[:space:]]/}" ]; then
+            # Direct push, or a PR with an empty body: fall back to the commit message.
+            title="$(git log -1 --pretty=%s)"
+            body="$(git log -1 --pretty=%b)"
+          fi
+          [ -n "${title//[[:space:]]/}" ] || title="$FALLBACK_TITLE"
+          # Write notes to a file + title to env so the create step never has to
+          # interpolate untrusted PR text into a shell command (quotes/backticks
+          # in a PR body would otherwise break or inject the command).
+          printf '%s\n' "$body" > "$RUNNER_TEMP/release_notes.md"
+          printf '%s\n' "RELEASE_TITLE=$title" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        if: steps.guard.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --target "$COMMIT_SHA" \
+            --title "$RELEASE_TITLE" \
+            --notes-file "$RUNNER_TEMP/release_notes.md"
+          echo "::notice::Released $TAG"
