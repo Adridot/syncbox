@@ -71,26 +71,59 @@ def find_downloaded_file(
     """
     from .matching import text_similarity
 
-    def sanitize_filename(s: str) -> str:
-        cleaned = re.sub(r'[\\/:*?"<>|]', "", s).strip()
-        # Deemix strips trailing dots/spaces from filename components (Windows-safe),
-        # e.g. the title "APT." is written to disk as "Artist - APT.mp3".
-        return cleaned.rstrip(" .")
+    _ILLEGAL = r'[\\/:*?"<>|]'
+
+    def component_forms(s: str, *, strip_trailing: bool = True) -> set[str]:
+        # Deemix may either drop the illegal characters or replace them with "_"
+        # (its default, e.g. '... "Another Round")' -> '... _Another Round_)'),
+        # so try both. It also strips trailing dots/spaces from the *final*
+        # component only (the title, e.g. "APT." -> "Artist - APT.mp3"); an
+        # interior component (the artist) keeps its dot ("Boney M. - Ma Baker"),
+        # so the artist is tried with strip_trailing both ways at the call site.
+        base = s.strip()
+        forms = {re.sub(_ILLEGAL, "", base), re.sub(_ILLEGAL, "_", base)}
+        if strip_trailing:
+            forms = {f.rstrip(" .") for f in forms}
+        return {f for f in forms if f}
+
+    def title_variants(t: str) -> set[str]:
+        # Spotify and Deezer format version/feature suffixes differently: Spotify
+        # appends after a dash ("What A Life - From the Motion Picture …",
+        # "Song - Radio Edit"), Deezer/Deemix wraps it in parentheses
+        # ("… (Radio Edit)"). The file on disk uses the Deezer form, so when the
+        # title has a " - " suffix also try the parenthesised variant — this keeps
+        # cloud lookup working even after the acquisition job (which carried the
+        # exact Deezer name) has been cleared.
+        variants = {t}
+        head, sep, tail = t.partition(" - ")
+        if sep and tail:
+            variants.add(f"{head} ({tail})")
+        return variants
 
     # Build expected filenames from the Deemix naming template "%artist% - %title%"
     # and common variants produced by overwriteFiles:"rename" and playlist numbering.
     if title:
-        base = f"{sanitize_filename(artist)} - {sanitize_filename(title)}" if artist else sanitize_filename(title)
+        title_forms: set[str] = set()
+        for variant in title_variants(title):
+            title_forms |= component_forms(variant)
+        if artist:
+            artist_forms = component_forms(artist) | component_forms(
+                artist, strip_trailing=False
+            )
+            bases = {f"{art} - {ttl}" for art in artist_forms for ttl in title_forms}
+        else:
+            bases = set(title_forms)
         candidate_names = []
-        for ext in (".mp3", ".flac", ".m4a", ".ogg"):
-            candidate_names.append(f"{base}{ext}")
-            for n in range(1, 8):
-                candidate_names.append(f"{base} ({n}){ext}")
-            # Playlist batch adds a track number prefix (e.g. "001 - ")
-            for prefix in ("001", "002", "003"):
-                candidate_names.append(f"{prefix} - {base}{ext}")
-                for n in range(1, 5):
-                    candidate_names.append(f"{prefix} - {base} ({n}){ext}")
+        for base in bases:
+            for ext in (".mp3", ".flac", ".m4a", ".ogg"):
+                candidate_names.append(f"{base}{ext}")
+                for n in range(1, 8):
+                    candidate_names.append(f"{base} ({n}){ext}")
+                # Playlist batch adds a track number prefix (e.g. "001 - ")
+                for prefix in ("001", "002", "003"):
+                    candidate_names.append(f"{prefix} - {base}{ext}")
+                    for n in range(1, 5):
+                        candidate_names.append(f"{prefix} - {base} ({n}){ext}")
 
         for name in candidate_names:
             path = folder / name
