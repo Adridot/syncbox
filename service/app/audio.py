@@ -131,7 +131,15 @@ _SCAN_CACHE: dict[str, tuple[Any, float, list[dict[str, Any]]]] = {}
 _SCAN_TTL_S = 15.0
 
 
-def scan_audio_files(audio_dir: Path) -> list[dict[str, Any]]:
+def scan_audio_files(audio_dir: Path, *, fresh: bool = False) -> list[dict[str, Any]]:
+    """List audio files under ``audio_dir`` with cached metadata.
+
+    Pass ``fresh=True`` when correctness depends on seeing files that may have
+    landed within the cache TTL (e.g. confirming a just-finished download).
+    Cloud filesystems don't always bump the directory mtime when a file lands,
+    so the time-based cache could otherwise hide a brand-new file for up to the
+    TTL and leave a download job stuck at "downloaded".
+    """
     import time
 
     key = str(audio_dir)
@@ -143,7 +151,8 @@ def scan_audio_files(audio_dir: Path) -> list[dict[str, Any]]:
 
     cached = _SCAN_CACHE.get(key)
     if (
-        cached is not None
+        not fresh
+        and cached is not None
         and sig is not None
         and cached[0] == sig
         and (time.monotonic() - cached[1]) < _SCAN_TTL_S

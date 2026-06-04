@@ -197,7 +197,7 @@ def test_library_review_reconciles_completed_deemix_files(
     )
     monkeypatch.setattr(
         "app.library.scan_audio_files",
-        lambda _path: [
+        lambda _path, *, fresh=False: [
             {
                 "file_path": str(file_path),
                 "title": "New Song",
@@ -251,7 +251,7 @@ def test_library_download_does_not_requeue_active_completed_job(
     )
     monkeypatch.setattr(
         "app.library.scan_audio_files",
-        lambda _path: [
+        lambda _path, *, fresh=False: [
             {
                 "file_path": str(file_path),
                 "title": "New Song",
@@ -317,7 +317,7 @@ def test_library_refresh_keeps_ready_job_status_consistent(
     )
     monkeypatch.setattr(
         "app.library.scan_audio_files",
-        lambda _path: [
+        lambda _path, *, fresh=False: [
             {
                 "file_path": str(file_path),
                 "title": "New Song",

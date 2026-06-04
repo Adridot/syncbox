@@ -5,6 +5,7 @@ from app.rekordbox import (
     CollectionPath,
     add_rekordbox_content,
     content_path_lookup,
+    ensure_artist,
     ensure_event_my_tag,
     ensure_event_smart_playlist,
     find_content_by_path,
@@ -43,6 +44,70 @@ def test_resolve_volume_path_leaves_full_paths() -> None:
     full = STORAGE_ROOT + "/_rekordbox_sync/permanent/y.mp3"
     assert resolve_volume_path(full, STORAGE_ROOT) == full
     assert resolve_volume_path("/Users/x/Music/z.mp3", STORAGE_ROOT) == "/Users/x/Music/z.mp3"
+
+
+def test_delete_event_import_builds_preview_before_session_closes(tmp_path: Path, monkeypatch) -> None:
+    # Regression: committing the mutation expires the ORM rows, so the delete
+    # preview (which reads each content's Title for deletedSamples) must be built
+    # *inside* the session. Building it after commit raised "instance is not bound
+    # to a Session" and turned every event deletion into an HTTP 409.
+    from contextlib import contextmanager
+
+    import app.rekordbox.adapter as adapter_module
+    from app.rekordbox import RekordboxAdapter
+
+    class DetachableContent:
+        """A content row that raises on attribute access once 'committed'."""
+
+        FolderPath = ""
+
+        def __init__(self, title: str) -> None:
+            self._title = title
+            self.detached = False
+            self.rb_local_deleted = 0
+
+        @property
+        def Title(self) -> str:
+            if self.detached:
+                raise RuntimeError("Instance is not bound to a Session")
+            return self._title
+
+    content = DetachableContent("Song A")
+    plan = {
+        "delete_contents": [content],
+        "protected_contents": [],
+        "event_tag_rows": [],
+        "event_mytag_rows": [],
+        "event_playlist_rows": [],
+        "warnings": [],
+    }
+
+    adapter = RekordboxAdapter(database_dir=tmp_path / "db", storage_root=tmp_path / "store")
+    monkeypatch.setattr(adapter_module, "build_event_delete_plan", lambda *a, **k: plan)
+    monkeypatch.setattr(adapter_module, "_remove_playlist_from_xml", lambda *a, **k: None)
+    monkeypatch.setattr(adapter_module, "mark_rekordbox_row_deleted", lambda row: None)
+    monkeypatch.setattr(
+        RekordboxAdapter,
+        "storage_layout",
+        lambda self: SimpleNamespace(
+            permanent=str(tmp_path / "p"), manual_collection=str(tmp_path / "m")
+        ),
+    )
+
+    @contextmanager
+    def fake_mutate(self):
+        try:
+            yield (object(), object(), tmp_path / "backup")
+        finally:
+            content.detached = True  # commit expires/detaches the ORM rows
+
+    monkeypatch.setattr(RekordboxAdapter, "_mutate", fake_mutate)
+
+    review = SimpleNamespace(id=1, event_name="E", default_tag="E", event_dir=str(tmp_path))
+    response = adapter.delete_event_import(review)
+
+    assert response.deleted_samples == ["Song A"]  # captured before detach
+    assert response.deleted_from_rekordbox == 1
 
 
 def test_remove_event_directory_deletes_under_events_root(tmp_path: Path) -> None:
@@ -377,6 +442,77 @@ def test_add_rekordbox_content_uses_string_ids_for_varchar_primary_keys(tmp_path
     assert database.flushed
 
 
+class _ArtistFakeQuery:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def filter(self, *_args, **_kwargs):
+        # Real SQLAlchemy clause is opaque here; callers only ever pass an
+        # exact Name match, so returning the row set is enough for these tests.
+        return self
+
+    def filter_by(self, **kwargs):
+        name = kwargs.get("Name")
+        return _ArtistFakeQuery([r for r in self._rows if getattr(r, "Name", None) == name])
+
+    def first(self):
+        return self._rows[0] if self._rows else None
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class _ArtistFakeDatabase:
+    def __init__(self, artists=None):
+        self.artists = list(artists or [])
+        self.added_rows = []
+        self.flushed = False
+
+    def query(self, _table):
+        return _ArtistFakeQuery(self.artists)
+
+    def generate_unused_id(self, _table, is_28_bit=True):
+        # pyrekordbox returns an int; generated_rekordbox_id stringifies it.
+        return 555000111
+
+    def add(self, row) -> None:
+        self.added_rows.append(row)
+        self.artists.append(row)
+
+    def flush(self) -> None:
+        self.flushed = True
+
+
+def test_ensure_artist_creates_string_id_not_int() -> None:
+    # All existing DjmdArtist.ID values are strings; a new artist must keep that
+    # invariant, otherwise SQLAlchemy crashes sorting mixed int/str keys on flush.
+    database = _ArtistFakeDatabase()
+
+    artist = ensure_artist(database, "Brand New Artist")
+
+    assert artist is not None
+    assert isinstance(artist.ID, str)
+    assert artist.ID == "555000111"
+    assert artist.Name == "Brand New Artist"
+    assert database.added_rows == [artist]
+    assert database.flushed
+
+
+def test_ensure_artist_reactivates_soft_deleted_homonym() -> None:
+    ghost = SimpleNamespace(ID="42", Name="Ghost", rb_local_deleted=1)
+    database = _ArtistFakeDatabase(artists=[ghost])
+
+    artist = ensure_artist(database, "Ghost")
+
+    assert artist is ghost
+    assert is_rekordbox_row_deleted(ghost) is False  # reactivated, reused
+    assert database.added_rows == []  # no duplicate created
+
+
+def test_ensure_artist_returns_none_for_blank_name() -> None:
+    assert ensure_artist(_ArtistFakeDatabase(), "   ") is None
+
+
 def test_ensure_event_my_tag_moves_orphan_tag_to_situation_category() -> None:
     category = SimpleNamespace(
         ID="3",
@@ -501,6 +637,11 @@ class FakeTables:
     )
     DjmdContent = type(
         "DjmdContent",
+        (),
+        {"create": staticmethod(lambda **kwargs: SimpleNamespace(**kwargs, rb_local_deleted=0))},
+    )
+    DjmdArtist = type(
+        "DjmdArtist",
         (),
         {"create": staticmethod(lambda **kwargs: SimpleNamespace(**kwargs, rb_local_deleted=0))},
     )

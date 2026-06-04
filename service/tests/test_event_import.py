@@ -322,7 +322,7 @@ def test_scan_event_staging_matches_missing_track(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(
         event_import,
         "scan_audio_files",
-        lambda _: [
+        lambda _, *, fresh=False: [
             {
                 "file_path": str(track_path),
                 "title": "New Song",
@@ -453,7 +453,7 @@ def test_scan_event_staging_revalidates_stale_automatic_match(
     monkeypatch.setattr(
         event_import,
         "scan_audio_files",
-        lambda _: [
+        lambda _, *, fresh=False: [
             {
                 "file_path": str(wrong_path),
                 "title": "Different Song",
@@ -520,7 +520,7 @@ def test_scan_event_staging_assigns_each_file_once(
     monkeypatch.setattr(
         event_import,
         "scan_audio_files",
-        lambda _: [
+        lambda _, *, fresh=False: [
             {
                 "file_path": str(track_path),
                 "title": "Shared Song",

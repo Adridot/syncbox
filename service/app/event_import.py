@@ -282,7 +282,9 @@ def rekordbox_track_payload(
 
 def scan_event_staging(database: LocalDatabase, event_id: int) -> EventReview:
     review = require_event_review(database, event_id)
-    staging_files = scan_audio_files(Path(review.audio_dir))
+    # fresh=True: reconciles just-downloaded files against jobs, so it must see
+    # files that landed within the cache TTL (cloud FS may not bump dir mtime).
+    staging_files = scan_audio_files(Path(review.audio_dir), fresh=True)
     current_file_paths = {str(file_info["file_path"]) for file_info in staging_files}
     reconcile_staged_tracks(database, review, current_file_paths)
     review = require_event_review(database, event_id)
