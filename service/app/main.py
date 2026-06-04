@@ -120,6 +120,15 @@ SPOTIFY_AUTH_EXPIRED_DETAIL = (
 )
 
 
+def spotify_http_error(exc: SpotifyAuthError) -> HTTPException:
+    """Map a SpotifyAuthError to an HTTP error. A Spotify 404 (a private or
+    deleted playlist) is *not* an auth failure, so surface it as 404 with its
+    actionable message instead of a misleading 401; everything else stays 401."""
+    if exc.status_code == 404:
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=401, detail=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logger.info("Syncbox service starting (version %s)", app_version())
@@ -528,6 +537,10 @@ async def sync_library_source_endpoint(source_id: int) -> LibraryReview:
             source_id,
         )
     except SpotifyAuthError as exc:
+        # A 404 (private/deleted playlist) isn't an auth failure — surface its
+        # actionable message instead of the generic "reconnect Spotify".
+        if exc.status_code == 404:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         logger.warning("sync source %s: Spotify auth failed: %s", source_id, exc)
         raise HTTPException(
             status_code=401,
@@ -552,7 +565,15 @@ async def sync_all_library_sources() -> list[LibraryReview]:
             review = await sync_library_source(database, adapter, client, source.id)
             results.append(review)
         except SpotifyAuthError as exc:
-            # The token is dead for every source — stop hammering Spotify.
+            # A 404 is one inaccessible playlist (private/deleted), not a dead
+            # token — record it as a per-source failure and keep going. Any other
+            # auth error means the token is dead for every source: stop early.
+            if exc.status_code == 404:
+                failures.append(source.spotify_playlist_name)
+                logger.warning(
+                    "sync-all: source %s playlist not accessible: %s", source.id, exc
+                )
+                continue
             auth_failed = True
             logger.warning("sync-all: Spotify auth failed: %s", exc)
             break
@@ -908,7 +929,7 @@ async def list_spotify_playlists(
             limit=limit, offset=offset
         )
     except SpotifyAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        raise spotify_http_error(exc) from exc
     return summarize_playlist_page(payload)
 
 
@@ -930,7 +951,7 @@ async def analyze_event(request: SpotifyEventAnalyzeRequest) -> EventReview:
         )
         return enrich_review_with_rekordbox_tracks(review)
     except SpotifyAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        raise spotify_http_error(exc) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -960,7 +981,7 @@ async def add_event_spotify_track(event_id: int, request: EventTrackAddRequest) 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SpotifyAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        raise spotify_http_error(exc) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:

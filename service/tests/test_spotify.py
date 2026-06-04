@@ -71,6 +71,86 @@ def test_app_token_requires_credentials(tmp_path: Path) -> None:
         asyncio.run(SpotifyClient(database)._get_app_token())
 
 
+def _patch_404(monkeypatch) -> None:
+    import httpx
+
+    class FakeResp:
+        status_code = 404
+        text = '{"error":{"status":404,"message":"Resource not found"}}'
+
+        def json(self):
+            return {"error": {"status": 404, "message": "Resource not found"}}
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def request(self, *a, **k):
+            return FakeResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+
+def test_get_playlist_404_signed_out_suggests_sign_in(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+
+    import pytest
+
+    from app.spotify import SpotifyAuthError
+
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    client = SpotifyClient(database)
+
+    async def fake_app_token(force: bool = False) -> str:
+        return "TKN"
+
+    monkeypatch.setattr(client, "_get_app_token", fake_app_token)
+    _patch_404(monkeypatch)
+
+    # No account connected -> a 404 is almost certainly a private playlist.
+    with pytest.raises(SpotifyAuthError) as exc_info:
+        asyncio.run(client.get_playlist("abc123"))
+
+    message = str(exc_info.value).lower()
+    assert "private" in message
+    assert "connect your spotify account" in message
+    assert exc_info.value.status_code == 404
+
+
+def test_get_playlist_404_signed_in_says_not_found(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+
+    import pytest
+
+    from app.spotify import SpotifyAuthError
+
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    database.set_setting("spotify_user_refresh_token", "refresh-token")  # connected
+    client = SpotifyClient(database)
+
+    async def fake_user_token(force: bool = False) -> str:
+        return "USER-TKN"
+
+    monkeypatch.setattr(client, "_get_user_token", fake_user_token)
+    _patch_404(monkeypatch)
+
+    with pytest.raises(SpotifyAuthError) as exc_info:
+        asyncio.run(client.get_playlist("abc123"))
+
+    message = str(exc_info.value).lower()
+    assert "not found" in message
+    # Already signed in: guide to reconnect (stale scope) rather than "sign in".
+    assert "reconnect" in message
+
+
 def test_parse_track_id_from_url() -> None:
     assert parse_track_id("https://open.spotify.com/track/abc123?si=xyz") == "abc123"
 
