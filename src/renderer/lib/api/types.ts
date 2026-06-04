@@ -391,8 +391,18 @@ export type DuplicateResolutionResponse = {
 
 export type SpotifyConnectionStatus = {
   connected: boolean;
+  // "oauth" = signed in with a user account (private playlists visible),
+  // "app" = Client-Credentials fallback (public playlists only), "" = unconfigured.
+  mode: string;
   username: string;
   displayName: string;
+  redirectUri: string;
+};
+
+export type AuthUrlResponse = {
+  authorizationUrl: string;
+  state: string;
+  redirectUri: string;
 };
 
 export type SpotifyPlaylistSummary = {

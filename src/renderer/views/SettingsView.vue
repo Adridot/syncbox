@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Archive, CheckCircle2, CloudDownload, Download, FolderOpen, Key, Loader2, Play, Save, Settings2, Upload } from "@lucide/vue";
+import { AlertTriangle, Archive, CheckCircle2, CloudDownload, Download, ExternalLink, FolderOpen, Key, Loader2, LogOut, Play, Save, Settings2, Upload } from "@lucide/vue";
 import { onMounted, onUnmounted, ref } from "vue";
 import type { DeemixDesktopStatus } from "../types/electron";
 import { useSettingsStore } from "../stores/settings";
@@ -60,6 +60,8 @@ async function installDeemix(): Promise<void> {
 }
 
 onMounted(() => {
+  // Load the current Spotify account state for the connection badge.
+  system.refreshSpotifyStatus();
   if (!window.desktop) return;
   refreshDeemix();
   deemixTimer = window.setInterval(refreshDeemix, 5000);
@@ -163,6 +165,71 @@ async function onDataFile(event: Event): Promise<void> {
                 <CheckCircle2 :size="17" aria-hidden="true" />
                 Test Connection
               </button>
+
+              <!-- Optional: sign in with a real account to see private playlists. -->
+              <div class="grid gap-3 rounded-lg border border-outline-variant bg-surface-container p-4">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p class="text-sm font-bold text-on-surface">Connect your Spotify account</p>
+                    <p class="text-xs text-on-surface-variant">
+                      Optional — unlocks your private, collaborative and followed playlists in Manage sources.
+                    </p>
+                  </div>
+                  <span
+                    v-if="system.spotifyStatus"
+                    class="inline-flex items-center gap-1.5 text-sm font-semibold"
+                    :class="
+                      system.spotifyStatus.connected && system.spotifyStatus.mode === 'oauth'
+                        ? 'text-secondary'
+                        : 'text-tertiary'
+                    "
+                  >
+                    <CheckCircle2
+                      v-if="system.spotifyStatus.connected && system.spotifyStatus.mode === 'oauth'"
+                      :size="16"
+                      aria-hidden="true"
+                    />
+                    <AlertTriangle v-else :size="16" aria-hidden="true" />
+                    {{
+                      system.spotifyStatus.connected && system.spotifyStatus.mode === "oauth"
+                        ? `Connected as ${system.spotifyStatus.displayName || system.spotifyStatus.username}`
+                        : "No account connected"
+                    }}
+                  </span>
+                </div>
+                <div class="flex flex-wrap items-center gap-3">
+                  <button
+                    class="inline-flex items-center gap-2 rounded border border-outline bg-surface px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-primary disabled:opacity-60"
+                    type="button"
+                    :disabled="settings.spotifyConnecting"
+                    @click="settings.connectSpotifyAccount()"
+                  >
+                    <Loader2 v-if="settings.spotifyConnecting" :size="17" class="animate-spin" aria-hidden="true" />
+                    <ExternalLink v-else :size="17" aria-hidden="true" />
+                    {{ settings.spotifyConnecting ? "Waiting for sign-in…" : "Connect my account" }}
+                  </button>
+                  <button
+                    v-if="system.spotifyStatus?.connected && system.spotifyStatus.mode === 'oauth'"
+                    class="inline-flex items-center gap-2 rounded px-3 py-2 text-sm font-semibold text-on-surface-variant transition-colors hover:text-on-surface disabled:opacity-60"
+                    type="button"
+                    :disabled="ui.loading"
+                    @click="settings.disconnectSpotifyAccount()"
+                  >
+                    <LogOut :size="16" aria-hidden="true" />
+                    Disconnect
+                  </button>
+                </div>
+                <small v-if="system.spotifyStatus?.redirectUri" class="text-xs text-on-surface-variant">
+                  In your Spotify app's settings, add this exact Redirect URI:
+                  <code class="rounded bg-surface-container-high px-1.5 py-0.5 font-mono text-[11px]">{{
+                    system.spotifyStatus.redirectUri
+                  }}</code>
+                </small>
+                <small class="text-xs text-on-surface-variant">
+                  Note: a Spotify app in Development mode only allows accounts you add under
+                  “User Management” (max 25). Public access needs Spotify’s Extended Quota approval.
+                </small>
+              </div>
             </div>
           </section>
 

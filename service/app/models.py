@@ -83,10 +83,25 @@ class TagRule(TagRuleIn):
     id: int
 
 
+class SpotifyAuthUrlRequest(BaseModel):
+    client_id: str = Field(alias="clientId")
+    redirect_uri: str = Field(default="", alias="redirectUri")
+
+
+class SpotifyAuthUrlResponse(BaseModel):
+    authorization_url: str = Field(alias="authorizationUrl")
+    state: str
+    redirect_uri: str = Field(alias="redirectUri")
+
+
 class SpotifyConnectionStatus(BaseModel):
     connected: bool = False
+    # "oauth" when signed in with a user account, "app" for the Client-Credentials
+    # fallback (public playlists only), "" when not configured at all.
+    mode: str = ""
     username: str = ""
     display_name: str = Field(default="", alias="displayName")
+    redirect_uri: str = Field(default="", alias="redirectUri")
 
 
 class SpotifyPlaylistSummary(BaseModel):

@@ -6,6 +6,7 @@ import {
   type HealthResponse,
   type RekordboxCollectionStats,
   type RekordboxStatus,
+  type SpotifyConnectionStatus,
   createApiClient,
 } from "../lib/api";
 
@@ -14,6 +15,7 @@ export const useSystemStore = defineStore("system", () => {
   const health = ref<HealthResponse | null>(null);
   const rekordboxStatus = ref<RekordboxStatus | null>(null);
   const deemixStatus = ref<DeemixStatus | null>(null);
+  const spotifyStatus = ref<SpotifyConnectionStatus | null>(null);
   const collectionStats = ref<RekordboxCollectionStats | null>(null);
 
   async function init(): Promise<void> {
@@ -33,14 +35,25 @@ export const useSystemStore = defineStore("system", () => {
 
   async function refreshStatus(): Promise<void> {
     if (!api.value) return;
-    const [nextHealth, nextStatus, nextDeemix] = await Promise.all([
+    const [nextHealth, nextStatus, nextDeemix, nextSpotify] = await Promise.all([
       api.value.getHealth(),
       api.value.getRekordboxStatus(),
       api.value.getDeemixStatus().catch(() => deemixStatus.value),
+      api.value.getSpotifyStatus().catch(() => spotifyStatus.value),
     ]);
     health.value = nextHealth;
     rekordboxStatus.value = nextStatus;
     deemixStatus.value = nextDeemix;
+    spotifyStatus.value = nextSpotify;
+  }
+
+  async function refreshSpotifyStatus(): Promise<void> {
+    if (!api.value) return;
+    try {
+      spotifyStatus.value = await api.value.getSpotifyStatus();
+    } catch {
+      // Leave the previous value in place on a transient failure.
+    }
   }
 
   return {
@@ -48,9 +61,11 @@ export const useSystemStore = defineStore("system", () => {
     health,
     rekordboxStatus,
     deemixStatus,
+    spotifyStatus,
     collectionStats,
     init,
     refreshStatus,
+    refreshSpotifyStatus,
     refreshCollectionStats,
   };
 });

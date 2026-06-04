@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator
 import httpx
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from .config import load_config
 from .diagnostics import run_diagnostics
@@ -70,6 +70,8 @@ from .models import (
     SettingsBackup,
     SettingsImportResponse,
     RekordboxTag,
+    SpotifyAuthUrlRequest,
+    SpotifyAuthUrlResponse,
     SpotifyConnectionStatus,
     SpotifyEventAnalyzeRequest,
     SpotifyPlaylistsResponse,
@@ -813,6 +815,87 @@ async def test_spotify_connection() -> SpotifyConnectionStatus:
     except SpotifyAuthError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return SpotifyConnectionStatus(**result)
+
+
+def spotify_redirect_uri() -> str:
+    """The loopback redirect URI the user must register in the Spotify dashboard.
+    Computed from the service port so it always matches where we actually listen."""
+    return f"http://127.0.0.1:{config.api_port}/api/spotify/callback"
+
+
+@app.get("/api/spotify/status", response_model=SpotifyConnectionStatus)
+def spotify_status() -> SpotifyConnectionStatus:
+    result = SpotifyClient(database).connection_status(spotify_redirect_uri())
+    return SpotifyConnectionStatus(**result)
+
+
+@app.post("/api/spotify/auth-url", response_model=SpotifyAuthUrlResponse)
+def spotify_auth_url(request: SpotifyAuthUrlRequest) -> dict[str, str]:
+    """Build the consent URL for the optional account sign-in. The redirect URI is
+    fixed to the local service callback (ignores any client-supplied value)."""
+    client_id = request.client_id or database.get_setting("spotify_client_id")
+    try:
+        return SpotifyClient(database).build_authorization_url(
+            client_id, spotify_redirect_uri()
+        )
+    except SpotifyAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/spotify/disconnect", response_model=SpotifyConnectionStatus)
+def spotify_disconnect() -> SpotifyConnectionStatus:
+    client = SpotifyClient(database)
+    client.disconnect_account()
+    return SpotifyConnectionStatus(**client.connection_status(spotify_redirect_uri()))
+
+
+@app.get("/api/spotify/callback", response_class=HTMLResponse)
+async def spotify_callback(
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+) -> str:
+    if error:
+        return callback_page("Spotify sign-in failed", error)
+    if not code or not state:
+        return callback_page("Spotify sign-in failed", "Missing code or state.")
+    try:
+        await SpotifyClient(database).exchange_callback(code, state)
+    except SpotifyAuthError as exc:
+        return callback_page("Spotify sign-in failed", str(exc))
+    return callback_page("Spotify connected", "You can return to Syncbox.")
+
+
+def callback_page(title: str, message: str) -> str:
+    return f"""
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{title}</title>
+        <style>
+          body {{
+            margin: 0; min-height: 100vh; display: flex; align-items: center;
+            justify-content: center; background: #0d0d0d; color: #f5f5f5;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          }}
+          .card {{
+            max-width: 420px; padding: 40px; text-align: center;
+            background: #1a1a1a; border-radius: 16px;
+          }}
+          h1 {{ font-size: 20px; margin: 0 0 12px; }}
+          p {{ margin: 0; color: #b3b3b3; }}
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>{title}</h1>
+          <p>{message}</p>
+        </div>
+      </body>
+    </html>
+    """
 
 
 @app.get("/api/spotify/playlists", response_model=SpotifyPlaylistsResponse)

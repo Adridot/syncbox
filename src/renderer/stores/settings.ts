@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { reactive, ref } from "vue";
 import type { AppSettings, PathValidation, StorageLayout } from "../lib/api";
+import { useSpotifyStore } from "./spotify";
 import { useSystemStore } from "./system";
 import { useUiStore } from "./ui";
 
@@ -182,11 +183,74 @@ export const useSettingsStore = defineStore("settings", () => {
     });
   }
 
+  // Optional: sign in with a real Spotify account (Authorization Code flow) to
+  // unlock private/collaborative/followed playlists. Save the client id/secret,
+  // open the consent page in the browser, then poll until the local callback has
+  // stored the tokens.
+  const spotifyConnecting = ref(false);
+
+  async function connectSpotifyAccount(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api || spotifyConnecting.value) return;
+    spotifyConnecting.value = true;
+    try {
+      Object.assign(settings, await system.api.saveSettings(settings));
+      const { authorizationUrl } = await system.api.getSpotifyAuthUrl(
+        settings.spotifyClientId
+      );
+      if (window.desktop) {
+        await window.desktop.openExternal(authorizationUrl);
+      } else {
+        window.open(authorizationUrl, "_blank", "noopener,noreferrer");
+      }
+      ui.setMessage("info", "Finish signing in to Spotify in your browser…");
+
+      // Poll the local callback's result: every 1.5s for up to ~2 minutes.
+      const deadline = Date.now() + 120_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const status = await system.api.getSpotifyStatus().catch(() => null);
+        if (status?.connected && status.mode === "oauth") {
+          system.spotifyStatus = status;
+          ui.setMessage(
+            "success",
+            `Connected to Spotify as ${status.displayName || status.username}.`
+          );
+          // Re-fetch "Manage sources" so private playlists show up immediately.
+          await useSpotifyStore().fetchAllPlaylists();
+          return;
+        }
+      }
+      ui.setMessage(
+        "error",
+        "Spotify sign-in timed out. Make sure the redirect URI is registered in your Spotify app, then try again."
+      );
+    } catch (error) {
+      ui.setMessage("error", error instanceof Error ? error.message : String(error));
+    } finally {
+      spotifyConnecting.value = false;
+    }
+  }
+
+  async function disconnectSpotifyAccount(): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    await ui.withLoading(async () => {
+      system.spotifyStatus = await system.api!.disconnectSpotify();
+      ui.setMessage("success", "Disconnected your Spotify account.");
+      // Fall back to public playlists (app token).
+      await useSpotifyStore().fetchAllPlaylists();
+    });
+  }
+
   return {
     settings,
     storage,
     pathChecks,
     backupBusy,
+    spotifyConnecting,
     load,
     save,
     loadStorage,
@@ -197,6 +261,8 @@ export const useSettingsStore = defineStore("settings", () => {
     exportData,
     importDataFromFile,
     testSpotify,
+    connectSpotifyAccount,
+    disconnectSpotifyAccount,
     connectDeezer,
   };
 });
