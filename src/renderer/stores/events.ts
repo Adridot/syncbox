@@ -128,15 +128,26 @@ export const useEventsStore = defineStore("events", () => {
     const system = useSystemStore();
     const ui = useUiStore();
     if (!system.api) return;
-    await ui.withLoading(async () => {
-      const review = await system.api!.analyzeSpotifyEvent(importForm);
-      requestedEventId.value = review.id;
-      activeEvent.value = review;
+    const review = await ui.withLoading(async () => {
+      const created = await system.api!.analyzeSpotifyEvent(importForm);
+      requestedEventId.value = created.id;
+      activeEvent.value = created;
+      // Populate the per-event jobs (initially queued) right away so the
+      // workspace shows progress immediately, independent of autoDownload's
+      // anti-oscillation guard which only applies its *final* result.
+      acquisitionJobs.value = await system.api!.listAcquisitionJobs(created.id);
       summaries.value = await system.api!.listEvents();
+      importForm.playlistUrl = "";
+      importForm.eventName = "";
       ui.navigateTo("events");
-      ui.setMessage("success", `${review.totalTracks} Spotify tracks analyzed.`);
-      await autoDownload(review.id);
+      ui.setMessage("success", `${created.totalTracks} Spotify tracks analyzed.`);
+      return created;
     });
+    // Fetch missing tracks outside the loading overlay so the workspace renders
+    // immediately and per-track progress (queued → downloading → ready) streams
+    // in live via the refresh/SSE poll, instead of staying hidden behind the
+    // spinner until the whole download batch finishes.
+    if (review) void autoDownload(review.id);
   }
 
   async function createManualEvent(eventName: string): Promise<EventReview | null> {
@@ -168,12 +179,16 @@ export const useEventsStore = defineStore("events", () => {
     requestedEventId.value = eventId;
     const ok = await ui.withLoading(async () => {
       activeEvent.value = await system.api!.addEventSpotifyTrack(eventId, trackUrl.trim());
+      // Show the per-event jobs immediately; autoDownload (below) only applies
+      // its final result, and the refresh/SSE poll streams progress live.
+      acquisitionJobs.value = await system.api!.listAcquisitionJobs(eventId);
       summaries.value = await system.api!.listEvents();
       ui.setMessage("success", "Track added to the event.");
-      // Missing tracks are fetched automatically; only failures are surfaced.
-      await autoDownload(eventId);
       return true;
     });
+    // Missing tracks are fetched automatically (outside the loading overlay so
+    // progress shows); only failures are surfaced.
+    if (ok === true) void autoDownload(eventId);
     return ok === true;
   }
 

@@ -214,8 +214,9 @@ class DeemixClient:
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.request(method, url, json=json)
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                # Network-level blip (timeout, connection reset): retry.
+            except httpx.TransportError as exc:
+                # Network-level blip — timeout, connection reset, protocol error
+                # (TimeoutException is itself a TransportError): retry.
                 last_exc = exc
             else:
                 if response.status_code in _RETRYABLE_STATUS:
