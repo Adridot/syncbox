@@ -1,6 +1,6 @@
 {
   "name": "syncbox",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "type": "module",
   "description": "Syncbox — DJ playlist sync for Rekordbox. Local desktop app for controlled Spotify to Rekordbox synchronization.",
