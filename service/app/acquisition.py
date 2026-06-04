@@ -703,14 +703,14 @@ def reconcile_event_job_statuses(
         for track in review.tracks
         if track.status in {"ready", "applied"} and track.staging_file_path
     }
-    for spotify_track_id in ready_ids:
-        job = database.get_acquisition_job(event_id, spotify_track_id, DEEMIX_PROVIDER)
-        if job and job.status != "ready":
-            database.update_acquisition_job(
-                event_id, spotify_track_id, status="ready", error=None
-            )
+    # One query for all jobs (this runs on every refresh), then reconcile each.
     for job in database.list_acquisition_jobs(event_id, DEEMIX_PROVIDER):
-        if job.status == "ready" and job.spotify_track_id not in ready_ids:
+        track_is_ready = job.spotify_track_id in ready_ids
+        if track_is_ready and job.status != "ready":
+            database.update_acquisition_job(
+                event_id, job.spotify_track_id, status="ready", error=None
+            )
+        elif job.status == "ready" and not track_is_ready:
             database.update_acquisition_job(
                 event_id,
                 job.spotify_track_id,
