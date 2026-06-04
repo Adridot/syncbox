@@ -46,6 +46,18 @@ def test_resolve_volume_path_leaves_full_paths() -> None:
     assert resolve_volume_path("/Users/x/Music/z.mp3", STORAGE_ROOT) == "/Users/x/Music/z.mp3"
 
 
+def test_content_folder_path_relative_only_inside_managed_library() -> None:
+    from app.rekordbox import content_folder_path
+
+    in_lib = STORAGE_ROOT + "/rekordbox/Collection/ABBA - SOS.mp3"
+    assert content_folder_path(in_lib, STORAGE_ROOT) == "/Musique/rekordbox/Collection/ABBA - SOS.mp3"
+    # Outside the managed library (event staging) -> absolute.
+    staging = STORAGE_ROOT + "/_rekordbox_sync/events/gig/audio/x.mp3"
+    assert content_folder_path(staging, STORAGE_ROOT) == staging
+    # No storage_root -> absolute.
+    assert content_folder_path("/Users/x/Music/z.mp3", None) == "/Users/x/Music/z.mp3"
+
+
 def test_delete_event_import_builds_preview_before_session_closes(tmp_path: Path, monkeypatch) -> None:
     # Regression: committing the mutation expires the ORM rows, so the delete
     # preview (which reads each content's Title for deletedSamples) must be built

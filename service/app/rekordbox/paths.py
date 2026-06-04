@@ -55,6 +55,25 @@ def resolve_volume_path(folder_path: str, storage_root: Path | str) -> str:
     return folder_path
 
 
+def content_folder_path(path: Path | str, storage_root: Path | str | None) -> str:
+    """The FolderPath to store on a DjmdContent row for a file on disk.
+
+    Rekordbox only resolves a volume-relative path ("/<volume>/…") for files
+    inside its MANAGED library folder, "<storage_root>/rekordbox/…" (where its
+    native Collection lives). For files outside it — event staging under
+    "_rekordbox_sync/…", imported-from-device, etc. — it can't resolve
+    "/<volume>/<other>" and reports the file as missing, so those must be stored
+    ABSOLUTE (matching how Rekordbox itself stores out-of-library files).
+    """
+    file_path = Path(str(path))
+    if storage_root is None:
+        return str(file_path)
+    managed_root = Path(str(storage_root)) / "rekordbox"
+    if managed_root in file_path.parents:
+        return to_volume_relative(file_path, storage_root)
+    return str(file_path)
+
+
 @dataclass(frozen=True)
 class CollectionPath:
     """A track file location that Rekordbox stores volume-relative
