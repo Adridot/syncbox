@@ -60,11 +60,25 @@ jobs:
           FALLBACK_TITLE: Release ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
-          # The PR associated with the pushed (merge/squash) commit.
-          body="$(gh api "repos/$REPO/commits/$COMMIT_SHA/pulls" --jq '.[0].body // ""' 2>/dev/null || true)"
-          title="$(gh api "repos/$REPO/commits/$COMMIT_SHA/pulls" --jq '.[0].title // ""' 2>/dev/null || true)"
+          body=""
+          title=""
+          # Resolve the PR deterministically from the merge/squash commit message
+          # ("Merge pull request #N …" or "Title (#N)"). The commit->PR association
+          # API (commits/{sha}/pulls) lags a few seconds after a merge, so relying
+          # on it raced and produced empty notes; the number in the commit subject
+          # is available immediately.
+          pr_number="$(git log -1 --pretty='%s%n%b' | grep -oiE '#[0-9]+' | head -1 | tr -dc '0-9' || true)"
+          if [ -n "$pr_number" ]; then
+            body="$(gh api "repos/$REPO/pulls/$pr_number" --jq '.body // ""' || true)"
+            title="$(gh api "repos/$REPO/pulls/$pr_number" --jq '.title // ""' || true)"
+          fi
+          # Fallback 1: the association API (covers PRs whose number isn't in the subject).
           if [ -z "${body//[[:space:]]/}" ]; then
-            # Direct push, or a PR with an empty body: fall back to the commit message.
+            body="$(gh api "repos/$REPO/commits/$COMMIT_SHA/pulls" --jq '.[0].body // ""' 2>/dev/null || true)"
+            title="$(gh api "repos/$REPO/commits/$COMMIT_SHA/pulls" --jq '.[0].title // ""' 2>/dev/null || true)"
+          fi
+          # Fallback 2: direct push, or a PR with an empty body -> the commit message.
+          if [ -z "${body//[[:space:]]/}" ]; then
             title="$(git log -1 --pretty=%s)"
             body="$(git log -1 --pretty=%b)"
           fi
