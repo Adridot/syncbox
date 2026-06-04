@@ -87,8 +87,14 @@ function statusTone(status: string): "ok" | "warn" | "active" | "muted" | "neutr
   return "neutral";
 }
 
+const jobsByTrackId = computed(() => {
+  const map = new Map<string, AcquisitionJob>();
+  for (const job of props.acquisitionJobs ?? []) map.set(job.spotifyTrackId, job);
+  return map;
+});
+
 function jobFor(track: TrackReview): AcquisitionJob | undefined {
-  return props.acquisitionJobs?.find((j) => j.spotifyTrackId === track.spotifyTrackId);
+  return jobsByTrackId.value.get(track.spotifyTrackId);
 }
 
 function jobLabel(job?: AcquisitionJob): string {
@@ -104,19 +110,16 @@ function jobTone(job?: AcquisitionJob): "ok" | "warn" | "active" | "muted" {
 }
 
 // One badge per track instead of two (track status + job status, which mostly
-// duplicated each other). For a still-"missing" track the job carries the only
-// new information — show the in-flight state, or "failed" — otherwise the track
-// status already says it all.
+// duplicated each other). For a still-"missing" track the download job is the
+// live signal (queued → downloading → downloaded/ready, or failed/ambiguous) so
+// show it; otherwise the track status already says it all.
 function displayStatus(track: TrackReview): {
   label: string;
   tone: "ok" | "warn" | "active" | "muted" | "neutral";
 } {
   const job = jobFor(track);
   if (track.status === "missing" && job) {
-    if (job.status === "queued" || job.status === "downloading" || job.status === "downloaded") {
-      return { label: jobLabel(job), tone: jobTone(job) };
-    }
-    if (job.status === "acquisition_failed") return { label: "failed", tone: "warn" };
+    return { label: jobLabel(job), tone: jobTone(job) };
   }
   return { label: track.status.replaceAll("_", " "), tone: statusTone(track.status) };
 }
