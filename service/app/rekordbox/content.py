@@ -292,10 +292,19 @@ def add_rekordbox_content(
     from pyrekordbox.db6.tables import FileType
 
     file_path = Path(path)  # real, full path on disk
-    # Store the path volume-relative ("/Musique/…") when under the storage root,
-    # to stay uniform with Rekordbox's native collection entries.
+    # Rekordbox only resolves a volume-relative path ("/Musique/…") for files
+    # inside its MANAGED library folder, "<storage_root>/rekordbox/…" (that's how
+    # its native Collection entries are stored). For files outside it — event
+    # staging under "_rekordbox_sync/events/…", imported-from-device, etc. —
+    # Rekordbox can't resolve "/Musique/<other>" and shows "file could not be
+    # found", so those must be stored as ABSOLUTE paths (matching how Rekordbox
+    # itself stores out-of-library files).
+    managed_root = Path(storage_root) / "rekordbox" if storage_root else None
+    under_managed_library = managed_root is not None and managed_root in file_path.parents
     path_string = (
-        to_volume_relative(file_path, storage_root) if storage_root else str(file_path)
+        to_volume_relative(file_path, storage_root)
+        if under_managed_library
+        else str(file_path)
     )
     existing = database.query(tables.DjmdContent).filter_by(FolderPath=path_string)
     if existing.count() > 0:

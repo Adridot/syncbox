@@ -442,6 +442,32 @@ def test_add_rekordbox_content_uses_string_ids_for_varchar_primary_keys(tmp_path
     assert database.flushed
 
 
+def test_add_rekordbox_content_path_is_relative_only_inside_managed_library(
+    tmp_path: Path,
+) -> None:
+    storage_root = tmp_path / "Musique"
+
+    # Inside <storage_root>/rekordbox/… -> volume-relative (Rekordbox resolves it).
+    collection = storage_root / "rekordbox" / "Collection"
+    collection.mkdir(parents=True)
+    in_lib = collection / "ABBA - SOS.mp3"
+    in_lib.write_bytes(b"audio")
+    content = add_rekordbox_content(
+        FakeRekordboxDatabase(), FakeTables, str(in_lib), storage_root=storage_root
+    )
+    assert content.FolderPath == "/Musique/rekordbox/Collection/ABBA - SOS.mp3"
+
+    # Outside it (event staging) -> ABSOLUTE, or Rekordbox can't find the file.
+    staging = storage_root / "_rekordbox_sync" / "events" / "gig" / "audio"
+    staging.mkdir(parents=True)
+    out_lib = staging / "Daft Punk - One More Time.mp3"
+    out_lib.write_bytes(b"audio")
+    content = add_rekordbox_content(
+        FakeRekordboxDatabase(), FakeTables, str(out_lib), storage_root=storage_root
+    )
+    assert content.FolderPath == str(out_lib)
+
+
 class _ArtistFakeQuery:
     def __init__(self, rows):
         self._rows = list(rows)
