@@ -491,6 +491,17 @@ async def refresh_acquisition_jobs(
             event_id,
             exc_info=True,
         )
+    # Always reconcile job statuses against the resolved tracks (cheap, no folder
+    # scan) so the "failed downloads" badge never counts a job whose track is
+    # actually ready.
+    try:
+        reconcile_event_job_statuses(
+            database, event_id, require_event_review(database, event_id)
+        )
+    except Exception:
+        logger.warning(
+            "Job-status reconciliation failed for event %s", event_id, exc_info=True
+        )
     return database.list_acquisition_jobs(event_id, DEEMIX_PROVIDER)
 
 
@@ -674,25 +685,43 @@ def match_manual_deezer_jobs(
                 update_job_fn(track.spotify_track_id, status="ready", error=None)
 
 
-def mark_ready_tracks_after_scan(database: LocalDatabase, event_id: int) -> None:
-    review = scan_event_staging(database, event_id)
+def reconcile_event_job_statuses(
+    database: LocalDatabase, event_id: int, review: EventReview
+) -> None:
+    """Keep download-job statuses in sync with the *resolved track* statuses.
+
+    A track can be "ready" (its audio file located on disk) while its download job
+    is still "acquisition_failed" — e.g. the file was recovered by an existence
+    check after the Deemix download errored, or staging was reconciled outside a
+    live queue sync. Those stale failed jobs otherwise inflate the "failed
+    downloads" badge forever. Flip a ready track's job back to ready; conversely,
+    fail a "ready" job whose track no longer has its file. Idempotent — only
+    writes when a status actually diverges — so it's safe to run on every refresh.
+    """
     ready_ids = {
         track.spotify_track_id
         for track in review.tracks
-        if track.status == "ready" and track.staging_file_path
+        if track.status in {"ready", "applied"} and track.staging_file_path
     }
-    for spotify_track_id in ready_ids:
-        job = database.get_acquisition_job(event_id, spotify_track_id, DEEMIX_PROVIDER)
-        if job and job.status != "ready":
-            database.update_acquisition_job(event_id, spotify_track_id, status="ready")
+    # One query for all jobs (this runs on every refresh), then reconcile each.
     for job in database.list_acquisition_jobs(event_id, DEEMIX_PROVIDER):
-        if job.status == "ready" and job.spotify_track_id not in ready_ids:
+        track_is_ready = job.spotify_track_id in ready_ids
+        if track_is_ready and job.status != "ready":
+            database.update_acquisition_job(
+                event_id, job.spotify_track_id, status="ready", error=None
+            )
+        elif job.status == "ready" and not track_is_ready:
             database.update_acquisition_job(
                 event_id,
                 job.spotify_track_id,
                 status="acquisition_failed",
                 error="Downloaded file is missing from the event folder.",
             )
+
+
+def mark_ready_tracks_after_scan(database: LocalDatabase, event_id: int) -> None:
+    review = scan_event_staging(database, event_id)
+    reconcile_event_job_statuses(database, event_id, review)
 
     # Phase 3: force-assign for manual Deezer downloads (same logic as library).
     review = require_event_review(database, event_id)
