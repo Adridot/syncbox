@@ -21,7 +21,7 @@ from .acquisition import (
     match_manual_deezer_jobs,
     optional_text,
 )
-from .audio import find_downloaded_file, scan_audio_files
+from .audio import locate_downloaded_track_file, scan_audio_files
 from .db import LocalDatabase
 from .matching import match_spotify_track
 from .models import (
@@ -639,23 +639,21 @@ def _link_downloaded_library_jobs(
         if track is None or track.status not in {"new", "missing"}:
             continue
         payload = job.payload if isinstance(job.payload, dict) else {}
-        search_folders: list[str] = []
+        search_folders: list[Path | str] = []
         album_folder = optional_text(payload.get("albumFolder"))
         if album_folder:
             search_folders.append(album_folder)
         if permanent_dir not in search_folders:
             search_folders.append(permanent_dir)
 
-        matched = None
-        for folder in search_folders:
-            matched = find_downloaded_file(
-                Path(folder),
-                isrc=track.pending_deezer_isrc or payload.get("isrc"),
-                title=str(payload.get("title") or track.title or ""),
-                artist=str(payload.get("artist") or ""),
-            )
-            if matched:
-                break
+        matched = locate_downloaded_track_file(
+            search_folders,
+            isrc=track.pending_deezer_isrc or payload.get("isrc"),
+            deezer_title=payload.get("title"),
+            deezer_artist=payload.get("artist"),
+            fallback_title=track.title,
+            fallback_artist=track.artists[0] if track.artists else "",
+        )
         if not matched:
             continue
 
@@ -805,11 +803,13 @@ def mark_library_ready_after_scan(
         if not album_folder:
             continue
         payload = job.payload if isinstance(job.payload, dict) else {}
-        matched = find_downloaded_file(
-            Path(album_folder),
+        matched = locate_downloaded_track_file(
+            [album_folder],
             isrc=track.pending_deezer_isrc or payload.get("isrc"),
-            title=str(payload.get("title") or ""),
-            artist=str(payload.get("artist") or ""),
+            deezer_title=payload.get("title"),
+            deezer_artist=payload.get("artist"),
+            fallback_title=track.title,
+            fallback_artist=track.artists[0] if track.artists else "",
         )
         if matched and matched not in claimed:
             claimed.add(matched)

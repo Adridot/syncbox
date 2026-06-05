@@ -88,3 +88,48 @@ def test_scan_audio_files_fresh_bypasses_the_cache(tmp_path: Path, monkeypatch) 
     assert calls["n"] == 1
     scan_audio_files(folder, fresh=True)  # fresh -> always re-reads the folder
     assert calls["n"] == 2
+
+
+def test_locate_downloaded_track_file_prefers_deezer_then_spotify(tmp_path: Path) -> None:
+    from app.audio import locate_downloaded_track_file
+
+    # Deemix named the file with the Deezer title (differs from Spotify's).
+    (tmp_path / "Kim Wilde - Cambodia.mp3").write_bytes(b"x")
+    assert locate_downloaded_track_file(
+        [tmp_path],
+        deezer_title="Cambodia",
+        deezer_artist="Kim Wilde",
+        fallback_title="Cambodia - Single Version",
+        fallback_artist="Kim Wilde",
+    ) == str(tmp_path / "Kim Wilde - Cambodia.mp3")
+
+
+def test_locate_downloaded_track_file_spotify_fallback(tmp_path: Path) -> None:
+    from app.audio import locate_downloaded_track_file
+
+    # No Deezer metadata (e.g. job payload missing): fall back to Spotify names.
+    (tmp_path / "Artist - Song.mp3").write_bytes(b"x")
+    assert locate_downloaded_track_file(
+        [tmp_path], fallback_title="Song", fallback_artist="Artist"
+    ) == str(tmp_path / "Artist - Song.mp3")
+
+
+def test_locate_downloaded_track_file_searches_multiple_folders(tmp_path: Path) -> None:
+    from app.audio import locate_downloaded_track_file
+
+    first = tmp_path / "a"
+    second = tmp_path / "b"
+    first.mkdir()
+    second.mkdir()
+    (second / "Artist - Song.mp3").write_bytes(b"x")
+    assert locate_downloaded_track_file(
+        [first, second], fallback_title="Song", fallback_artist="Artist"
+    ) == str(second / "Artist - Song.mp3")
+
+
+def test_locate_downloaded_track_file_returns_none_when_absent(tmp_path: Path) -> None:
+    from app.audio import locate_downloaded_track_file
+
+    assert locate_downloaded_track_file(
+        [tmp_path], fallback_title="Nope", fallback_artist="Nobody"
+    ) is None

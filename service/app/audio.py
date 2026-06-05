@@ -154,6 +154,40 @@ def find_downloaded_file(
     return None
 
 
+def locate_downloaded_track_file(
+    folders: list[Path | str],
+    *,
+    isrc: str | None = None,
+    deezer_title: str | None = None,
+    deezer_artist: str | None = None,
+    fallback_title: str | None = None,
+    fallback_artist: str | None = None,
+) -> str | None:
+    """Locate a track's downloaded audio file across candidate folders.
+
+    The single shared "find the downloaded file" brain behind BOTH the event and
+    library download-link paths. Deemix names files from the **Deezer** metadata
+    it resolved (often differing from Spotify's, e.g. Spotify "Cambodia - Single
+    Version" vs Deezer "Cambodia"), so try the Deezer names first, then the
+    request (Spotify) names. Each attempt is an existence check (stat), which
+    works on cloud folders that can't be listed.
+    """
+    attempts: list[tuple[str, str]] = []
+    if deezer_title:
+        attempts.append((str(deezer_title), str(deezer_artist or "")))
+    if fallback_title:
+        fallback = (str(fallback_title), str(fallback_artist or ""))
+        if fallback not in attempts:
+            attempts.append(fallback)
+    for folder in folders:
+        folder_path = Path(folder)
+        for title, artist in attempts:
+            found = find_downloaded_file(folder_path, isrc, title, artist)
+            if found:
+                return found
+    return None
+
+
 # Scanning a (cloud-synced) collection folder means an rglob + a mutagen read per
 # file — easily ~1s. The library job-status refresh used to call this once per
 # source on every tick, so with N sources the same folder was scanned N times
