@@ -108,6 +108,34 @@ def test_request_raises_after_exhausting_retries(monkeypatch) -> None:
     assert calls["n"] == acquisition._RETRY_ATTEMPTS  # tried every attempt
 
 
+def test_refresh_acquisition_jobs_survives_a_sync_failure(tmp_path: Path, monkeypatch) -> None:
+    # Regression: a queue-sync error must not abort the response (the old bug was
+    # a bare `except: pass`; the contract is now log-and-continue) and must still
+    # return the known jobs so the UI keeps working.
+    from app import acquisition
+
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    event_id = create_event(database, tmp_path)
+    database.upsert_acquisition_job(
+        event_id,
+        {"spotify_track_id": "spotify-missing", "provider": "deemix", "status": "queued"},
+    )
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("Deemix unreachable")
+
+    monkeypatch.setattr(acquisition, "sync_deemix_queue", boom)
+
+    jobs = asyncio.run(
+        acquisition.refresh_acquisition_jobs(
+            database, event_id, deemix_client=FakeDeemixClient()
+        )
+    )
+    assert [j.spotify_track_id for j in jobs] == ["spotify-missing"]
+    assert jobs[0].status == "queued"
+
+
 def test_ensure_deemix_authenticated_applies_arl_once(tmp_path: Path, monkeypatch) -> None:
     from app import acquisition
 
