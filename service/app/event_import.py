@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from .audio import find_downloaded_file, scan_audio_files
+from .audio import locate_downloaded_track_file, scan_audio_files
 from .db import LocalDatabase
 from .live_import import build_live_import_package
 from .matching import match_spotify_track
@@ -398,16 +398,14 @@ def locate_downloaded_file_for_track(
 
     job = database.get_acquisition_job(event_id, track.spotify_track_id, DEEMIX_PROVIDER)
     payload = job.payload if job and isinstance(job.payload, dict) else {}
-    deezer_title = payload.get("title")
-    deezer_artist = payload.get("artist") or ""
-    isrc = payload.get("isrc") or track.isrc
-    if deezer_title:
-        found = find_downloaded_file(audio_dir, isrc, str(deezer_title), str(deezer_artist))
-        if found:
-            return found
-
-    primary_artist = track.artists[0] if track.artists else ""
-    return find_downloaded_file(audio_dir, track.isrc, track.title, primary_artist)
+    return locate_downloaded_track_file(
+        [audio_dir],
+        isrc=payload.get("isrc") or track.isrc,
+        deezer_title=payload.get("title"),
+        deezer_artist=payload.get("artist"),
+        fallback_title=track.title,
+        fallback_artist=track.artists[0] if track.artists else "",
+    )
 
 
 def reconcile_staged_tracks(
