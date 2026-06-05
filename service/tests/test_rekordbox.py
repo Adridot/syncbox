@@ -398,6 +398,42 @@ def test_reactivate_rekordbox_row_clears_deleted_flags() -> None:
     assert row.rb_local_data_status == 0
 
 
+def test_reactivate_content_artist_revives_soft_deleted_link() -> None:
+    import app.rekordbox.adapter as adapter_module
+
+    artist = SimpleNamespace(
+        ID="42",
+        Name="Renan Luce",
+        rb_local_deleted=1,
+        rb_local_synced=1,
+        rb_data_status=258,
+        rb_local_data_status=2,
+    )
+
+    class FakeArtistQuery:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def filter_by(self, **kwargs):
+            wanted = str(kwargs.get("ID"))
+            return FakeArtistQuery([r for r in self._rows if str(r.ID) == wanted])
+
+        def first(self):
+            return self._rows[0] if self._rows else None
+
+    class FakeDB:
+        def query(self, _table):
+            return FakeArtistQuery([artist])
+
+    # A track pointing at a soft-deleted artist -> reactivated (artist shows again).
+    adapter_module._reactivate_content_artist(FakeDB(), SimpleNamespace(ArtistID="42"))
+    assert is_rekordbox_row_deleted(artist) is False
+
+    # No artist / "0" -> no-op (and no crash).
+    adapter_module._reactivate_content_artist(FakeDB(), SimpleNamespace(ArtistID="0"))
+    adapter_module._reactivate_content_artist(FakeDB(), SimpleNamespace(ArtistID=None))
+
+
 def test_mark_rekordbox_row_deleted_sets_soft_delete_flags() -> None:
     row = SimpleNamespace(
         rb_local_deleted=0,
