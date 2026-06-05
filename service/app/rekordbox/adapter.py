@@ -722,6 +722,74 @@ class RekordboxAdapter:
             "skipped_protected": 0,
         }
 
+    def _content_lookups(self, all_content: list[Any]) -> tuple[dict, dict, dict]:
+        """Build the by-id / by-path / deleted-by-path content indexes used to
+        resolve an import track to an existing row. Shared by event & library
+        apply."""
+        active = [c for c in all_content if not is_rekordbox_row_deleted(c)]
+        content_by_id = {str(c.ID): c for c in active}
+        content_by_path = content_path_lookup(active, self.storage_root)
+        deleted_content_by_path = content_path_lookup(
+            (c for c in all_content if is_rekordbox_row_deleted(c)), self.storage_root
+        )
+        return content_by_id, content_by_path, deleted_content_by_path
+
+    def _resolve_import_content(
+        self,
+        database: Any,
+        tables: Any,
+        track: Any,
+        content_by_id: dict,
+        content_by_path: dict,
+        deleted_content_by_path: dict,
+    ) -> tuple[Any, bool]:
+        """Resolve the Rekordbox content row for one import track — matched
+        existing, reactivated soft-deleted, or newly added — and keep its artist
+        link live. The SINGLE shared implementation behind both event and library
+        apply, so the artist/path logic can never diverge between them.
+
+        Returns ``(content, imported)`` where ``imported`` is True when a row was
+        created or reactivated (vs matched to an already-active one).
+        """
+        content = None
+        if track.rekordbox_content_id:
+            content = content_by_id.get(str(track.rekordbox_content_id))
+        imported = False
+        if content is None and track.staging_file_path:
+            # The app never moves files (macOS TCC blocks file ops on cloud
+            # storage from this process): reference the downloaded file where it
+            # already is.
+            file_path = Path(track.staging_file_path)
+            content = find_content_by_path(content_by_path, file_path, self.storage_root)
+            if content is None:
+                content = find_content_by_path(
+                    deleted_content_by_path, file_path, self.storage_root
+                )
+                if content is not None:
+                    reactivate_rekordbox_row(content)
+                else:
+                    content = add_rekordbox_content(
+                        database,
+                        tables,
+                        str(file_path),
+                        artist=", ".join(track.artists),
+                        storage_root=self.storage_root,
+                        Title=track.title,
+                        ISRC=track.isrc or "",
+                        Length=max(1, round(track.duration_ms / 1000)),
+                    )
+                imported = True
+                content_by_id[str(content.ID)] = content
+                for key in path_lookup_keys(file_path, self.storage_root):
+                    content_by_path[key] = content
+        if content is None:
+            raise RuntimeError(f"Could not resolve Rekordbox content for {track.title}.")
+        # Self-heal: a matched/existing row can point at a soft-deleted artist,
+        # which Rekordbox hides ("La lettre"/"David Guetta" bug). Reactivate it so
+        # the artist shows — on every apply, both events and library.
+        _reactivate_content_artist(database, content)
+        return content, imported
+
     def apply_event_import(self, review: EventReview) -> dict[str, Any]:
         # Rekordbox can overwrite masterPlaylists6.xml during our writes; snapshot
         # it so we can restore it whether the transaction succeeds or fails.
@@ -742,62 +810,16 @@ class RekordboxAdapter:
                     EVENT_MY_TAG_CATEGORY_NAME,
                 )
 
-                all_content = list(database.get_content())
-                content_by_id = {
-                    str(content.ID): content
-                    for content in all_content
-                    if not is_rekordbox_row_deleted(content)
-                }
-                content_by_path = content_path_lookup(
-                    (
-                        content
-                        for content in all_content
-                        if not is_rekordbox_row_deleted(content)
-                    ),
-                    self.storage_root,
-                )
-                deleted_content_by_path = content_path_lookup(
-                    (content for content in all_content if is_rekordbox_row_deleted(content)),
-                    self.storage_root,
-                )
+                lookups = self._content_lookups(list(database.get_content()))
 
                 for track in review.tracks:
                     if track.status not in {"matched", "ready"}:
                         continue
-                    content = None
-                    if track.rekordbox_content_id:
-                        content = content_by_id.get(str(track.rekordbox_content_id))
-                    if content is None and track.staging_file_path:
-                        file_path = Path(track.staging_file_path)
-                        content = find_content_by_path(
-                            content_by_path, file_path, self.storage_root
-                        )
-                        if content is None:
-                            content = find_content_by_path(
-                                deleted_content_by_path, file_path, self.storage_root
-                            )
-                            if content is not None:
-                                reactivate_rekordbox_row(content)
-                                imported += 1
-                            else:
-                                content = add_rekordbox_content(
-                                    database,
-                                    tables,
-                                    str(file_path),
-                                    artist=", ".join(track.artists),
-                                    storage_root=self.storage_root,
-                                    Title=track.title,
-                                    ISRC=track.isrc or "",
-                                    Length=max(1, round(track.duration_ms / 1000)),
-                                )
-                                imported += 1
-                            content_by_id[str(content.ID)] = content
-                            for key in path_lookup_keys(file_path, self.storage_root):
-                                content_by_path[key] = content
-
-                    if content is None:
-                        raise RuntimeError(f"Could not resolve Rekordbox content for {track.title}.")
-
+                    content, was_imported = self._resolve_import_content(
+                        database, tables, track, *lookups
+                    )
+                    if was_imported:
+                        imported += 1
                     ensure_content_tag(database, tables, content, event_tag)
                     tagged += 1
 
@@ -922,66 +944,16 @@ class RekordboxAdapter:
                         + ", ".join(missing_tags)
                     )
 
-                all_content = list(database.get_content())
-                content_by_id = {
-                    str(content.ID): content
-                    for content in all_content
-                    if not is_rekordbox_row_deleted(content)
-                }
-                content_by_path = content_path_lookup(
-                    (
-                        content
-                        for content in all_content
-                        if not is_rekordbox_row_deleted(content)
-                    ),
-                    self.storage_root,
-                )
-                deleted_content_by_path = content_path_lookup(
-                    (content for content in all_content if is_rekordbox_row_deleted(content)),
-                    self.storage_root,
-                )
+                lookups = self._content_lookups(list(database.get_content()))
 
                 for track in review.tracks:
                     if track.status not in {"matched", "ready"}:
                         continue
-                    content = None
-                    if track.rekordbox_content_id:
-                        content = content_by_id.get(str(track.rekordbox_content_id))
-                    if content is None and track.staging_file_path:
-                        # The app never moves files: macOS TCC blocks file ops on
-                        # Dropbox/iCloud CloudStorage from this process. Reference
-                        # the downloaded file where it already is; consolidation
-                        # into the canonical Collection is done by migrate_collection.
-                        file_path = Path(track.staging_file_path)
-                        content = find_content_by_path(
-                            content_by_path, file_path, self.storage_root
-                        )
-                        if content is None:
-                            content = find_content_by_path(
-                                deleted_content_by_path, file_path, self.storage_root
-                            )
-                            if content is not None:
-                                reactivate_rekordbox_row(content)
-                                imported += 1
-                            else:
-                                content = add_rekordbox_content(
-                                    database,
-                                    tables,
-                                    str(file_path),
-                                    artist=", ".join(track.artists),
-                                    storage_root=self.storage_root,
-                                    Title=track.title,
-                                    ISRC=track.isrc or "",
-                                    Length=max(1, round(track.duration_ms / 1000)),
-                                )
-                                imported += 1
-                            content_by_id[str(content.ID)] = content
-                            for key in path_lookup_keys(file_path, self.storage_root):
-                                content_by_path[key] = content
-
-                    if content is None:
-                        raise RuntimeError(f"Could not resolve Rekordbox content for {track.title}.")
-
+                    content, was_imported = self._resolve_import_content(
+                        database, tables, track, *lookups
+                    )
+                    if was_imported:
+                        imported += 1
                     for tag_name in dict.fromkeys(track.tags):
                         ensure_content_tag(database, tables, content, all_tags[tag_name])
                         tagged += 1
@@ -1316,6 +1288,25 @@ def _file_type_name(value: Any) -> str | None:
         return FileType(int(value)).name
     except Exception:
         return str(value)
+
+
+def _reactivate_content_artist(database: Any, content: Any) -> None:
+    """If ``content`` points at a soft-deleted DjmdArtist, reactivate it.
+
+    Rekordbox hides the artist name of a track whose artist row is soft-deleted
+    (the "David Guetta" / "La lettre" symptom). Called on every applied track so
+    the artist link self-heals.
+    """
+    from pyrekordbox.db6 import tables
+
+    artist_id = getattr(content, "ArtistID", None)
+    if not artist_id or str(artist_id) == "0":
+        return
+    # IDs are stored as strings throughout (see content.ensure_artist); match the
+    # convention so the lookup is robust if ArtistID is ever populated as an int.
+    artist = database.query(tables.DjmdArtist).filter_by(ID=str(artist_id)).first()
+    if artist is not None and is_rekordbox_row_deleted(artist):
+        reactivate_rekordbox_row(artist)
 
 
 def _point_content_at_file(
