@@ -173,12 +173,19 @@ def locate_downloaded_track_file(
     works on cloud folders that can't be listed.
     """
     attempts: list[tuple[str, str]] = []
-    if deezer_title:
-        attempts.append((str(deezer_title), str(deezer_artist or "")))
-    if fallback_title:
-        fallback = (str(fallback_title), str(fallback_artist or ""))
-        if fallback not in attempts:
-            attempts.append(fallback)
+
+    def add(title: str | None, artist: str | None) -> None:
+        if title:
+            pair = (str(title), str(artist or ""))
+            if pair not in attempts:
+                attempts.append(pair)
+
+    add(deezer_title, deezer_artist)
+    add(fallback_title, fallback_artist)
+    # Last resort: the title with no artist prefix ("Title.mp3"). Rare for Deemix
+    # (its template is "%artist% - %title%"), but it preserves the old library
+    # lookup's bare-title probe so this stays a strict superset.
+    add(fallback_title, "")
     for folder in folders:
         folder_path = Path(folder)
         for title, artist in attempts:
