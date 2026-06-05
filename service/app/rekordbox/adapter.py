@@ -1302,7 +1302,9 @@ def _reactivate_content_artist(database: Any, content: Any) -> None:
     artist_id = getattr(content, "ArtistID", None)
     if not artist_id or str(artist_id) == "0":
         return
-    artist = database.query(tables.DjmdArtist).filter_by(ID=artist_id).first()
+    # IDs are stored as strings throughout (see content.ensure_artist); match the
+    # convention so the lookup is robust if ArtistID is ever populated as an int.
+    artist = database.query(tables.DjmdArtist).filter_by(ID=str(artist_id)).first()
     if artist is not None and is_rekordbox_row_deleted(artist):
         reactivate_rekordbox_row(artist)
 
