@@ -129,11 +129,26 @@ export class ApiClient {
   }
 
   async getSettings(): Promise<AppSettings> {
+    // In the desktop app, read from electron-store: it's instant and durable, so
+    // settings populate the moment the window opens instead of racing (and
+    // losing to) the slow Python service boot. The main process keeps this JSON
+    // mirror in sync with the service DB.
+    if (window.desktop?.settings) {
+      return window.desktop.settings.get();
+    }
     return this.get("/api/settings");
   }
 
   async saveSettings(settings: AppSettings): Promise<AppSettings> {
-    return this.post("/api/settings", settings);
+    // The service is authoritative for canonicalisation (it preserves blank
+    // credentials and resolves paths) and side effects, so persist there first,
+    // then mirror the canonical result into electron-store for instant cold-start
+    // reads.
+    const canonical = await this.post<AppSettings>("/api/settings", settings);
+    if (window.desktop?.settings) {
+      await window.desktop.settings.set(canonical);
+    }
+    return canonical;
   }
 
   async exportSettings(): Promise<SettingsBackup> {
