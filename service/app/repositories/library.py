@@ -145,6 +145,19 @@ class LibraryMixin:
             raise RuntimeError("Library source could not be saved.")
         return saved
 
+    def delete_library_source(self, source_id: int) -> bool:
+        """Stop following a Spotify playlist: remove the source and its review
+        state (tracks, runs, acquisition jobs cascade via FK). Does not touch
+        the Rekordbox collection — already-imported tracks and their MyTags are
+        part of the user's library and are kept. Returns False if no such source.
+        """
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM library_sources WHERE id = ?",
+                (source_id,),
+            )
+        return cursor.rowcount > 0
+
     def update_library_source_sync(
         self,
         source_id: int,

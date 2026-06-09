@@ -113,6 +113,27 @@ export const useLibraryStore = defineStore("library", () => {
     });
   }
 
+  async function deleteSource(source: LibrarySource): Promise<void> {
+    const system = useSystemStore();
+    const ui = useUiStore();
+    if (!system.api) return;
+    const confirmed = window.confirm(
+      `Stop following "${source.spotifyPlaylistName}"?\n\n` +
+        "This removes the playlist from your library and its review state. " +
+        "Tracks already imported into Rekordbox (and their MyTags) are kept."
+    );
+    if (!confirmed) return;
+    await ui.withLoading(async () => {
+      await system.api!.deleteLibrarySource(source.id);
+      if (activeReview.value?.source.id === source.id) {
+        activeReview.value = null;
+        selectedTrackIds.value = [];
+      }
+      sources.value = await system.api!.listLibrarySources();
+      ui.setMessage("success", `"${source.spotifyPlaylistName}" removed from library.`);
+    });
+  }
+
   async function saveTagRule(): Promise<void> {
     const system = useSystemStore();
     const ui = useUiStore();
@@ -350,6 +371,7 @@ export const useLibraryStore = defineStore("library", () => {
     refreshActiveReview,
     openSource,
     syncSource,
+    deleteSource,
     saveTagRule,
     toggleTrack,
     toggleAllTracks,

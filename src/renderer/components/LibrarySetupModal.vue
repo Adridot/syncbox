@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, X } from "@lucide/vue";
+import { Library, Plus, Trash2, X } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import PlaylistCard from "./PlaylistCard.vue";
 import { useLibraryStore } from "../stores/library";
@@ -117,6 +117,46 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
               <span class="inline-flex items-center gap-1.5"><Plus :size="15" aria-hidden="true" /> Follow</span>
             </button>
           </form>
+
+          <div v-if="library.sources.length > 0">
+            <h3 class="mb-3 text-sm font-bold text-on-surface">
+              Followed sources
+              <span class="font-normal text-on-surface-variant">({{ library.sources.length }})</span>
+            </h3>
+            <ul class="flex flex-col gap-1.5">
+              <li
+                v-for="source in library.sources"
+                :key="source.id"
+                class="flex items-center gap-3 rounded-lg border border-outline-variant bg-surface px-3 py-2"
+              >
+                <span class="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded border border-outline bg-surface-container">
+                  <img
+                    v-if="source.imageUrl"
+                    class="h-full w-full object-cover"
+                    :src="source.imageUrl"
+                    :alt="`${source.spotifyPlaylistName} cover`"
+                  />
+                  <Library v-else class="text-primary" :size="16" aria-hidden="true" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-semibold text-on-surface">
+                    {{ source.spotifyPlaylistName }}
+                  </span>
+                  <span class="block truncate text-xs text-on-surface-variant">
+                    {{ source.trackCount }} tracks<template v-if="source.tags.length"> · {{ source.tags.join(", ") }}</template>
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  class="inline-flex shrink-0 items-center gap-1.5 rounded border border-outline px-2.5 py-1.5 text-xs font-semibold text-on-surface-variant hover:border-error hover:text-error"
+                  :title="`Stop following ${source.spotifyPlaylistName}`"
+                  @click="library.deleteSource(source)"
+                >
+                  <Trash2 :size="14" aria-hidden="true" /> Remove
+                </button>
+              </li>
+            </ul>
+          </div>
 
           <div>
             <div class="mb-3 flex items-center justify-between gap-3">

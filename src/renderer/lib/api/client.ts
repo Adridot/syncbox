@@ -219,6 +219,10 @@ export class ApiClient {
     return this.post("/api/library/sources", input);
   }
 
+  async deleteLibrarySource(sourceId: number): Promise<{ deleted: boolean; sourceId: number }> {
+    return this.delete(`/api/library/sources/${sourceId}`);
+  }
+
   async syncLibrarySource(sourceId: number): Promise<LibraryReview> {
     return this.post(`/api/library/sources/${sourceId}/sync`, {});
   }
