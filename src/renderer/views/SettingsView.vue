@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { AlertTriangle, Archive, CheckCircle2, CloudDownload, Download, ExternalLink, FolderOpen, Key, Loader2, LogOut, Play, Save, Settings2, Upload } from "@lucide/vue";
+import { AlertTriangle, Archive, CheckCircle2, CloudDownload, Download, ExternalLink, FolderOpen, Globe, Key, Loader2, LogOut, Play, Save, Settings2, Upload } from "@lucide/vue";
 import { onMounted, onUnmounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import type { DeemixDesktopStatus } from "../types/electron";
+import { LOCALE_LABELS, SUPPORTED_LOCALES, setLocale, t, type Locale } from "../i18n";
 import { useSettingsStore } from "../stores/settings";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
@@ -9,6 +11,12 @@ import { useUiStore } from "../stores/ui";
 const settings = useSettingsStore();
 const system = useSystemStore();
 const ui = useUiStore();
+
+// Interface language — bound to the global i18n locale and persisted on change.
+const { locale } = useI18n({ useScope: "global" });
+function onLanguageChange(event: Event): void {
+  setLocale((event.target as HTMLSelectElement).value as Locale);
+}
 
 const settingsFileInput = ref<HTMLInputElement | null>(null);
 const dataFileInput = ref<HTMLInputElement | null>(null);
@@ -34,7 +42,7 @@ async function launchDeemix(): Promise<void> {
   deemixBusy.value = true;
   try {
     deemix.value = await window.desktop.deemix.launch();
-    ui.setMessage("success", "Deemix is starting in the background.");
+    ui.setMessage("success", t("toast.settings.deemixStarting"));
   } catch (error) {
     ui.setMessage("error", error instanceof Error ? error.message : String(error));
   } finally {
@@ -46,10 +54,10 @@ async function launchDeemix(): Promise<void> {
 async function installDeemix(): Promise<void> {
   if (!window.desktop) return;
   deemixBusy.value = true;
-  deemixStage.value = "Starting…";
+  deemixStage.value = t("settings.deemixStarting");
   try {
     deemix.value = await window.desktop.deemix.install();
-    ui.setMessage("success", "Deemix Remastered installed and started.");
+    ui.setMessage("success", t("toast.settings.deemixInstalled"));
   } catch (error) {
     ui.setMessage("error", error instanceof Error ? error.message : String(error));
   } finally {
@@ -85,12 +93,7 @@ async function onSettingsFile(event: Event): Promise<void> {
 async function onDataFile(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (
-    file &&
-    window.confirm(
-      "Restore ALL app data from this file? This replaces your current sources, events, tag rules and settings. A safety backup of the current data is made first."
-    )
-  ) {
+  if (file && window.confirm(t("settings.confirmRestoreData"))) {
     await settings.importDataFromFile(file);
   }
   input.value = "";
@@ -103,10 +106,10 @@ async function onDataFile(event: Event): Promise<void> {
       <div class="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 class="mb-1 text-2xl font-bold text-on-surface md:text-3xl">
-            Configuration & Settings
+            {{ $t("settings.title") }}
           </h2>
           <p class="text-sm text-on-surface-variant">
-            Manage connections, paths, and local storage.
+            {{ $t("settings.subtitle") }}
           </p>
         </div>
         <button
@@ -115,7 +118,7 @@ async function onDataFile(event: Event): Promise<void> {
           @click="settings.save()"
         >
           <Save :size="18" aria-hidden="true" />
-          Save Changes
+          {{ $t("settings.saveChanges") }}
         </button>
       </div>
 
@@ -124,18 +127,18 @@ async function onDataFile(event: Event): Promise<void> {
           <section class="rounded-xl border border-outline-variant bg-surface-container-high p-6">
             <h3 class="mb-6 flex items-center gap-2 text-lg font-bold text-on-surface">
               <Key class="text-primary" :size="20" aria-hidden="true" />
-              Spotify Integration
+              {{ $t("settings.spotifyIntegration") }}
             </h3>
             <div class="space-y-6">
               <label class="grid gap-2">
-                <span class="text-sm font-bold text-on-surface">Spotify Client ID</span>
+                <span class="text-sm font-bold text-on-surface">{{ $t("settings.clientId") }}</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
                   v-model="settings.settings.spotifyClientId"
                 />
               </label>
               <label class="grid gap-2">
-                <span class="text-sm font-bold text-on-surface">Spotify Client Secret</span>
+                <span class="text-sm font-bold text-on-surface">{{ $t("settings.clientSecret") }}</span>
                 <input
                   type="password"
                   autocomplete="off"
@@ -143,17 +146,17 @@ async function onDataFile(event: Event): Promise<void> {
                   v-model="settings.settings.spotifyClientSecret"
                 />
                 <small class="text-xs text-on-surface-variant">
-                  Stored locally. Used with the Client ID for app authentication — no browser sign-in.
+                  {{ $t("settings.clientSecretHint") }}
                 </small>
               </label>
               <label class="grid gap-2">
-                <span class="text-sm font-bold text-on-surface">Spotify Username</span>
+                <span class="text-sm font-bold text-on-surface">{{ $t("settings.username") }}</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
                   v-model="settings.settings.spotifyUsername"
                 />
                 <small class="text-xs text-on-surface-variant">
-                  Your Spotify user ID — used to read your public playlists.
+                  {{ $t("settings.usernameHint") }}
                 </small>
               </label>
               <button
@@ -163,16 +166,16 @@ async function onDataFile(event: Event): Promise<void> {
                 @click="settings.testSpotify()"
               >
                 <CheckCircle2 :size="17" aria-hidden="true" />
-                Test Connection
+                {{ $t("settings.testConnection") }}
               </button>
 
               <!-- Optional: sign in with a real account to see private playlists. -->
               <div class="grid gap-3 rounded-lg border border-outline-variant bg-surface-container p-4">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p class="text-sm font-bold text-on-surface">Connect your Spotify account</p>
+                    <p class="text-sm font-bold text-on-surface">{{ $t("settings.connectAccount") }}</p>
                     <p class="text-xs text-on-surface-variant">
-                      Optional — unlocks your private, collaborative and followed playlists in Manage sources.
+                      {{ $t("settings.connectAccountHint") }}
                     </p>
                   </div>
                   <span
@@ -192,8 +195,8 @@ async function onDataFile(event: Event): Promise<void> {
                     <AlertTriangle v-else :size="16" aria-hidden="true" />
                     {{
                       system.spotifyStatus.connected && system.spotifyStatus.mode === "oauth"
-                        ? `Connected as ${system.spotifyStatus.displayName || system.spotifyStatus.username}`
-                        : "No account connected"
+                        ? $t("settings.connectedAs", { name: system.spotifyStatus.displayName || system.spotifyStatus.username })
+                        : $t("settings.noAccount")
                     }}
                   </span>
                 </div>
@@ -206,7 +209,7 @@ async function onDataFile(event: Event): Promise<void> {
                   >
                     <Loader2 v-if="settings.spotifyConnecting" :size="17" class="animate-spin" aria-hidden="true" />
                     <ExternalLink v-else :size="17" aria-hidden="true" />
-                    {{ settings.spotifyConnecting ? "Waiting for sign-in…" : "Connect my account" }}
+                    {{ settings.spotifyConnecting ? $t("settings.waitingSignIn") : $t("settings.connectMyAccount") }}
                   </button>
                   <button
                     v-if="system.spotifyStatus?.connected && system.spotifyStatus.mode === 'oauth'"
@@ -216,18 +219,17 @@ async function onDataFile(event: Event): Promise<void> {
                     @click="settings.disconnectSpotifyAccount()"
                   >
                     <LogOut :size="16" aria-hidden="true" />
-                    Disconnect
+                    {{ $t("settings.disconnect") }}
                   </button>
                 </div>
                 <small v-if="system.spotifyStatus?.redirectUri" class="text-xs text-on-surface-variant">
-                  In your Spotify app's settings, add this exact Redirect URI:
+                  {{ $t("settings.redirectUri") }}
                   <code class="rounded bg-surface-container-high px-1.5 py-0.5 font-mono text-[11px]">{{
                     system.spotifyStatus.redirectUri
                   }}</code>
                 </small>
                 <small class="text-xs text-on-surface-variant">
-                  Note: a Spotify app in Development mode only allows accounts you add under
-                  “User Management” (max 25). Public access needs Spotify’s Extended Quota approval.
+                  {{ $t("settings.devModeNote") }}
                 </small>
               </div>
             </div>
@@ -239,11 +241,10 @@ async function onDataFile(event: Event): Promise<void> {
           >
             <h3 class="mb-1 flex items-center gap-2 text-lg font-bold text-on-surface">
               <CloudDownload class="text-primary" :size="20" aria-hidden="true" />
-              Deemix downloader
+              {{ $t("settings.deemixDownloader") }}
             </h3>
             <p class="mb-4 text-xs text-on-surface-variant">
-              Syncbox downloads audio through Deemix&nbsp;Remastered. It starts automatically with
-              Syncbox when installed — no need to launch it yourself.
+              {{ $t("settings.deemixHint") }}
             </p>
 
             <div class="flex flex-wrap items-center gap-3">
@@ -259,7 +260,7 @@ async function onDataFile(event: Event): Promise<void> {
               >
                 <CheckCircle2 v-if="deemix.running" :size="16" aria-hidden="true" />
                 <AlertTriangle v-else :size="16" aria-hidden="true" />
-                {{ deemix.running ? "Running" : deemix.installed ? "Installed, not running" : "Not installed" }}
+                {{ deemix.running ? $t("settings.deemixRunning") : deemix.installed ? $t("settings.deemixInstalledNotRunning") : $t("settings.deemixNotInstalled") }}
               </span>
 
               <button
@@ -270,7 +271,7 @@ async function onDataFile(event: Event): Promise<void> {
                 @click="launchDeemix"
               >
                 <Play :size="16" aria-hidden="true" />
-                Launch Deemix
+                {{ $t("settings.launchDeemix") }}
               </button>
 
               <button
@@ -282,7 +283,7 @@ async function onDataFile(event: Event): Promise<void> {
               >
                 <Loader2 v-if="deemixBusy" :size="16" class="animate-spin" aria-hidden="true" />
                 <CloudDownload v-else :size="16" aria-hidden="true" />
-                Install Deemix
+                {{ $t("settings.installDeemix") }}
               </button>
 
               <span v-if="deemixBusy && deemixStage" class="text-xs text-on-surface-variant">
@@ -290,13 +291,12 @@ async function onDataFile(event: Event): Promise<void> {
               </span>
             </div>
             <p v-if="!deemix.installed" class="mt-3 text-xs text-on-surface-variant">
-              “Install Deemix” downloads the latest release from GitHub (~140&nbsp;MB) into your
-              Applications folder.
+              {{ $t("settings.installHint") }}
             </p>
 
             <div class="mt-6 border-t border-outline-variant pt-5">
               <label class="grid gap-2">
-                <span class="text-sm font-bold text-on-surface">Deezer ARL</span>
+                <span class="text-sm font-bold text-on-surface">{{ $t("settings.deezerArl") }}</span>
                 <input
                   type="password"
                   autocomplete="off"
@@ -304,7 +304,7 @@ async function onDataFile(event: Event): Promise<void> {
                   v-model="settings.settings.deemixArl"
                 />
                 <small class="text-xs text-on-surface-variant">
-                  Paste your Deezer ARL here — Syncbox configures Deemix for you, no need to open it.
+                  {{ $t("settings.deezerArlHint") }}
                 </small>
               </label>
               <div class="mt-3 flex flex-wrap items-center gap-3">
@@ -315,7 +315,7 @@ async function onDataFile(event: Event): Promise<void> {
                   @click="settings.connectDeezer()"
                 >
                   <Key :size="17" aria-hidden="true" />
-                  Connect Deezer
+                  {{ $t("settings.connectDeezer") }}
                 </button>
                 <span
                   v-if="system.deemixStatus"
@@ -324,7 +324,7 @@ async function onDataFile(event: Event): Promise<void> {
                 >
                   <CheckCircle2 v-if="system.deemixStatus.authenticated" :size="16" aria-hidden="true" />
                   <AlertTriangle v-else :size="16" aria-hidden="true" />
-                  {{ system.deemixStatus.authenticated ? "Deezer authenticated" : "Not authenticated" }}
+                  {{ system.deemixStatus.authenticated ? $t("settings.deezerAuthenticated") : $t("settings.deezerNotAuthenticated") }}
                 </span>
               </div>
             </div>
@@ -333,18 +333,18 @@ async function onDataFile(event: Event): Promise<void> {
           <section class="rounded-xl border border-outline-variant bg-surface-container-high p-6">
             <h3 class="mb-6 flex items-center gap-2 text-lg font-bold text-on-surface">
               <FolderOpen class="text-secondary" :size="20" aria-hidden="true" />
-              Local Directories & Paths
+              {{ $t("settings.paths") }}
             </h3>
             <div class="space-y-6">
               <label class="grid gap-2">
-                <span class="text-sm font-bold text-on-surface">Rekordbox database directory</span>
+                <span class="text-sm font-bold text-on-surface">{{ $t("settings.rekordboxDir") }}</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
                   v-model="settings.settings.rekordboxDatabaseDir"
                 />
               </label>
               <label class="grid gap-2">
-                <span class="text-sm font-bold text-on-surface">Storage root</span>
+                <span class="text-sm font-bold text-on-surface">{{ $t("settings.storageRoot") }}</span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
                   v-model="settings.settings.storageRoot"
@@ -352,8 +352,8 @@ async function onDataFile(event: Event): Promise<void> {
               </label>
               <label class="grid gap-2">
                 <span class="text-sm font-bold text-on-surface">
-                  Permanent downloads path
-                  <span class="font-normal text-on-surface-variant">(optional)</span>
+                  {{ $t("settings.permanentPath") }}
+                  <span class="font-normal text-on-surface-variant">{{ $t("settings.optional") }}</span>
                 </span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
@@ -363,22 +363,22 @@ async function onDataFile(event: Event): Promise<void> {
                 />
                 <small v-if="settings.pathChecks.permanent" class="flex items-center gap-1.5 text-xs">
                   <template v-if="!settings.pathChecks.permanent.configured">
-                    <span class="text-on-surface-variant">Using default folder.</span>
+                    <span class="text-on-surface-variant">{{ $t("settings.usingDefault") }}</span>
                   </template>
                   <template v-else-if="settings.pathChecks.permanent.isDir">
                     <CheckCircle2 :size="13" class="text-secondary" aria-hidden="true" />
-                    <span class="text-secondary">Folder found.</span>
+                    <span class="text-secondary">{{ $t("settings.folderFound") }}</span>
                   </template>
                   <template v-else>
                     <AlertTriangle :size="13" class="text-error" aria-hidden="true" />
-                    <span class="text-error">Folder not found — check the path.</span>
+                    <span class="text-error">{{ $t("settings.folderNotFound") }}</span>
                   </template>
                 </small>
               </label>
               <label class="grid gap-2">
                 <span class="text-sm font-bold text-on-surface">
-                  Manual collection path
-                  <span class="font-normal text-on-surface-variant">(optional)</span>
+                  {{ $t("settings.manualPath") }}
+                  <span class="font-normal text-on-surface-variant">{{ $t("settings.optional") }}</span>
                 </span>
                 <input
                   class="rounded border border-outline bg-surface-container px-4 py-2 font-mono text-sm text-on-surface focus:border-primary focus:outline-none"
@@ -388,15 +388,15 @@ async function onDataFile(event: Event): Promise<void> {
                 />
                 <small v-if="settings.pathChecks.manual" class="flex items-center gap-1.5 text-xs">
                   <template v-if="!settings.pathChecks.manual.configured">
-                    <span class="text-on-surface-variant">Using default folder.</span>
+                    <span class="text-on-surface-variant">{{ $t("settings.usingDefault") }}</span>
                   </template>
                   <template v-else-if="settings.pathChecks.manual.isDir">
                     <CheckCircle2 :size="13" class="text-secondary" aria-hidden="true" />
-                    <span class="text-secondary">Folder found.</span>
+                    <span class="text-secondary">{{ $t("settings.folderFound") }}</span>
                   </template>
                   <template v-else>
                     <AlertTriangle :size="13" class="text-error" aria-hidden="true" />
-                    <span class="text-error">Folder not found — check the path.</span>
+                    <span class="text-error">{{ $t("settings.folderNotFound") }}</span>
                   </template>
                 </small>
               </label>
@@ -406,18 +406,17 @@ async function onDataFile(event: Event): Promise<void> {
           <section class="rounded-xl border border-outline-variant bg-surface-container-high p-6">
             <h3 class="mb-1 flex items-center gap-2 text-lg font-bold text-on-surface">
               <Archive class="text-primary" :size="20" aria-hidden="true" />
-              Backup &amp; Restore
+              {{ $t("settings.backupRestore") }}
             </h3>
             <p class="mb-5 text-xs text-on-surface-variant">
-              Settings live in <span class="font-mono">Application&nbsp;Support</span> and survive app
-              updates. Export a portable copy to recover after a clean reinstall or move to another Mac.
+              {{ $t("settings.backupHint") }}
             </p>
 
             <div class="grid gap-5 sm:grid-cols-2">
               <div class="rounded-lg border border-outline-variant bg-surface p-4">
-                <h4 class="mb-1 text-sm font-bold text-on-surface">Settings only</h4>
+                <h4 class="mb-1 text-sm font-bold text-on-surface">{{ $t("settings.settingsOnly") }}</h4>
                 <p class="mb-3 text-xs text-on-surface-variant">
-                  Paths, Spotify client&nbsp;ID + tokens, backup retention. Small JSON file.
+                  {{ $t("settings.settingsOnlyHint") }}
                 </p>
                 <div class="flex flex-wrap gap-2">
                   <button
@@ -426,7 +425,7 @@ async function onDataFile(event: Event): Promise<void> {
                     :disabled="settings.backupBusy"
                     @click="settings.exportSettings()"
                   >
-                    <Download :size="14" aria-hidden="true" /> Export
+                    <Download :size="14" aria-hidden="true" /> {{ $t("settings.export") }}
                   </button>
                   <button
                     type="button"
@@ -434,7 +433,7 @@ async function onDataFile(event: Event): Promise<void> {
                     :disabled="settings.backupBusy"
                     @click="settingsFileInput?.click()"
                   >
-                    <Upload :size="14" aria-hidden="true" /> Import
+                    <Upload :size="14" aria-hidden="true" /> {{ $t("settings.import") }}
                   </button>
                   <input
                     ref="settingsFileInput"
@@ -447,9 +446,9 @@ async function onDataFile(event: Event): Promise<void> {
               </div>
 
               <div class="rounded-lg border border-outline-variant bg-surface p-4">
-                <h4 class="mb-1 text-sm font-bold text-on-surface">All data</h4>
+                <h4 class="mb-1 text-sm font-bold text-on-surface">{{ $t("settings.allData") }}</h4>
                 <p class="mb-3 text-xs text-on-surface-variant">
-                  Everything: sources, events, tag rules, mappings + settings. Full database file.
+                  {{ $t("settings.allDataHint") }}
                 </p>
                 <div class="flex flex-wrap gap-2">
                   <button
@@ -458,7 +457,7 @@ async function onDataFile(event: Event): Promise<void> {
                     :disabled="settings.backupBusy"
                     @click="settings.exportData()"
                   >
-                    <Download :size="14" aria-hidden="true" /> Export
+                    <Download :size="14" aria-hidden="true" /> {{ $t("settings.export") }}
                   </button>
                   <button
                     type="button"
@@ -466,7 +465,7 @@ async function onDataFile(event: Event): Promise<void> {
                     :disabled="settings.backupBusy"
                     @click="dataFileInput?.click()"
                   >
-                    <Upload :size="14" aria-hidden="true" /> Restore
+                    <Upload :size="14" aria-hidden="true" /> {{ $t("settings.restore") }}
                   </button>
                   <input
                     ref="dataFileInput"
@@ -484,41 +483,59 @@ async function onDataFile(event: Event): Promise<void> {
         <aside class="flex flex-col gap-6 lg:col-span-4">
           <section class="rounded-xl border border-outline-variant bg-surface-container-high p-6">
             <h3 class="mb-1 flex items-center gap-2 text-lg font-bold text-on-surface">
-              <Settings2 class="text-on-surface-variant" :size="20" aria-hidden="true" />
-              Storage locations
+              <Globe class="text-primary" :size="20" aria-hidden="true" />
+              {{ $t("settings.language") }}
             </h3>
             <p class="mb-4 text-xs text-on-surface-variant">
-              Where Syncbox keeps downloads under your storage root. These folders are
-              created automatically when you save settings or run your first download.
+              {{ $t("settings.languageHint") }}
+            </p>
+            <select
+              class="w-full rounded border border-outline bg-surface-container px-4 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
+              :value="locale"
+              @change="onLanguageChange"
+            >
+              <option v-for="loc in SUPPORTED_LOCALES" :key="loc" :value="loc">
+                {{ LOCALE_LABELS[loc] }}
+              </option>
+            </select>
+          </section>
+
+          <section class="rounded-xl border border-outline-variant bg-surface-container-high p-6">
+            <h3 class="mb-1 flex items-center gap-2 text-lg font-bold text-on-surface">
+              <Settings2 class="text-on-surface-variant" :size="20" aria-hidden="true" />
+              {{ $t("settings.storageLocations") }}
+            </h3>
+            <p class="mb-4 text-xs text-on-surface-variant">
+              {{ $t("settings.storageLocationsHint") }}
             </p>
             <dl v-if="settings.storage" class="grid gap-3 text-xs">
               <div>
-                <dt class="font-bold text-on-surface">Inbox</dt>
+                <dt class="font-bold text-on-surface">{{ $t("settings.inbox") }}</dt>
                 <dd class="break-all text-on-surface-variant">{{ settings.storage.inbox }}</dd>
               </div>
               <div>
-                <dt class="font-bold text-on-surface">Permanent</dt>
+                <dt class="font-bold text-on-surface">{{ $t("settings.permanent") }}</dt>
                 <dd class="break-all text-on-surface-variant">{{ settings.storage.permanent }}</dd>
               </div>
               <div>
-                <dt class="font-bold text-on-surface">Events</dt>
+                <dt class="font-bold text-on-surface">{{ $t("settings.eventsFolder") }}</dt>
                 <dd class="break-all text-on-surface-variant">{{ settings.storage.events }}</dd>
               </div>
               <div>
-                <dt class="font-bold text-on-surface">Manual</dt>
+                <dt class="font-bold text-on-surface">{{ $t("settings.manual") }}</dt>
                 <dd class="break-all text-on-surface-variant">{{ settings.storage.manualCollection }}</dd>
               </div>
             </dl>
             <p v-else class="text-xs text-on-surface-variant">
-              Save settings to resolve your storage folders.
+              {{ $t("settings.saveToResolve") }}
             </p>
           </section>
 
           <section class="relative overflow-hidden rounded-xl border border-outline-variant bg-surface-container p-6">
             <div class="absolute left-0 top-0 h-full w-1 bg-error" />
-            <h3 class="mb-2 text-base font-bold text-on-surface">Safety Model</h3>
+            <h3 class="mb-2 text-base font-bold text-on-surface">{{ $t("settings.safetyModel") }}</h3>
             <p class="text-xs text-on-surface-variant">
-              Rekordbox writes stay blocked while Rekordbox is running. Destructive changes remain proposal-based.
+              {{ $t("settings.safetyModelHint") }}
             </p>
           </section>
         </aside>

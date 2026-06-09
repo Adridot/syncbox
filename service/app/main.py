@@ -527,6 +527,15 @@ def save_library_source(source: LibrarySourceIn) -> LibrarySource:
     return database.upsert_library_source(source)
 
 
+@app.delete("/api/library/sources/{source_id}")
+def delete_library_source(source_id: int) -> dict[str, Any]:
+    """Stop following a playlist. Removes only the app's tracking of the source;
+    tracks already imported into Rekordbox (and their MyTags) are left intact."""
+    if not database.delete_library_source(source_id):
+        raise HTTPException(status_code=404, detail="Library source not found.")
+    return {"deleted": True, "sourceId": source_id}
+
+
 @app.post("/api/library/sources/{source_id}/sync", response_model=LibraryReview)
 async def sync_library_source_endpoint(source_id: int) -> LibraryReview:
     try:

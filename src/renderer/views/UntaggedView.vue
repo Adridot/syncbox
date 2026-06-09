@@ -14,6 +14,7 @@ import {
 import { ref } from "vue";
 import type { UntaggedSuggestion } from "../lib/api";
 import { formatDuration } from "../lib/format";
+import { t } from "../i18n";
 import { useUntagged } from "../composables/queries/useUntagged";
 import { useSystemStore } from "../stores/system";
 
@@ -22,42 +23,22 @@ const system = useSystemStore();
 
 const tagInput = ref("");
 
-type Meta = { label: string; cls: string; icon: unknown; hint: string };
+// Visual presentation stays here; the label/hint text is resolved through i18n
+// (untagged.suggestion.<key> / <key>Hint) at render time.
+type Meta = { cls: string; icon: unknown; key: string };
 const suggestionMeta: Record<UntaggedSuggestion, Meta> = {
-  junk: {
-    label: "Junk / sample",
-    cls: "bg-error/15 text-error",
-    icon: AlertTriangle,
-    hint: "Built-in sample, sound effect, or a row with no real file.",
-  },
-  dup_of_tagged: {
-    label: "Tagged version exists",
-    cls: "bg-tertiary/15 text-tertiary",
-    icon: Tag,
-    // NB: looser match than the Duplicates tool — same song name + lead artist,
-    // ignoring length/ISRC. It may be a different edit, not a removable duplicate.
-    hint: "A tagged track of the same song already exists — possibly a different edit or length, so it may not show up in the Duplicates tool.",
-  },
-  alt_version: {
-    label: "Alternate version",
-    cls: "bg-secondary/15 text-secondary",
-    icon: Copy,
-    hint: "Another untagged copy of the same song is in this list.",
-  },
-  review: {
-    label: "To review",
-    cls: "bg-primary/15 text-primary",
-    icon: Sparkles,
-    hint: "A genuine track with no tagged equivalent — decide a tag for it.",
-  },
+  junk: { cls: "bg-error/15 text-error", icon: AlertTriangle, key: "junk" },
+  dup_of_tagged: { cls: "bg-tertiary/15 text-tertiary", icon: Tag, key: "dupOfTagged" },
+  alt_version: { cls: "bg-secondary/15 text-secondary", icon: Copy, key: "altVersion" },
+  review: { cls: "bg-primary/15 text-primary", icon: Sparkles, key: "review" },
 };
 
-const filterChips: Array<{ key: UntaggedSuggestion | "all"; label: string }> = [
-  { key: "all", label: "All" },
-  { key: "review", label: "To review" },
-  { key: "junk", label: "Junk" },
-  { key: "dup_of_tagged", label: "Already tagged elsewhere" },
-  { key: "alt_version", label: "Alt versions" },
+const filterChips: Array<{ key: UntaggedSuggestion | "all"; labelKey: string }> = [
+  { key: "all", labelKey: "all" },
+  { key: "review", labelKey: "review" },
+  { key: "junk", labelKey: "junk" },
+  { key: "dup_of_tagged", labelKey: "dupOfTagged" },
+  { key: "alt_version", labelKey: "altVersion" },
 ];
 
 async function applyTag(): Promise<void> {
@@ -70,12 +51,7 @@ async function applyTag(): Promise<void> {
 async function confirmDelete(): Promise<void> {
   const n = untagged.selectedIds.size;
   if (n === 0) return;
-  if (
-    window.confirm(
-      `Remove ${n} track(s) from the Rekordbox collection?\n\n` +
-        `They are soft-deleted (reversible from Doctor → backups). The audio files on disk are left untouched.`
-    )
-  ) {
+  if (window.confirm(t("untagged.confirmDelete", { count: n }))) {
     await untagged.deleteSelected();
   }
 }
@@ -88,7 +64,7 @@ async function confirmDelete(): Promise<void> {
       <div class="flex flex-wrap items-center gap-3">
         <div class="flex items-center gap-2 text-sm text-on-surface-variant">
           <Tag :size="18" aria-hidden="true" />
-          Tracks in your collection that carry no MyTag — find out why, then tag or clean them up.
+          {{ $t("untagged.intro") }}
         </div>
         <button
           type="button"
@@ -98,7 +74,7 @@ async function confirmDelete(): Promise<void> {
         >
           <Loader2 v-if="untagged.loading" :size="15" class="animate-spin" aria-hidden="true" />
           <RefreshCw v-else :size="15" aria-hidden="true" />
-          Refresh
+          {{ $t("untagged.refresh") }}
         </button>
       </div>
 
@@ -107,8 +83,8 @@ async function confirmDelete(): Promise<void> {
         class="mt-3 flex flex-wrap items-center gap-2"
       >
         <span class="text-sm text-on-surface-variant">
-          <strong class="text-on-surface">{{ untagged.untaggedCount }}</strong> untagged /
-          <strong class="text-on-surface">{{ untagged.total }}</strong> tracks
+          <strong class="text-on-surface">{{ untagged.untaggedCount }}</strong> {{ $t("untagged.untaggedOf") }}
+          <strong class="text-on-surface">{{ untagged.total }}</strong> {{ $t("untagged.tracksSuffix") }}
         </span>
         <span class="mx-1 h-4 w-px bg-outline-variant" aria-hidden="true" />
         <button
@@ -123,7 +99,7 @@ async function confirmDelete(): Promise<void> {
           "
           @click="untagged.suggestionFilter = chip.key"
         >
-          {{ chip.label }}
+          {{ $t(`untagged.filter.${chip.labelKey}`) }}
           <template v-if="chip.key !== 'all'"> ({{ untagged.counts[chip.key] ?? 0 }})</template>
         </button>
 
@@ -136,7 +112,7 @@ async function confirmDelete(): Promise<void> {
           <input
             v-model="untagged.search"
             type="search"
-            placeholder="Search title / artist…"
+            :placeholder="$t('untagged.searchPlaceholder')"
             class="w-56 rounded border border-outline bg-surface-container-high px-3 py-1.5 pl-8 text-sm text-on-surface focus:border-primary focus:outline-none"
           />
         </div>
@@ -156,7 +132,7 @@ async function confirmDelete(): Promise<void> {
       class="grid flex-1 place-items-center text-sm text-on-surface-variant"
     >
       <span class="inline-flex items-center gap-2">
-        <Loader2 :size="16" class="animate-spin" aria-hidden="true" /> Reading collection…
+        <Loader2 :size="16" class="animate-spin" aria-hidden="true" /> {{ $t("untagged.readingCollection") }}
       </span>
     </div>
 
@@ -168,9 +144,9 @@ async function confirmDelete(): Promise<void> {
         <div class="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-secondary/15">
           <CheckCircle2 class="text-secondary" :size="26" aria-hidden="true" />
         </div>
-        <h3 class="mb-1 text-lg font-bold text-on-surface">Everything is tagged</h3>
+        <h3 class="mb-1 text-lg font-bold text-on-surface">{{ $t("untagged.everythingTagged") }}</h3>
         <p class="text-sm text-on-surface-variant">
-          Every track in your collection carries at least one MyTag.
+          {{ $t("untagged.everythingTaggedHint") }}
         </p>
       </div>
     </div>
@@ -190,10 +166,10 @@ async function confirmDelete(): Promise<void> {
                 @change="untagged.toggleAllFiltered(($event.target as HTMLInputElement).checked)"
               />
             </th>
-            <th class="px-3 py-2 font-semibold">Track</th>
-            <th class="px-3 py-2 font-semibold">Why untagged</th>
-            <th class="px-3 py-2 font-semibold">Info</th>
-            <th class="px-3 py-2 text-right font-semibold">Length</th>
+            <th class="px-3 py-2 font-semibold">{{ $t("untagged.colTrack") }}</th>
+            <th class="px-3 py-2 font-semibold">{{ $t("untagged.colWhy") }}</th>
+            <th class="px-3 py-2 font-semibold">{{ $t("untagged.colInfo") }}</th>
+            <th class="px-3 py-2 text-right font-semibold">{{ $t("untagged.colLength") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -214,7 +190,7 @@ async function confirmDelete(): Promise<void> {
             <td class="px-3 py-2 align-top">
               <div class="min-w-0">
                 <div class="truncate font-semibold text-on-surface">
-                  {{ track.title || "(no title)" }}
+                  {{ track.title || $t("untagged.noTitle") }}
                 </div>
                 <div class="truncate text-xs text-on-surface-variant">{{ track.artist || "—" }}</div>
               </div>
@@ -223,10 +199,10 @@ async function confirmDelete(): Promise<void> {
               <span
                 class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold"
                 :class="suggestionMeta[track.suggestion].cls"
-                :title="suggestionMeta[track.suggestion].hint"
+                :title="$t(`untagged.suggestion.${suggestionMeta[track.suggestion].key}Hint`)"
               >
                 <component :is="suggestionMeta[track.suggestion].icon" :size="12" aria-hidden="true" />
-                {{ suggestionMeta[track.suggestion].label }}
+                {{ $t(`untagged.suggestion.${suggestionMeta[track.suggestion].key}`) }}
               </span>
               <span
                 v-if="track.suggestionDetail"
@@ -241,27 +217,27 @@ async function confirmDelete(): Promise<void> {
                 <span
                   v-if="track.protected"
                   class="inline-flex items-center gap-0.5 rounded bg-secondary/15 px-1.5 py-0.5 text-[10px] font-semibold text-secondary"
-                  title="Lives in your permanent collection folder"
+                  :title="$t('untagged.permanentTitle')"
                 >
-                  <ShieldCheck :size="11" aria-hidden="true" /> Permanent
+                  <ShieldCheck :size="11" aria-hidden="true" /> {{ $t("untagged.permanent") }}
                 </span>
                 <span
                   v-if="track.playlistCount"
                   class="rounded bg-surface-container-high px-1.5 py-0.5 text-[10px] text-on-surface-variant"
                 >
-                  {{ track.playlistCount }} playlist{{ track.playlistCount > 1 ? "s" : "" }}
+                  {{ track.playlistCount }} {{ track.playlistCount > 1 ? $t("untagged.playlists") : $t("untagged.playlist") }}
                 </span>
                 <span
                   v-if="track.fileMissing"
                   class="rounded bg-error/15 px-1.5 py-0.5 text-[10px] font-semibold text-error"
                 >
-                  file missing
+                  {{ $t("untagged.fileMissing") }}
                 </span>
                 <span
                   v-if="!track.isrc"
                   class="rounded bg-surface-container-high px-1.5 py-0.5 text-[10px] text-on-surface-variant"
                 >
-                  no ISRC
+                  {{ $t("untagged.noIsrc") }}
                 </span>
               </div>
             </td>
@@ -271,7 +247,7 @@ async function confirmDelete(): Promise<void> {
           </tr>
           <tr v-if="untagged.filteredTracks.length === 0">
             <td colspan="5" class="px-4 py-10 text-center text-sm text-on-surface-variant">
-              No tracks match this filter.
+              {{ $t("untagged.noMatch") }}
             </td>
           </tr>
         </tbody>
@@ -285,21 +261,21 @@ async function confirmDelete(): Promise<void> {
     >
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span class="inline-flex items-center gap-1.5 rounded bg-primary/15 px-2.5 py-1 text-xs font-bold text-primary">
-          {{ untagged.selectedIds.size }} selected
+          {{ $t("untagged.selectedCount", { count: untagged.selectedIds.size }) }}
         </span>
         <button
           type="button"
           class="text-xs font-semibold text-on-surface-variant hover:text-on-surface"
           @click="untagged.clearSelection()"
         >
-          Clear
+          {{ $t("untagged.clear") }}
         </button>
 
         <div class="ml-auto flex flex-wrap items-center gap-2">
           <input
             v-model="tagInput"
             list="untagged-tags"
-            placeholder="MyTag to apply…"
+            :placeholder="$t('untagged.tagToApply')"
             class="w-52 rounded border border-outline bg-surface-container-high px-3 py-1.5 text-sm text-on-surface focus:border-primary focus:outline-none"
             @keydown.enter.prevent="applyTag()"
           />
@@ -314,7 +290,7 @@ async function confirmDelete(): Promise<void> {
           >
             <Loader2 v-if="untagged.busy" :size="15" class="animate-spin" aria-hidden="true" />
             <CheckCircle2 v-else :size="15" aria-hidden="true" />
-            Apply tag
+            {{ $t("untagged.applyTag") }}
           </button>
           <button
             type="button"
@@ -323,7 +299,7 @@ async function confirmDelete(): Promise<void> {
             @click="confirmDelete()"
           >
             <Trash2 :size="15" aria-hidden="true" />
-            Remove
+            {{ $t("common.remove") }}
           </button>
         </div>
       </div>

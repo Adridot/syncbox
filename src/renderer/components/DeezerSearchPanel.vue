@@ -32,7 +32,7 @@ watch(() => props.track?.spotifyTrackId, () => stopPreview());
   <aside class="flex h-full w-[420px] shrink-0 flex-col border-l border-outline-variant bg-surface-container shadow-2xl">
     <div class="flex items-center justify-between border-b border-outline-variant p-4">
       <div>
-        <h2 class="text-base font-bold text-on-surface">Search Deezer</h2>
+        <h2 class="text-base font-bold text-on-surface">{{ $t("deezer.title") }}</h2>
         <p class="mt-0.5 max-w-[280px] truncate text-xs text-on-surface-variant">
           {{ track.title }} — {{ track.artists.join(", ") }}
         </p>
@@ -52,7 +52,7 @@ watch(() => props.track?.spotifyTrackId, () => stopPreview());
           class="min-w-0 flex-1 rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
           :value="query"
           type="text"
-          placeholder="Search query…"
+          :placeholder="$t('deezer.queryPlaceholder')"
           @input="emit('update:query', ($event.target as HTMLInputElement).value)"
         />
         <button
@@ -62,7 +62,7 @@ watch(() => props.track?.spotifyTrackId, () => stopPreview());
         >
           <Loader2 v-if="loading" :size="15" class="animate-spin" aria-hidden="true" />
           <Search v-else :size="15" aria-hidden="true" />
-          Search
+          {{ $t("deezer.search") }}
         </button>
       </form>
     </div>
@@ -72,8 +72,8 @@ watch(() => props.track?.spotifyTrackId, () => stopPreview());
         v-if="results.length === 0 && !loading"
         class="py-8 text-center text-sm text-on-surface-variant"
       >
-        <p v-if="query">No results. Try a different query.</p>
-        <p v-else>Enter a search query and press Search.</p>
+        <p v-if="query">{{ $t("deezer.noResults") }}</p>
+        <p v-else>{{ $t("deezer.enterQuery") }}</p>
       </div>
 
       <div class="flex flex-col gap-3">
@@ -99,7 +99,7 @@ watch(() => props.track?.spotifyTrackId, () => stopPreview());
                 class="absolute inset-0 grid place-items-center bg-black/40 text-white opacity-0 transition-opacity hover:opacity-100"
                 :class="{ 'opacity-100': playingId === result.id }"
                 type="button"
-                :title="playingId === result.id ? 'Pause preview' : 'Play preview'"
+                :title="playingId === result.id ? $t('deezer.pausePreview') : $t('deezer.playPreview')"
                 @click="togglePreview(result)"
               >
                 <Pause v-if="playingId === result.id" :size="18" aria-hidden="true" />
@@ -124,7 +124,7 @@ watch(() => props.track?.spotifyTrackId, () => stopPreview());
               @click="emit('queue', result.id)"
             >
               <Download :size="13" aria-hidden="true" />
-              Download
+              {{ $t("deezer.download") }}
             </button>
           </div>
         </div>

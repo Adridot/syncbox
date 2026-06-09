@@ -39,9 +39,9 @@ async function addTrack(): Promise<void> {
   <div class="flex min-w-0 flex-1 flex-col overflow-y-auto">
     <div class="mx-auto w-full max-w-3xl p-8">
       <div class="mb-8 text-center">
-        <h2 class="text-2xl font-bold text-on-surface">Create an event</h2>
+        <h2 class="text-2xl font-bold text-on-surface">{{ $t("eventCreate.title") }}</h2>
         <p class="mt-1 text-sm text-on-surface-variant">
-          Import a whole Spotify playlist, start an empty event, or add a single track by link.
+          {{ $t("eventCreate.subtitle") }}
         </p>
       </div>
 
@@ -54,7 +54,7 @@ async function addTrack(): Promise<void> {
         >
           <div class="flex items-center gap-2">
             <AreaChart class="text-primary" :size="18" aria-hidden="true" />
-            <h3 class="text-sm font-bold text-on-surface">From a Spotify playlist</h3>
+            <h3 class="text-sm font-bold text-on-surface">{{ $t("eventCreate.fromPlaylist") }}</h3>
           </div>
           <div class="relative">
             <Link2 class="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" :size="14" aria-hidden="true" />
@@ -62,7 +62,7 @@ async function addTrack(): Promise<void> {
               class="w-full rounded border border-outline bg-surface-container-high py-2 pl-8 pr-3 text-sm text-on-surface focus:border-primary focus:outline-none"
               v-model="events.importForm.playlistUrl"
               type="url"
-              placeholder="Spotify playlist URL"
+              :placeholder="$t('eventCreate.playlistUrl')"
               required
             />
           </div>
@@ -70,7 +70,7 @@ async function addTrack(): Promise<void> {
             class="w-full rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
             v-model="events.importForm.eventName"
             type="text"
-            placeholder="Event name"
+            :placeholder="$t('eventCreate.eventName')"
             required
           />
           <button
@@ -79,7 +79,7 @@ async function addTrack(): Promise<void> {
             :disabled="ui.loading"
           >
             <AreaChart :size="15" aria-hidden="true" />
-            Analyze playlist
+            {{ $t("eventCreate.analyzePlaylist") }}
           </button>
         </form>
 
@@ -90,16 +90,16 @@ async function addTrack(): Promise<void> {
         >
           <div class="flex items-center gap-2">
             <Disc3 class="text-secondary" :size="18" aria-hidden="true" />
-            <h3 class="text-sm font-bold text-on-surface">Empty event</h3>
+            <h3 class="text-sm font-bold text-on-surface">{{ $t("eventCreate.emptyEvent") }}</h3>
           </div>
           <p class="text-xs text-on-surface-variant">
-            Start blank and add tracks one by one.
+            {{ $t("eventCreate.emptyEventHint") }}
           </p>
           <input
             class="w-full rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
             v-model="emptyEventName"
             type="text"
-            placeholder="Event name"
+            :placeholder="$t('eventCreate.eventName')"
             required
           />
           <button
@@ -108,7 +108,7 @@ async function addTrack(): Promise<void> {
             :disabled="ui.loading"
           >
             <Plus :size="15" aria-hidden="true" />
-            Create empty event
+            {{ $t("eventCreate.createEmptyEvent") }}
           </button>
         </form>
       </div>
@@ -117,7 +117,7 @@ async function addTrack(): Promise<void> {
       <div class="mt-6 rounded-xl border border-outline-variant bg-surface-container p-5">
         <div class="mb-3 flex items-center gap-2">
           <ListPlus class="text-primary" :size="18" aria-hidden="true" />
-          <h3 class="text-sm font-bold text-on-surface">Add a track by Spotify link</h3>
+          <h3 class="text-sm font-bold text-on-surface">{{ $t("eventCreate.addByLink") }}</h3>
         </div>
         <form class="flex flex-col gap-3 md:flex-row md:items-center" @submit.prevent="addTrack()">
           <div class="relative min-w-0 flex-1">
@@ -126,7 +126,7 @@ async function addTrack(): Promise<void> {
               class="w-full rounded border border-outline bg-surface-container-high py-2 pl-8 pr-3 text-sm text-on-surface focus:border-primary focus:outline-none"
               v-model="trackUrl"
               type="text"
-              placeholder="Spotify track link / URI"
+              :placeholder="$t('eventCreate.trackLink')"
               required
             />
           </div>
@@ -134,7 +134,7 @@ async function addTrack(): Promise<void> {
             class="rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
             v-model="target"
           >
-            <option :value="NEW_EVENT">＋ New event…</option>
+            <option :value="NEW_EVENT">{{ $t("eventCreate.newEventOption") }}</option>
             <option v-for="event in events.summaries" :key="event.id" :value="String(event.id)">
               {{ event.eventName }}
             </option>
@@ -144,7 +144,7 @@ async function addTrack(): Promise<void> {
             class="rounded border border-outline bg-surface-container-high px-3 py-2 text-sm text-on-surface focus:border-primary focus:outline-none"
             v-model="newEventName"
             type="text"
-            placeholder="New event name"
+            :placeholder="$t('eventCreate.newEventName')"
             :required="isNewEvent"
           />
           <button
@@ -153,14 +153,14 @@ async function addTrack(): Promise<void> {
             :disabled="ui.loading"
           >
             <Plus :size="15" aria-hidden="true" />
-            Add
+            {{ $t("eventCreate.add") }}
           </button>
         </form>
       </div>
 
       <p class="mt-6 flex items-center justify-center gap-2 text-xs text-on-surface-variant">
         <Sparkles :size="13" aria-hidden="true" />
-        Missing tracks are downloaded automatically — you'll only be warned if one isn't on Deemix.
+        {{ $t("eventCreate.autoDownloadHint") }}
       </p>
     </div>
   </div>

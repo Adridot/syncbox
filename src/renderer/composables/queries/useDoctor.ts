@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/vue-query";
 import { computed, reactive, ref } from "vue";
 import type { DiagnosticsReport, RekordboxBackup } from "../../lib/api";
+import { t } from "../../i18n";
 import { useSystemStore } from "../../stores/system";
 import { useUiStore } from "../../stores/ui";
 
@@ -52,16 +53,16 @@ export function useDoctor() {
     try {
       const result = await pruneMutation.mutateAsync();
       if (!result.readable) {
-        ui.setMessage(
-          "error",
-          "Backups folder can't be read (cloud-storage permissions). Use the packaged app for backup management.",
-        );
+        ui.setMessage("error", t("toast.doctor.backupsUnreadable"));
       } else if (result.removed === 0) {
-        ui.pushToast("info", "Nothing to clean up — backups are within the limit.");
+        ui.pushToast("info", t("toast.doctor.nothingToClean"));
       } else {
         ui.setMessage(
           "success",
-          `Removed ${result.removed} old backup(s), freed ${(result.freedBytes / (1024 * 1024)).toFixed(0)} MB.`,
+          t("toast.doctor.pruned", {
+            count: result.removed,
+            mb: (result.freedBytes / (1024 * 1024)).toFixed(0),
+          }),
         );
       }
       await refresh();
@@ -76,7 +77,7 @@ export function useDoctor() {
       const result = await system.api!.restoreBackup(name);
       ui.setMessage(
         "success",
-        `Restored ${result.restored} (${result.restoredFiles} file(s)). A safety backup was made.`,
+        t("toast.doctor.restored", { name: result.restored, files: result.restoredFiles }),
       );
       await refresh();
     } catch (e) {

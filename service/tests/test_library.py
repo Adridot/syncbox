@@ -121,6 +121,50 @@ def test_library_sync_detects_imported_track_deleted_from_rekordbox(
     )
 
 
+def test_delete_library_source_removes_source_and_cascades_tracks(tmp_path: Path) -> None:
+    database = LocalDatabase(tmp_path / "app.sqlite3")
+    database.migrate()
+    source = database.upsert_library_source(
+        LibrarySourceIn(
+            spotifyPlaylistId="playlist",
+            spotifyPlaylistName="Permanent",
+            tags=["Peak Time"],
+            trackCount=1,
+            enabled=True,
+        )
+    )
+    database.upsert_library_tracks(
+        source.id,
+        [
+            {
+                "spotify_track_id": "sp-1",
+                "spotify_uri": "spotify:track:sp-1",
+                "title": "New Song",
+                "artists": ["Artist"],
+                "duration_ms": 180000,
+                "isrc": "ISRC-1",
+                "status": "new",
+                "tags": ["Peak Time"],
+                "reason": "New Spotify track needs download or manual matching.",
+            }
+        ],
+    )
+
+    assert database.delete_library_source(source.id) is True
+
+    assert database.list_library_sources() == []
+    assert database.get_library_review(source.id) is None
+    # Child rows cascade away with the source.
+    with database.connect() as connection:
+        remaining = connection.execute(
+            "SELECT COUNT(*) AS n FROM library_tracks WHERE source_id = ?",
+            (source.id,),
+        ).fetchone()["n"]
+    assert remaining == 0
+    # Deleting an unknown source is a no-op the endpoint surfaces as 404.
+    assert database.delete_library_source(source.id) is False
+
+
 def test_library_download_is_manual_and_compacts_payload(tmp_path: Path) -> None:
     database = LocalDatabase(tmp_path / "app.sqlite3")
     database.migrate()

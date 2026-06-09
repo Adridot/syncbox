@@ -12,6 +12,7 @@ import {
 } from "@lucide/vue";
 import type { DuplicateGroup, DuplicateTrack } from "../lib/api";
 import { formatBytes, formatDuration } from "../lib/format";
+import { t } from "../i18n";
 import { useDuplicates } from "../composables/queries/useDuplicates";
 import { useSystemStore } from "../stores/system";
 
@@ -34,13 +35,15 @@ async function confirmResolveGroup(group: DuplicateGroup): Promise<void> {
     Boolean(duplicates.deleteFiles[group.groupId]) &&
     losers.some((t) => !t.protected && !t.fileMissing);
   const lines = [
-    `Keep: ${trackLabel(group.tracks.find((t) => t.contentId === keeper))}`,
-    `Remove ${losers.length} copy(ies) from the Rekordbox collection.`,
+    t("duplicates.confirm.keep", {
+      label: trackLabel(group.tracks.find((tr) => tr.contentId === keeper)),
+    }),
+    t("duplicates.confirm.removeCopies", { count: losers.length }),
     willDeleteFiles
-      ? "Audio files of the removed copies will be deleted from disk (protected/permanent files are always kept)."
-      : "Audio files stay on disk (collection rows only are removed).",
-    "Playlist & tag memberships of removed copies are re-linked to the kept track.",
-    "A database backup is made first.",
+      ? t("duplicates.confirm.filesDeleted")
+      : t("duplicates.confirm.filesKept"),
+    t("duplicates.confirm.relink"),
+    t("duplicates.confirm.backup"),
   ];
   if (window.confirm(lines.join("\n\n"))) {
     await duplicates.resolveGroup(group);
@@ -53,11 +56,7 @@ function trackLabel(track: DuplicateTrack | undefined): string {
 }
 
 async function confirmResolveAll(): Promise<void> {
-  if (
-    window.confirm(
-      `Auto-resolve all ${duplicates.isrcGroupCount} ISRC group(s)?\n\nThe best copy in each group is kept (lossless / most cues / permanent collection) and the others are removed. A backup is made first.`
-    )
-  ) {
+  if (window.confirm(t("duplicates.confirm.all", { count: duplicates.isrcGroupCount }))) {
     await duplicates.resolveAllIsrc();
   }
 }
@@ -71,18 +70,18 @@ async function confirmResolveAll(): Promise<void> {
         <div class="flex flex-wrap items-center gap-4">
           <label class="flex items-center gap-2 text-sm text-on-surface">
             <input v-model="duplicates.useIsrc" type="checkbox" class="accent-primary" />
-            Match by ISRC
-            <span class="text-xs text-on-surface-variant">(same recording)</span>
+            {{ $t("duplicates.matchByIsrc") }}
+            <span class="text-xs text-on-surface-variant">{{ $t("duplicates.sameRecording") }}</span>
           </label>
           <label class="flex items-center gap-2 text-sm text-on-surface">
             <input v-model="duplicates.useFuzzy" type="checkbox" class="accent-primary" />
-            Fuzzy title/artist
+            {{ $t("duplicates.fuzzy") }}
           </label>
           <label
             v-if="duplicates.useFuzzy"
             class="flex items-center gap-2 text-xs text-on-surface-variant"
           >
-            Similarity
+            {{ $t("duplicates.similarity") }}
             <input
               v-model.number="duplicates.fuzzyThreshold"
               type="range"
@@ -101,7 +100,7 @@ async function confirmResolveAll(): Promise<void> {
           >
             <Loader2 v-if="duplicates.scanning" :size="15" class="animate-spin" aria-hidden="true" />
             <Search v-else :size="15" aria-hidden="true" />
-            Scan collection
+            {{ $t("duplicates.scanCollection") }}
           </button>
         </div>
       </section>
@@ -113,9 +112,9 @@ async function confirmResolveAll(): Promise<void> {
       >
         <p class="text-sm text-on-surface-variant">
           <strong class="text-on-surface">{{ duplicates.groupCount }}</strong>
-          duplicate group(s) across
+          {{ $t("duplicates.groupsSummary") }}
           <strong class="text-on-surface">{{ duplicates.totalTracks }}</strong>
-          tracks.
+          {{ $t("duplicates.tracksSuffix") }}
         </p>
         <button
           v-if="duplicates.isrcGroupCount > 0"
@@ -125,7 +124,7 @@ async function confirmResolveAll(): Promise<void> {
           @click="confirmResolveAll"
         >
           <Sparkles :size="14" aria-hidden="true" />
-          Auto-resolve {{ duplicates.isrcGroupCount }} ISRC group(s)
+          {{ $t("duplicates.autoResolve", { count: duplicates.isrcGroupCount }) }}
         </button>
       </div>
 
@@ -140,15 +139,14 @@ async function confirmResolveAll(): Promise<void> {
         v-else-if="duplicates.scanned && duplicates.groupCount === 0"
         class="rounded-xl border border-outline-variant bg-surface-container px-5 py-8 text-center text-sm text-on-surface-variant"
       >
-        🎉 No duplicates found with the current settings.
+        {{ $t("duplicates.noDuplicates") }}
       </p>
 
       <p
         v-else-if="!duplicates.scanned"
         class="rounded-xl border border-dashed border-outline-variant px-5 py-10 text-center text-sm text-on-surface-variant"
       >
-        Scan your Rekordbox collection to find duplicate tracks Rekordbox's native tool misses
-        (same ISRC, accents, “feat.”, radio edits…).
+        {{ $t("duplicates.scanHint") }}
       </p>
 
       <!-- Groups -->
@@ -169,15 +167,15 @@ async function confirmResolveAll(): Promise<void> {
                 : 'bg-tertiary/15 text-tertiary'
             "
           >
-            {{ group.reason === "isrc" ? "Same ISRC" : "Similar metadata" }}
+            {{ group.reason === "isrc" ? $t("duplicates.sameIsrc") : $t("duplicates.similarMetadata") }}
             · {{ group.confidence }}%
           </span>
-          <span class="text-xs text-on-surface-variant">{{ group.tracks.length }} copies</span>
+          <span class="text-xs text-on-surface-variant">{{ $t("duplicates.copies", { count: group.tracks.length }) }}</span>
 
           <div class="ml-auto flex items-center gap-2">
             <label
               class="flex items-center gap-1.5 text-xs text-on-surface-variant"
-              title="Delete the audio files of removed copies (never deletes protected/permanent files)"
+              :title="$t('duplicates.deleteFilesTitle')"
             >
               <input
                 v-model="duplicates.deleteFiles[group.groupId]"
@@ -185,7 +183,7 @@ async function confirmResolveAll(): Promise<void> {
                 class="accent-error"
               />
               <HardDriveDownload :size="13" aria-hidden="true" />
-              Delete files
+              {{ $t("duplicates.deleteFiles") }}
             </label>
             <button
               type="button"
@@ -194,7 +192,7 @@ async function confirmResolveAll(): Promise<void> {
               @click="duplicates.dismissGroup(group)"
             >
               <X :size="13" aria-hidden="true" />
-              Not a duplicate
+              {{ $t("duplicates.notDuplicate") }}
             </button>
             <button
               type="button"
@@ -209,7 +207,7 @@ async function confirmResolveAll(): Promise<void> {
                 aria-hidden="true"
               />
               <Trash2 v-else :size="13" aria-hidden="true" />
-              Keep selected
+              {{ $t("duplicates.keepSelected") }}
             </button>
           </div>
         </header>
@@ -247,7 +245,7 @@ async function confirmResolveAll(): Promise<void> {
                   v-if="duplicates.keeperOf(group) === track.contentId"
                   class="rounded-full bg-secondary/15 px-2 py-0.5 text-[10px] font-bold uppercase text-secondary"
                 >
-                  Keep
+                  {{ $t("duplicates.keep") }}
                 </span>
               </div>
               <p class="truncate text-xs text-on-surface-variant">{{ track.artist }}</p>
@@ -259,31 +257,31 @@ async function confirmResolveAll(): Promise<void> {
                   v-if="track.protected"
                   class="inline-flex items-center gap-0.5 rounded bg-secondary/15 px-1.5 py-0.5 text-[10px] font-semibold text-secondary"
                 >
-                  <ShieldCheck :size="11" aria-hidden="true" /> Permanent
+                  <ShieldCheck :size="11" aria-hidden="true" /> {{ $t("duplicates.permanent") }}
                 </span>
                 <span
                   v-if="track.cueCount"
                   class="rounded bg-surface-container-high px-1.5 py-0.5 text-[10px] text-on-surface-variant"
                 >
-                  {{ track.cueCount }} cues
+                  {{ $t("duplicates.cues", { count: track.cueCount }) }}
                 </span>
                 <span
                   v-if="track.playlistCount"
                   class="rounded bg-surface-container-high px-1.5 py-0.5 text-[10px] text-on-surface-variant"
                 >
-                  {{ track.playlistCount }} playlists
+                  {{ $t("duplicates.playlists", { count: track.playlistCount }) }}
                 </span>
                 <span
                   v-if="track.tagCount"
                   class="rounded bg-surface-container-high px-1.5 py-0.5 text-[10px] text-on-surface-variant"
                 >
-                  {{ track.tagCount }} tags
+                  {{ $t("duplicates.tags", { count: track.tagCount }) }}
                 </span>
                 <span
                   v-if="track.fileMissing"
                   class="rounded bg-error/15 px-1.5 py-0.5 text-[10px] font-semibold text-error"
                 >
-                  File missing
+                  {{ $t("duplicates.fileMissing") }}
                 </span>
               </div>
               <p

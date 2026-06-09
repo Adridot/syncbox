@@ -73,39 +73,39 @@ const recentEvents = computed(() => events.summaries.slice(0, 5));
   <div class="h-full overflow-y-auto p-6 md:p-8">
     <div class="mx-auto w-full max-w-7xl">
       <div class="mb-8">
-        <h2 class="mb-2 text-2xl font-bold text-on-surface md:text-3xl">Dashboard</h2>
+        <h2 class="mb-2 text-2xl font-bold text-on-surface md:text-3xl">{{ $t("pageTitle.dashboard") }}</h2>
         <p class="text-sm text-on-surface-variant">
-          Sync health of your followed playlists and Rekordbox collection.
+          {{ $t("dashboard.subtitle") }}
         </p>
       </div>
 
       <!-- Hero metrics: the actionable state of the library -->
       <div class="mb-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          title="Library synced"
+          :title="$t('dashboard.metric.librarySynced')"
           :value="`${coverage}%`"
-          :detail="`${lib.imported} of ${lib.total} playlist tracks in Rekordbox`"
+          :detail="$t('dashboard.metric.librarySyncedDetail', { imported: lib.imported, total: lib.total })"
           :icon="Library"
           tone="primary"
         />
         <MetricCard
-          title="To download"
+          :title="$t('dashboard.metric.toDownload')"
           :value="lib.toDownload"
-          detail="New Spotify tracks to acquire"
+          :detail="$t('dashboard.metric.toDownloadDetail')"
           :icon="Download"
           tone="secondary"
         />
         <MetricCard
-          title="Ready to import"
+          :title="$t('dashboard.metric.readyToImport')"
           :value="lib.ready"
-          detail="Downloaded — waiting for Rekordbox"
+          :detail="$t('dashboard.metric.readyToImportDetail')"
           :icon="UploadCloud"
           tone="secondary"
         />
         <MetricCard
-          title="Needs attention"
+          :title="$t('dashboard.metric.needsAttention')"
           :value="needsAttention"
-          detail="Conflicts & failed downloads"
+          :detail="$t('dashboard.metric.needsAttentionDetail')"
           :icon="AlertTriangle"
           :tone="needsAttention > 0 ? 'error' : 'muted'"
         />
@@ -115,18 +115,18 @@ const recentEvents = computed(() => events.summaries.slice(0, 5));
         <!-- Library sync breakdown -->
         <section class="rounded-xl border border-outline-variant bg-surface-container p-6">
           <div class="mb-4 flex items-center justify-between">
-            <h3 class="text-lg font-bold text-on-surface">Library sync</h3>
+            <h3 class="text-lg font-bold text-on-surface">{{ $t("dashboard.librarySync") }}</h3>
             <button
               class="rounded border border-outline bg-surface-container-high px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
               type="button"
               @click="ui.navigateTo('library')"
             >
-              Open Library
+              {{ $t("dashboard.openLibrary") }}
             </button>
           </div>
 
           <div class="mb-2 flex items-end justify-between">
-            <span class="text-sm text-on-surface-variant">Imported to Rekordbox</span>
+            <span class="text-sm text-on-surface-variant">{{ $t("dashboard.importedToRekordbox") }}</span>
             <span class="text-sm font-bold text-on-surface">{{ coverage }}%</span>
           </div>
           <div class="h-2.5 w-full overflow-hidden rounded-full bg-surface-container-high">
@@ -136,44 +136,44 @@ const recentEvents = computed(() => events.summaries.slice(0, 5));
           <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div class="rounded border border-outline-variant bg-surface-container-high p-3">
               <span class="block text-xl font-bold text-secondary">{{ lib.imported }}</span>
-              <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">Imported</span>
+              <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">{{ $t("dashboard.imported") }}</span>
             </div>
             <div class="rounded border border-outline-variant bg-surface-container-high p-3">
               <span class="block text-xl font-bold text-on-surface">{{ lib.ready }}</span>
-              <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">Ready</span>
+              <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">{{ $t("dashboard.ready") }}</span>
             </div>
             <div class="rounded border border-outline-variant bg-surface-container-high p-3">
               <span class="block text-xl font-bold text-on-surface">{{ lib.toDownload }}</span>
-              <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">To get</span>
+              <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">{{ $t("dashboard.toGet") }}</span>
             </div>
             <div class="rounded border border-outline-variant bg-surface-container-high p-3">
               <span class="block text-xl font-bold" :class="lib.conflict > 0 ? 'text-error' : 'text-on-surface'">{{ lib.conflict }}</span>
-              <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">Conflicts</span>
+              <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">{{ $t("dashboard.conflicts") }}</span>
             </div>
           </div>
 
           <div class="mt-4 flex items-center gap-4 text-xs text-on-surface-variant">
             <span class="flex items-center gap-1.5">
               <ListMusic :size="13" aria-hidden="true" />
-              {{ library.sources.length }} playlists · {{ events.summaries.length }} events
+              {{ $t("dashboard.playlistsEvents", { playlists: library.sources.length, events: events.summaries.length }) }}
             </span>
             <span v-if="activeDownloads > 0" class="flex items-center gap-1.5 text-primary">
-              <Download :size="13" aria-hidden="true" /> {{ activeDownloads }} downloading
+              <Download :size="13" aria-hidden="true" /> {{ $t("dashboard.downloadingCount", { count: activeDownloads }) }}
             </span>
             <span v-if="failedDownloads > 0" class="flex items-center gap-1.5 text-error">
-              <AlertTriangle :size="13" aria-hidden="true" /> {{ failedDownloads }} not on Deemix
+              <AlertTriangle :size="13" aria-hidden="true" /> {{ $t("dashboard.notOnDeemix", { count: failedDownloads }) }}
             </span>
           </div>
         </section>
 
         <!-- Collection health -->
         <section class="rounded-xl border border-outline-variant bg-surface-container p-6">
-          <h3 class="mb-4 text-lg font-bold text-on-surface">Collection health</h3>
+          <h3 class="mb-4 text-lg font-bold text-on-surface">{{ $t("dashboard.collectionHealth") }}</h3>
 
           <template v-if="stats?.available">
             <div class="mb-2 flex items-end justify-between">
               <span class="text-sm text-on-surface-variant">
-                <strong class="text-on-surface">{{ stats.total }}</strong> tracks in Rekordbox · {{ taggedPct }}% tagged
+                <strong class="text-on-surface">{{ stats.total }}</strong> {{ $t("dashboard.tracksTagged", { pct: taggedPct }) }}
               </span>
             </div>
             <div class="h-2.5 w-full overflow-hidden rounded-full bg-surface-container-high">
@@ -184,28 +184,28 @@ const recentEvents = computed(() => events.summaries.slice(0, 5));
               <div class="rounded border border-outline-variant bg-surface-container-high p-3">
                 <span class="block text-xl font-bold" :class="stats.untagged > 0 ? 'text-tertiary' : 'text-on-surface'">{{ stats.untagged }}</span>
                 <span class="flex items-center gap-1 text-[11px] uppercase tracking-wide text-on-surface-variant">
-                  <Tags :size="11" aria-hidden="true" /> Untagged
+                  <Tags :size="11" aria-hidden="true" /> {{ $t("dashboard.untagged") }}
                 </span>
               </div>
               <div class="rounded border border-outline-variant bg-surface-container-high p-3">
                 <span class="block text-xl font-bold text-on-surface">{{ stats.withoutIsrc }}</span>
-                <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">No ISRC</span>
+                <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">{{ $t("dashboard.noIsrc") }}</span>
               </div>
               <div class="rounded border border-outline-variant bg-surface-container-high p-3">
                 <span class="block text-xl font-bold text-on-surface">{{ stats.withoutArtist }}</span>
-                <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">No artist</span>
+                <span class="text-[11px] uppercase tracking-wide text-on-surface-variant">{{ $t("dashboard.noArtist") }}</span>
               </div>
             </div>
           </template>
           <p v-else-if="stats && !stats.available" class="text-sm text-on-surface-variant">
-            Collection unavailable — {{ stats.reason || "could not read the Rekordbox database." }}
+            {{ $t("dashboard.collectionUnavailable", { reason: stats.reason || $t("dashboard.collectionUnavailableDefault") }) }}
           </p>
-          <p v-else class="text-sm text-on-surface-variant">Reading collection…</p>
+          <p v-else class="text-sm text-on-surface-variant">{{ $t("dashboard.readingCollection") }}</p>
         </section>
 
         <!-- System status -->
         <section class="rounded-xl border border-outline-variant bg-surface-container p-6">
-          <h3 class="mb-4 text-lg font-bold text-on-surface">System Status</h3>
+          <h3 class="mb-4 text-lg font-bold text-on-surface">{{ $t("dashboard.systemStatus") }}</h3>
           <div class="space-y-3">
             <div class="flex items-center justify-between rounded border border-outline-variant bg-surface-container-high p-3">
               <div class="flex items-center gap-3">
@@ -213,30 +213,30 @@ const recentEvents = computed(() => events.summaries.slice(0, 5));
                   class="h-2 w-2 rounded-full"
                   :class="system.health?.status === 'ok' ? 'bg-secondary shadow-[0_0_8px_var(--color-secondary)]' : 'bg-tertiary shadow-[0_0_8px_var(--color-tertiary)]'"
                 />
-                <span class="text-sm font-semibold text-on-surface">Local API</span>
+                <span class="text-sm font-semibold text-on-surface">{{ $t("dashboard.localApi") }}</span>
               </div>
               <StatusBadge :tone="system.health?.status === 'ok' ? 'ok' : 'warn'">
-                {{ system.health?.status ?? "starting" }}
+                {{ system.health?.status ?? $t("shell.starting") }}
               </StatusBadge>
             </div>
 
             <div class="flex items-center justify-between rounded border border-outline-variant bg-surface-container-high p-3">
               <div class="flex items-center gap-3">
                 <Database class="text-primary" :size="18" aria-hidden="true" />
-                <span class="text-sm font-semibold text-on-surface">Rekordbox Database</span>
+                <span class="text-sm font-semibold text-on-surface">{{ $t("dashboard.rekordboxDatabase") }}</span>
               </div>
               <StatusBadge :tone="system.rekordboxStatus?.mutationAllowed ? 'ok' : 'warn'">
-                {{ system.rekordboxStatus?.mutationAllowed ? "Ready" : "Locked" }}
+                {{ system.rekordboxStatus?.mutationAllowed ? $t("dashboard.statusReady") : $t("dashboard.statusLocked") }}
               </StatusBadge>
             </div>
 
             <div class="flex items-center justify-between rounded border border-outline-variant bg-surface-container-high p-3">
               <div class="flex items-center gap-3">
                 <RefreshCw class="text-secondary" :size="18" aria-hidden="true" />
-                <span class="text-sm font-semibold text-on-surface">Deemix Integration</span>
+                <span class="text-sm font-semibold text-on-surface">{{ $t("dashboard.deemixIntegration") }}</span>
               </div>
               <StatusBadge :tone="system.deemixStatus?.available && system.deemixStatus?.authenticated ? 'ok' : 'warn'">
-                {{ system.deemixStatus?.available && system.deemixStatus?.authenticated ? "Ready" : "Unavailable" }}
+                {{ system.deemixStatus?.available && system.deemixStatus?.authenticated ? $t("dashboard.statusReady") : $t("dashboard.statusUnavailable") }}
               </StatusBadge>
             </div>
           </div>
@@ -245,13 +245,13 @@ const recentEvents = computed(() => events.summaries.slice(0, 5));
         <!-- Recent events -->
         <section class="rounded-xl border border-outline-variant bg-surface-container p-6">
           <div class="mb-4 flex items-center justify-between">
-            <h3 class="text-lg font-bold text-on-surface">Recent Events</h3>
+            <h3 class="text-lg font-bold text-on-surface">{{ $t("dashboard.recentEvents") }}</h3>
             <button
               class="rounded border border-outline bg-surface-container-high px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
               type="button"
               @click="ui.navigateTo('events')"
             >
-              Open Events
+              {{ $t("dashboard.openEvents") }}
             </button>
           </div>
           <div class="space-y-4">
@@ -262,11 +262,11 @@ const recentEvents = computed(() => events.summaries.slice(0, 5));
             >
               <p class="text-sm font-semibold text-on-surface">{{ event.eventName }}</p>
               <p class="mt-1 text-xs text-on-surface-variant">
-                {{ event.readyTracks }}/{{ event.totalTracks }} ready · {{ event.status }}
+                {{ $t("dashboard.eventReady", { ready: event.readyTracks, total: event.totalTracks, status: event.status }) }}
               </p>
             </div>
             <div v-if="recentEvents.length === 0" class="text-sm text-on-surface-variant">
-              No events yet.
+              {{ $t("dashboard.noEvents") }}
             </div>
           </div>
         </section>

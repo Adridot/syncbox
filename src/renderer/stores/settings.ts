@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { reactive, ref } from "vue";
+import { t } from "../i18n";
 import type { AppSettings, PathValidation, StorageLayout } from "../lib/api";
 import { useSpotifyStore } from "./spotify";
 import { useSystemStore } from "./system";
@@ -59,7 +60,7 @@ export const useSettingsStore = defineStore("settings", () => {
       // a separate manual step, then refresh the resolved layout + path checks.
       storage.value = await system.api!.ensureStorage();
       await validatePaths();
-      ui.setMessage("success", "Settings saved.");
+      ui.setMessage("success", t("toast.settings.saved"));
     });
   }
 
@@ -69,7 +70,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (!system.api) return;
     await ui.withLoading(async () => {
       storage.value = await system.api!.ensureStorage();
-      ui.setMessage("success", "Storage folders are ready.");
+      ui.setMessage("success", t("toast.settings.storageReady"));
     });
   }
 
@@ -101,7 +102,7 @@ export const useSettingsStore = defineStore("settings", () => {
         `syncbox-settings-${stamp()}.json`,
         new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" })
       );
-      ui.setMessage("success", "Settings exported.");
+      ui.setMessage("success", t("toast.settings.exported"));
     });
   }
 
@@ -117,7 +118,7 @@ export const useSettingsStore = defineStore("settings", () => {
       // restart and load instantly (the service only wrote them to its own DB).
       if (window.desktop?.settings) await window.desktop.settings.set(result.settings);
       await Promise.all([loadStorage(), validatePaths()]);
-      ui.setMessage("success", `Imported ${result.applied} setting(s).`);
+      ui.setMessage("success", t("toast.settings.imported", { count: result.applied }));
     } catch (error) {
       ui.setMessage("error", error instanceof Error ? error.message : String(error));
     }
@@ -131,7 +132,7 @@ export const useSettingsStore = defineStore("settings", () => {
     await ui.withLoadingFlag(backupBusy, async () => {
       const blob = await system.api!.exportData();
       triggerDownload(`syncbox-data-${stamp()}.sqlite3`, blob);
-      ui.setMessage("success", "All data exported.");
+      ui.setMessage("success", t("toast.settings.dataExported"));
     });
   }
 
@@ -168,8 +169,8 @@ export const useSettingsStore = defineStore("settings", () => {
       ui.setMessage(
         status.authenticated ? "success" : "error",
         status.authenticated
-          ? "Deezer connected — Deemix is authenticated."
-          : `Deezer not authenticated: ${status.detail}`
+          ? t("toast.settings.deezerConnected")
+          : t("toast.settings.deezerNotAuthenticated", { detail: status.detail })
       );
     });
   }
@@ -185,7 +186,7 @@ export const useSettingsStore = defineStore("settings", () => {
       const status = await system.api!.testSpotifyConnection();
       ui.setMessage(
         "success",
-        `Connected to Spotify as ${status.displayName || status.username}.`
+        t("toast.settings.spotifyConnected", { name: status.displayName || status.username })
       );
     });
   }
@@ -211,7 +212,7 @@ export const useSettingsStore = defineStore("settings", () => {
       } else {
         window.open(authorizationUrl, "_blank", "noopener,noreferrer");
       }
-      ui.setMessage("info", "Finish signing in to Spotify in your browser…");
+      ui.setMessage("info", t("toast.settings.finishSignIn"));
 
       // Poll the local callback's result: every 1.5s for up to ~2 minutes.
       const deadline = Date.now() + 120_000;
@@ -222,17 +223,14 @@ export const useSettingsStore = defineStore("settings", () => {
           system.spotifyStatus = status;
           ui.setMessage(
             "success",
-            `Connected to Spotify as ${status.displayName || status.username}.`
+            t("toast.settings.spotifyConnected", { name: status.displayName || status.username })
           );
           // Re-fetch "Manage sources" so private playlists show up immediately.
           await useSpotifyStore().fetchAllPlaylists();
           return;
         }
       }
-      ui.setMessage(
-        "error",
-        "Spotify sign-in timed out. Make sure the redirect URI is registered in your Spotify app, then try again."
-      );
+      ui.setMessage("error", t("toast.settings.signInTimeout"));
     } catch (error) {
       ui.setMessage("error", error instanceof Error ? error.message : String(error));
     } finally {
@@ -246,7 +244,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (!system.api) return;
     await ui.withLoading(async () => {
       system.spotifyStatus = await system.api!.disconnectSpotify();
-      ui.setMessage("success", "Disconnected your Spotify account.");
+      ui.setMessage("success", t("toast.settings.disconnected"));
       // Fall back to public playlists (app token).
       await useSpotifyStore().fetchAllPlaylists();
     });

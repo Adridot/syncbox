@@ -4,6 +4,7 @@ import { Download, FileAudio, FolderOpen, Link2, Plus, RefreshCw, ShieldCheck, T
 import DeezerSearchPanel from "./DeezerSearchPanel.vue";
 import StatusBadge from "./StatusBadge.vue";
 import TrackReviewTable from "./TrackReviewTable.vue";
+import { t } from "../i18n";
 import { useEventsStore } from "../stores/events";
 import { useSystemStore } from "../stores/system";
 import { useUiStore } from "../stores/ui";
@@ -12,8 +13,6 @@ import { useUiStore } from "../stores/ui";
 const ui = useUiStore();
 const system = useSystemStore();
 const events = useEventsStore();
-
-const emptyMessage = "Select or create an event to review tracks, files, and downloads.";
 
 // Contextual "add a track to this event" bar.
 const trackUrl = ref("");
@@ -35,7 +34,7 @@ function eventStatusTone(event: {
 
 async function openDesktopPath(path: string): Promise<void> {
   if (!window.desktop) {
-    ui.setMessage("success", `Open this path in Finder: ${path}`);
+    ui.setMessage("success", t("events.openInFinder", { path }));
     return;
   }
   try {
@@ -59,7 +58,7 @@ async function openDesktopPath(path: string): Promise<void> {
           class="min-w-0 flex-1 rounded border border-outline bg-surface-container-high px-3 py-1.5 text-xs text-on-surface focus:border-primary focus:outline-none"
           v-model="trackUrl"
           type="text"
-          placeholder="Add a track to this event — paste a Spotify track link"
+          :placeholder="$t('eventWorkspace.addToEvent')"
           required
         />
         <button
@@ -68,7 +67,7 @@ async function openDesktopPath(path: string): Promise<void> {
           :disabled="ui.loading"
         >
           <Plus :size="13" aria-hidden="true" />
-          Add
+          {{ $t("eventWorkspace.add") }}
         </button>
       </form>
 
@@ -95,7 +94,7 @@ async function openDesktopPath(path: string): Promise<void> {
               @click="openDesktopPath(events.activeEvent.audioDir)"
             >
               <FolderOpen :size="14" aria-hidden="true" />
-              Audio
+              {{ $t("eventWorkspace.audio") }}
             </button>
             <button
               class="inline-flex items-center gap-2 rounded border border-outline bg-surface-container-high px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary disabled:opacity-60"
@@ -104,18 +103,18 @@ async function openDesktopPath(path: string): Promise<void> {
               @click="events.refreshEventFolder()"
             >
               <RefreshCw :size="14" aria-hidden="true" />
-              Refresh
+              {{ $t("eventWorkspace.refresh") }}
             </button>
             <button
               v-if="events.activeEvent.missingTracks > 0"
               class="inline-flex items-center gap-2 rounded border border-tertiary/60 bg-tertiary/10 px-3 py-1.5 text-xs font-bold text-tertiary transition-colors hover:border-tertiary disabled:opacity-60"
               type="button"
               :disabled="ui.loading"
-              title="Re-attempt downloading the tracks still missing"
+              :title="$t('eventWorkspace.downloadMissingTitle')"
               @click="events.downloadMissing()"
             >
               <Download :size="14" aria-hidden="true" />
-              Download missing ({{ events.activeEvent.missingTracks }})
+              {{ $t("eventWorkspace.downloadMissing", { count: events.activeEvent.missingTracks }) }}
             </button>
             <button
               class="inline-flex items-center gap-2 rounded bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02] disabled:opacity-60"
@@ -124,7 +123,7 @@ async function openDesktopPath(path: string): Promise<void> {
               @click="events.applyActiveEvent()"
             >
               <ShieldCheck :size="14" aria-hidden="true" />
-              Apply Ready Tracks
+              {{ $t("eventWorkspace.applyReady") }}
             </button>
             <button
               class="inline-flex items-center gap-2 rounded border border-error/60 bg-error/10 px-3 py-1.5 text-xs font-bold text-error transition-colors hover:border-error disabled:opacity-60"
@@ -133,7 +132,7 @@ async function openDesktopPath(path: string): Promise<void> {
               @click="events.deleteActiveEvent()"
             >
               <Trash2 :size="14" aria-hidden="true" />
-              Delete
+              {{ $t("eventWorkspace.delete") }}
             </button>
           </div>
         </div>
@@ -148,7 +147,7 @@ async function openDesktopPath(path: string): Promise<void> {
             ['ambiguous', events.activeEvent.ambiguousTracks],
           ]" :key="label" class="rounded border border-outline-variant bg-surface-container-high p-2 text-center">
             <strong class="block text-xl text-on-surface">{{ value }}</strong>
-            <span class="text-[10px] uppercase tracking-wide text-on-surface-variant">{{ label }}</span>
+            <span class="text-[10px] uppercase tracking-wide text-on-surface-variant">{{ $t(`eventWorkspace.metric.${label}`) }}</span>
           </div>
         </div>
       </div>
@@ -169,7 +168,7 @@ async function openDesktopPath(path: string): Promise<void> {
         <div v-if="events.activeEvent.stagingFiles.length > 0" class="mt-4">
           <div class="mb-2 flex items-center gap-2">
             <FileAudio class="text-secondary" :size="15" aria-hidden="true" />
-            <span class="text-sm font-bold text-on-surface">Staged Files</span>
+            <span class="text-sm font-bold text-on-surface">{{ $t("eventWorkspace.stagedFiles") }}</span>
           </div>
           <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             <div
@@ -179,7 +178,7 @@ async function openDesktopPath(path: string): Promise<void> {
             >
               <strong class="block truncate text-xs text-on-surface">{{ file.title }}</strong>
               <span class="text-[11px] text-on-surface-variant">
-                {{ file.artist || "Unknown artist" }} — {{ file.status }}
+                {{ file.artist || $t("eventWorkspace.unknownArtist") }} — {{ file.status }}
               </span>
             </div>
           </div>
@@ -188,7 +187,7 @@ async function openDesktopPath(path: string): Promise<void> {
     </div>
 
     <div v-else class="flex h-full items-center justify-center text-sm text-on-surface-variant">
-      {{ emptyMessage }}
+      {{ $t("eventWorkspace.empty") }}
     </div>
   </div>
 

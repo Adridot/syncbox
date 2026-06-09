@@ -33,7 +33,7 @@ const icons: Record<ToastKind, unknown> = {
         <button
           type="button"
           class="mt-0.5 shrink-0 opacity-60 transition-opacity hover:opacity-100"
-          aria-label="Dismiss"
+          :aria-label="$t('common.dismiss')"
           @click="ui.dismissToast(toast.id)"
         >
           <X :size="16" aria-hidden="true" />

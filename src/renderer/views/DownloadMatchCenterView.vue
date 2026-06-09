@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Clock, FileAudio, RefreshCw, Search } from
 import { computed } from "vue";
 import type { GlobalAcquisitionJob } from "../lib/api";
 import StatusBadge from "../components/StatusBadge.vue";
+import { t } from "../i18n";
 import { useEventsStore } from "../stores/events";
 import { useLibraryStore } from "../stores/library";
 import { useSystemStore } from "../stores/system";
@@ -27,7 +28,11 @@ function acquisitionTrackTitle(job: GlobalAcquisitionJob): string {
 function acquisitionDetail(job: GlobalAcquisitionJob): string {
   if (job.error) return job.error;
   if (job.deezerTrackId) {
-    return `${job.matchMethod ?? "match"} - ${job.confidence}% - Deezer ${job.deezerTrackId}`;
+    return t("downloadCenter.matchDetail", {
+      method: job.matchMethod ?? t("trackTable.match"),
+      confidence: job.confidence,
+      id: job.deezerTrackId,
+    });
   }
   return job.outputDir ?? job.spotifyTrackId;
 }
@@ -53,10 +58,10 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
         <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 class="mb-1 text-2xl font-bold text-on-surface md:text-3xl">
-              Download & Match Center
+              {{ $t("downloadCenter.title") }}
             </h2>
             <p class="text-sm text-on-surface-variant">
-              Deemix queue, staged files, and metadata conflicts.
+              {{ $t("downloadCenter.subtitle") }}
             </p>
           </div>
           <div class="flex gap-3">
@@ -65,14 +70,14 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
               type="button"
               @click="events.refreshEventFolder()"
             >
-              Refresh Folder
+              {{ $t("downloadCenter.refreshFolder") }}
             </button>
             <button
               class="rounded border border-outline bg-surface-container px-4 py-2 text-sm font-bold text-on-surface transition-colors hover:border-tertiary/60"
               type="button"
               @click="events.clearDownloads()"
             >
-              Clear Completed
+              {{ $t("downloadCenter.clearCompleted") }}
             </button>
           </div>
         </div>
@@ -82,14 +87,14 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
             <div class="flex items-center gap-3">
               <RefreshCw class="text-secondary" :size="20" aria-hidden="true" />
               <div>
-                <h3 class="font-bold text-on-surface">Provider Status</h3>
+                <h3 class="font-bold text-on-surface">{{ $t("downloadCenter.providerStatus") }}</h3>
                 <p class="mt-1 text-xs text-on-surface-variant">
-                  {{ system.deemixStatus?.detail ?? "Provider status not loaded." }}
+                  {{ system.deemixStatus?.detail ?? $t("downloadCenter.providerNotLoaded") }}
                 </p>
               </div>
             </div>
             <StatusBadge :tone="system.deemixStatus?.available && system.deemixStatus?.authenticated ? 'ok' : 'warn'">
-              {{ system.deemixStatus?.available && system.deemixStatus?.authenticated ? "Deemix ready" : "Deemix unavailable" }}
+              {{ system.deemixStatus?.available && system.deemixStatus?.authenticated ? $t("downloadCenter.deemixReady") : $t("downloadCenter.deemixUnavailable") }}
             </StatusBadge>
           </div>
         </div>
@@ -141,7 +146,7 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
             v-if="events.globalAcquisitionJobs.length === 0"
             class="rounded-lg border border-dashed border-outline bg-surface-container p-8 text-center text-sm text-on-surface-variant"
           >
-            No acquisition jobs.
+            {{ $t("downloadCenter.noJobs") }}
           </div>
         </div>
       </section>
@@ -150,7 +155,7 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
         <section class="mb-6 rounded-xl border border-outline-variant bg-surface-container-high p-5">
           <div class="mb-4 flex items-center gap-2">
             <Clock class="text-primary" :size="18" aria-hidden="true" />
-            <h3 class="font-bold text-on-surface">Event Context</h3>
+            <h3 class="font-bold text-on-surface">{{ $t("downloadCenter.eventContext") }}</h3>
           </div>
           <div class="grid gap-2">
             <button
@@ -167,7 +172,7 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
             >
               <strong class="block truncate text-sm text-on-surface">{{ event.eventName }}</strong>
               <span class="text-xs text-on-surface-variant">
-                {{ event.readyTracks }}/{{ event.totalTracks }} ready
+                {{ $t("downloadCenter.eventReady", { ready: event.readyTracks, total: event.totalTracks }) }}
               </span>
             </button>
           </div>
@@ -176,7 +181,7 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
         <section class="mb-6 rounded-xl border border-outline-variant bg-surface-container-high p-5">
           <div class="mb-4 flex items-center gap-2">
             <AlertTriangle class="text-tertiary" :size="18" aria-hidden="true" />
-            <h3 class="font-bold text-on-surface">Metadata Conflicts</h3>
+            <h3 class="font-bold text-on-surface">{{ $t("downloadCenter.metadataConflicts") }}</h3>
           </div>
           <div class="space-y-3">
             <div
@@ -195,7 +200,7 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
                 @click="events.acceptSuggestedMatch(track)"
               >
                 <CheckCircle2 :size="15" aria-hidden="true" />
-                Accept Match
+                {{ $t("downloadCenter.acceptMatch") }}
               </button>
             </div>
             <div
@@ -213,12 +218,12 @@ async function openEventInEvents(event: { id: number; eventName: string }): Prom
                 @click="ui.navigateTo('library')"
               >
                 <CheckCircle2 :size="15" aria-hidden="true" />
-                Open Library
+                {{ $t("downloadCenter.openLibrary") }}
               </button>
             </div>
             <div v-if="conflictTracks.length === 0 && libraryConflictTracks.length === 0" class="flex items-center gap-2 text-sm text-on-surface-variant">
               <Search :size="16" aria-hidden="true" />
-              No metadata conflicts in the selected context.
+              {{ $t("downloadCenter.noConflicts") }}
             </div>
           </div>
         </section>

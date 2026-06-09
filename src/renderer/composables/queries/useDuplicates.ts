@@ -10,6 +10,7 @@ import type {
   DuplicateResolutionItem,
   DuplicateScanResult,
 } from "../../lib/api";
+import { t } from "../../i18n";
 import { useSystemStore } from "../../stores/system";
 import { useUiStore } from "../../stores/ui";
 
@@ -95,7 +96,7 @@ export function useDuplicates() {
     if (useIsrc.value) strategies.push("isrc");
     if (useFuzzy.value) strategies.push("fuzzy");
     if (strategies.length === 0) {
-      ui.setMessage("error", "Select at least one detection strategy.");
+      ui.setMessage("error", t("toast.duplicates.selectStrategy"));
       return;
     }
     const next: ScanParams = { strategies, fuzzyThreshold: fuzzyThreshold.value };
@@ -151,15 +152,15 @@ export function useDuplicates() {
     resolvingGroupId.value = group.groupId;
     try {
       const r = await resolveMutation.mutateAsync([buildItem(group)]);
-      const parts = [`${r.removedFromRekordbox} removed from Rekordbox`];
-      if (r.filesDeleted) parts.push(`${r.filesDeleted} file(s) deleted`);
+      const parts = [t("toast.duplicates.removedFromRekordbox", { count: r.removedFromRekordbox })];
+      if (r.filesDeleted) parts.push(t("toast.duplicates.filesDeleted", { count: r.filesDeleted }));
       if (r.relinkedPlaylists || r.relinkedTags) {
         parts.push(
-          `re-linked ${r.relinkedPlaylists} playlist + ${r.relinkedTags} tag membership(s)`,
+          t("toast.duplicates.relinked", { playlists: r.relinkedPlaylists, tags: r.relinkedTags }),
         );
       }
-      if (r.skippedProtected) parts.push(`${r.skippedProtected} protected file(s) kept on disk`);
-      ui.setMessage("success", `Resolved. ${parts.join(", ")}. A backup was made.`);
+      if (r.skippedProtected) parts.push(t("toast.duplicates.protectedKept", { count: r.skippedProtected }));
+      ui.setMessage("success", t("toast.duplicates.resolved", { parts: parts.join(", ") }));
       dropGroupsFromCache(new Set([group.groupId]));
     } catch {
       /* error toast handled in the mutation's onError */
@@ -172,7 +173,7 @@ export function useDuplicates() {
     resolvingGroupId.value = group.groupId;
     try {
       await resolveMutation.mutateAsync([buildItem(group, true)]);
-      ui.pushToast("info", "Marked as not a duplicate. It won't show up again.");
+      ui.pushToast("info", t("toast.duplicates.dismissed"));
       dropGroupsFromCache(new Set([group.groupId]));
     } catch {
       /* handled in onError */
@@ -188,7 +189,11 @@ export function useDuplicates() {
       const r = await resolveMutation.mutateAsync(targets.map((g) => buildItem(g)));
       ui.setMessage(
         "success",
-        `Auto-resolved ${targets.length} ISRC group(s): ${r.removedFromRekordbox} removed, ${r.filesDeleted} file(s) deleted. Backup made.`,
+        t("toast.duplicates.autoResolved", {
+          count: targets.length,
+          removed: r.removedFromRekordbox,
+          filesDeleted: r.filesDeleted,
+        }),
       );
       dropGroupsFromCache(new Set(targets.map((g) => g.groupId)));
     } catch {
