@@ -11,13 +11,13 @@ import {
   Tag,
   Trash2,
 } from "@lucide/vue";
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
 import type { UntaggedSuggestion } from "../lib/api";
 import { formatDuration } from "../lib/format";
+import { useUntagged } from "../composables/queries/useUntagged";
 import { useSystemStore } from "../stores/system";
-import { useUntaggedStore } from "../stores/untagged";
 
-const untagged = useUntaggedStore();
+const untagged = useUntagged();
 const system = useSystemStore();
 
 const tagInput = ref("");
@@ -79,10 +79,6 @@ async function confirmDelete(): Promise<void> {
     await untagged.deleteSelected();
   }
 }
-
-onMounted(() => {
-  if (!untagged.scanned && system.api) untagged.load();
-});
 </script>
 
 <template>
