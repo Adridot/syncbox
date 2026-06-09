@@ -182,25 +182,33 @@ function jobError(track: TrackReview): string | undefined {
       ref="parentRef"
       class="max-h-[70vh] overflow-auto rounded-lg border border-outline-variant"
     >
-      <div class="min-w-[900px]">
+      <div
+        class="min-w-[900px]"
+        role="table"
+        aria-label="Track review"
+        :aria-rowcount="filteredTracks.length + 1"
+      >
         <!-- Sticky header -->
         <div
           class="sticky top-0 z-10 grid items-center border-b border-outline-variant bg-surface-container-high font-mono text-[10px] uppercase tracking-wider text-on-surface-variant"
           :style="{ gridTemplateColumns: gridCols }"
+          role="row"
+          aria-rowindex="1"
         >
-          <div v-if="selectedIds !== undefined" class="px-4 py-3">
+          <div v-if="selectedIds !== undefined" class="px-4 py-3" role="columnheader">
             <input
               class="h-4 w-4 rounded border-outline-variant bg-surface accent-primary"
               type="checkbox"
               :checked="allFilteredSelected"
+              aria-label="Select all tracks"
               @change="emit('toggleSelectAll', filteredTracks, ($event.target as HTMLInputElement).checked)"
             />
           </div>
-          <div class="px-4 py-3">Requested Track</div>
-          <div class="px-4 py-3">Rekordbox / File</div>
-          <div class="px-4 py-3">Status</div>
-          <div v-if="showTagColumn" class="px-4 py-3">Tags</div>
-          <div class="px-4 py-3"></div>
+          <div class="px-4 py-3" role="columnheader">Requested Track</div>
+          <div class="px-4 py-3" role="columnheader">Rekordbox / File</div>
+          <div class="px-4 py-3" role="columnheader">Status</div>
+          <div v-if="showTagColumn" class="px-4 py-3" role="columnheader">Tags</div>
+          <div class="px-4 py-3" role="columnheader" aria-label="Actions"></div>
         </div>
 
         <!-- Empty state -->
@@ -212,12 +220,14 @@ function jobError(track: TrackReview): string | undefined {
         </div>
 
         <!-- Virtual rows -->
-        <div v-else :style="{ height: `${totalSize}px`, position: 'relative' }">
+        <div v-else role="rowgroup" :style="{ height: `${totalSize}px`, position: 'relative' }">
           <div
             v-for="vrow in virtualRows"
             :key="filteredTracks[vrow.index].id"
             :ref="measureRow"
             :data-index="vrow.index"
+            role="row"
+            :aria-rowindex="vrow.index + 2"
             class="grid items-start border-b border-l-2 border-outline-variant/50 border-l-transparent bg-surface text-sm transition-colors hover:bg-surface-container-high"
             :class="{
               'border-l-primary bg-primary/5': filteredTracks[vrow.index].status === 'ready' || filteredTracks[vrow.index].status === 'matched',
@@ -235,17 +245,18 @@ function jobError(track: TrackReview): string | undefined {
             }"
           >
             <!-- Checkbox (library only) -->
-            <div v-if="selectedIds !== undefined" class="px-4 py-3">
+            <div v-if="selectedIds !== undefined" class="px-4 py-3" role="cell">
               <input
                 class="h-4 w-4 rounded border-outline-variant bg-surface accent-primary"
                 type="checkbox"
                 :checked="selectedIds.includes(filteredTracks[vrow.index].spotifyTrackId)"
+                :aria-label="`Select ${filteredTracks[vrow.index].title}`"
                 @change="emit('toggleSelect', filteredTracks[vrow.index], ($event.target as HTMLInputElement).checked)"
               />
             </div>
 
             <!-- Spotify track -->
-            <div class="px-4 py-3">
+            <div class="px-4 py-3" role="cell">
               <strong class="block max-w-[300px] truncate text-on-surface">{{ filteredTracks[vrow.index].title }}</strong>
               <span class="block max-w-[300px] truncate text-xs text-on-surface-variant">
                 {{ filteredTracks[vrow.index].artists.join(", ") }}
@@ -253,7 +264,7 @@ function jobError(track: TrackReview): string | undefined {
             </div>
 
             <!-- Rekordbox / File -->
-            <div class="px-4 py-3">
+            <div class="px-4 py-3" role="cell">
               <div class="grid gap-1">
                 <strong class="block max-w-[340px] truncate text-on-surface">{{ rekordboxTitle(filteredTracks[vrow.index]) }}</strong>
                 <span class="block max-w-[340px] truncate text-xs text-on-surface-variant">
@@ -293,7 +304,7 @@ function jobError(track: TrackReview): string | undefined {
             </div>
 
             <!-- Status -->
-            <div class="px-4 py-3">
+            <div class="px-4 py-3" role="cell">
               <div class="grid max-w-[240px] justify-items-start gap-1.5">
                 <StatusBadge :tone="displayStatus(filteredTracks[vrow.index]).tone">
                   {{ displayStatus(filteredTracks[vrow.index]).label }}
@@ -309,7 +320,7 @@ function jobError(track: TrackReview): string | undefined {
             </div>
 
             <!-- Tags column (library only) -->
-            <div v-if="showTagColumn" class="px-4 py-3">
+            <div v-if="showTagColumn" class="px-4 py-3" role="cell">
               <div class="flex flex-wrap gap-1">
                 <span
                   v-for="tag in filteredTracks[vrow.index].tags"
@@ -322,7 +333,7 @@ function jobError(track: TrackReview): string | undefined {
             </div>
 
             <!-- Actions -->
-            <div class="px-4 py-3">
+            <div class="px-4 py-3" role="cell">
               <div class="flex gap-1.5">
                 <button
                   v-if="filteredTracks[vrow.index].status === 'new' || filteredTracks[vrow.index].status === 'missing'"
