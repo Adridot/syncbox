@@ -75,9 +75,10 @@ function measureRow(el: Element | ComponentPublicInstance | null): void {
   if (el instanceof Element) rowVirtualizer.value.measureElement(el);
 }
 
-// Switching filter swaps the list contents — jump back to the top so the user
-// doesn't land mid-scroll on an unrelated row.
+// Switching filter OR swapping the track list (new source selected) — jump
+// back to the top so the user doesn't land mid-scroll on unrelated rows.
 watch(filter, () => parentRef.value?.scrollTo({ top: 0 }));
+watch(() => props.tracks, () => parentRef.value?.scrollTo({ top: 0 }));
 
 // Shared column template for the header and every row so they stay aligned.
 const gridCols = computed(() => {
