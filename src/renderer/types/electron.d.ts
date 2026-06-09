@@ -1,3 +1,5 @@
+import type { AppSettings } from "../lib/api";
+
 export {};
 
 export type DeemixDesktopStatus = {
@@ -14,6 +16,11 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       openPath: (path: string) => Promise<void>;
       openLogs: () => Promise<string>;
+      settings: {
+        get: () => Promise<AppSettings>;
+        set: (config: AppSettings) => Promise<AppSettings>;
+        reload: () => Promise<AppSettings>;
+      };
       deemix: {
         status: () => Promise<DeemixDesktopStatus>;
         launch: () => Promise<DeemixDesktopStatus>;

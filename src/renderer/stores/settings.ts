@@ -113,6 +113,9 @@ export const useSettingsStore = defineStore("settings", () => {
       const backup = JSON.parse(await file.text());
       const result = await system.api.importSettings(backup);
       Object.assign(settings, result.settings);
+      // Keep the electron-store mirror in step so the imported values survive a
+      // restart and load instantly (the service only wrote them to its own DB).
+      if (window.desktop?.settings) await window.desktop.settings.set(result.settings);
       await Promise.all([loadStorage(), validatePaths()]);
       ui.setMessage("success", `Imported ${result.applied} setting(s).`);
     } catch (error) {
@@ -140,6 +143,10 @@ export const useSettingsStore = defineStore("settings", () => {
     try {
       const result = await system.api.importData(file);
       ui.setMessage("success", result.message);
+      // The whole service DB was just replaced — re-pull settings into the
+      // electron-store mirror before reloading, otherwise load() would read the
+      // pre-import values from the mirror.
+      if (window.desktop?.settings) await window.desktop.settings.reload();
       await load();
     } catch (error) {
       ui.setMessage("error", error instanceof Error ? error.message : String(error));

@@ -5,6 +5,11 @@ contextBridge.exposeInMainWorld("desktop", {
   openExternal: (url: string) => ipcRenderer.invoke("app:open-external", url) as Promise<void>,
   openPath: (path: string) => ipcRenderer.invoke("app:open-path", path) as Promise<void>,
   openLogs: () => ipcRenderer.invoke("app:open-logs") as Promise<string>,
+  settings: {
+    get: () => ipcRenderer.invoke("settings:get"),
+    set: (config: unknown) => ipcRenderer.invoke("settings:set", config),
+    reload: () => ipcRenderer.invoke("settings:reload"),
+  },
   deemix: {
     status: () => ipcRenderer.invoke("deemix:status"),
     launch: () => ipcRenderer.invoke("deemix:launch"),

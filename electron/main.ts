@@ -9,6 +9,13 @@ import {
   launchDeemix,
   findDeemixApp,
 } from "./deemix.js";
+import {
+  type AppConfig,
+  isInitialized,
+  markInitialized,
+  readConfig,
+  writeConfig,
+} from "./settings-store.js";
 
 /**
  * Auto-update is scaffolded but dormant: it only runs in a packaged build when
@@ -36,6 +43,87 @@ let serviceProcess: ChildProcessWithoutNullStreams | null = null;
 
 const servicePort = Number(process.env.RBSYNC_SERVICE_PORT ?? "8765");
 const apiBaseUrl = `http://127.0.0.1:${servicePort}`;
+
+// --- Settings reconciliation (electron-store <-> Python service) -----------
+// electron-store is the durable, instant-read source of truth for the portable
+// settings. The service's SQLite copy is kept in sync so the backend (downloads,
+// Spotify, path resolution) always sees the same config the user configured.
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForService(timeoutMs = 30_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/health`);
+      if (response.ok) return true;
+    } catch {
+      // Service still booting — retry until the deadline.
+    }
+    await delay(500);
+  }
+  return false;
+}
+
+async function pullSettingsFromService(): Promise<AppConfig | null> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/settings`);
+    if (!response.ok) return null;
+    return (await response.json()) as AppConfig;
+  } catch {
+    return null;
+  }
+}
+
+async function pushSettingsToService(config: AppConfig): Promise<boolean> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Resolves once electron-store holds usable settings: either confirmed already
+// initialised, or freshly migrated from the service DB. The renderer's
+// "settings:get" awaits this so a first cold start reads real values (not empty
+// defaults); every later start resolves instantly without touching the service.
+let resolveSettingsReady: () => void = () => {};
+const settingsReady = new Promise<void>((resolve) => {
+  resolveSettingsReady = resolve;
+});
+
+async function reconcileSettings(): Promise<void> {
+  try {
+    if (isInitialized()) {
+      // The JSON file is authoritative — unblock the UI now, then push to the
+      // backend in the background so its SQLite copy matches once it's up.
+      resolveSettingsReady();
+      void (async () => {
+        if (await waitForService()) {
+          await pushSettingsToService(readConfig());
+        }
+      })();
+      return;
+    }
+    // First launch with electron-store present: migrate existing users by
+    // pulling whatever the service DB already holds, so nobody loses settings.
+    if (await waitForService()) {
+      const fromService = await pullSettingsFromService();
+      if (fromService) {
+        writeConfig(fromService);
+        markInitialized();
+      }
+    }
+  } finally {
+    resolveSettingsReady();
+  }
+}
 
 function getServiceCwd(): string {
   const devPath = join(process.cwd(), "service");
@@ -162,6 +250,31 @@ function createWindow(): void {
 }
 
 ipcMain.handle("app:get-api-base-url", () => apiBaseUrl);
+
+// --- Settings bridge (electron-store) --------------------------------------
+ipcMain.handle("settings:get", async () => {
+  // Block only until the one-time migration has run; instant on every later boot.
+  await settingsReady;
+  return readConfig();
+});
+ipcMain.handle("settings:set", async (_event, partial: Partial<AppConfig>) => {
+  // The renderer's saveSettings() already POSTed to the service (canonical
+  // values + folder creation); here we just durably mirror the result so the
+  // next cold start reads it without waiting for the backend.
+  const config = writeConfig(partial);
+  markInitialized();
+  return config;
+});
+ipcMain.handle("settings:reload", async () => {
+  // After a full-data import the service DB was replaced under us — re-pull so
+  // the JSON mirror reflects the restored settings.
+  const fromService = await pullSettingsFromService();
+  if (fromService) {
+    writeConfig(fromService);
+    markInitialized();
+  }
+  return readConfig();
+});
 ipcMain.handle("app:open-external", async (_event, url: string) => {
   const parsed = new URL(url);
   if (!["https:", "http:"].includes(parsed.protocol)) {
@@ -231,6 +344,7 @@ function buildAppMenu(): void {
 app.whenReady().then(() => {
   buildAppMenu();
   startPythonService();
+  void reconcileSettings();
   createWindow();
   void checkForUpdates();
   // Start the Deemix downloader in the background if it's installed, so its
