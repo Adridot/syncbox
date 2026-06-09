@@ -33,20 +33,6 @@ export const useSystemStore = defineStore("system", () => {
     }
   }
 
-  async function refreshStatus(): Promise<void> {
-    if (!api.value) return;
-    const [nextHealth, nextStatus, nextDeemix, nextSpotify] = await Promise.all([
-      api.value.getHealth(),
-      api.value.getRekordboxStatus(),
-      api.value.getDeemixStatus().catch(() => deemixStatus.value),
-      api.value.getSpotifyStatus().catch(() => spotifyStatus.value),
-    ]);
-    health.value = nextHealth;
-    rekordboxStatus.value = nextStatus;
-    deemixStatus.value = nextDeemix;
-    spotifyStatus.value = nextSpotify;
-  }
-
   async function refreshSpotifyStatus(): Promise<void> {
     if (!api.value) return;
     try {
@@ -64,7 +50,6 @@ export const useSystemStore = defineStore("system", () => {
     spotifyStatus,
     collectionStats,
     init,
-    refreshStatus,
     refreshSpotifyStatus,
     refreshCollectionStats,
   };

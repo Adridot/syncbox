@@ -37,7 +37,6 @@ export function useRefreshManager() {
   useIntervalFn(async () => {
     if (visibility.value !== "visible" || !system.api) return;
     await runBackground(async () => {
-      await system.refreshStatus();
       if (ui.activeView === "library" && library.activeReview) {
         await Promise.all([
           library.refreshActiveReview(),
@@ -89,7 +88,6 @@ export function useRefreshManager() {
   // On tab becomes visible — trigger all refreshes immediately
   watch(visibility, (v) => {
     if (v !== "visible" || !system.api) return;
-    void runBackground(() => system.refreshStatus());
     if (["library", "events"].includes(ui.activeView)) {
       void runBackground(() => spotify.fetchAllPlaylists());
       void runBackground(() => spotify.refreshRekordboxTags());
