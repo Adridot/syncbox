@@ -12,10 +12,10 @@ import {
 } from "@lucide/vue";
 import type { DuplicateGroup, DuplicateTrack } from "../lib/api";
 import { formatBytes, formatDuration } from "../lib/format";
-import { useDuplicatesStore } from "../stores/duplicates";
+import { useDuplicates } from "../composables/queries/useDuplicates";
 import { useSystemStore } from "../stores/system";
 
-const duplicates = useDuplicatesStore();
+const duplicates = useDuplicates();
 const system = useSystemStore();
 
 function qualityLine(track: DuplicateTrack): string {

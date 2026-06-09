@@ -76,6 +76,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
+    "@tanstack/vue-query": "^5.101.0",
     "@types/node": "^22.10.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "concurrently": "^9.1.0",
