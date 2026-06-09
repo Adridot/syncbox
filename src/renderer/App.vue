@@ -16,6 +16,7 @@ const MissingFilesView = defineAsyncComponent(() => import("./views/MissingFiles
 const UntaggedView = defineAsyncComponent(() => import("./views/UntaggedView.vue"));
 const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
 import { useRefreshManager } from "./composables/useRefreshManager";
+import { useSystemStatusQuery } from "./composables/queries/useSystemStatusQuery";
 import { useEventsStore } from "./stores/events";
 import { useLibraryStore } from "./stores/library";
 import { useSettingsStore } from "./stores/settings";
@@ -31,11 +32,14 @@ const library = useLibraryStore();
 const spotify = useSpotifyStore();
 
 useRefreshManager();
+// System status (health/Rekordbox/Deemix/Spotify) is polled by TanStack Query;
+// it stays disabled until system.init() sets the api client, then self-refreshes
+// every 5s and on window focus.
+useSystemStatusQuery();
 
 onMounted(async () => {
   await system.init();
   await Promise.all([
-    system.refreshStatus(),
     settings.load(),
     library.refreshTagRules(),
     library.refreshSources(),
