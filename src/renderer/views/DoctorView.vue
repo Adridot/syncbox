@@ -11,6 +11,7 @@ import {
 } from "@lucide/vue";
 import type { DiagnosticStatus } from "../lib/api";
 import { formatBytes, formatDate } from "../lib/format";
+import { t } from "../i18n";
 import { useDoctor } from "../composables/queries/useDoctor";
 import { useSettingsStore } from "../stores/settings";
 
@@ -41,9 +42,7 @@ async function openLogs(): Promise<void> {
 }
 
 async function confirmRestore(name: string): Promise<void> {
-  const ok = window.confirm(
-    `Restore Rekordbox database from "${name}"?\n\nThis overwrites the current collection. A safety backup of the current state is made first. Rekordbox must be closed.`
-  );
+  const ok = window.confirm(t("doctor.confirmRestore", { name }));
   if (ok) await doctor.restore(name);
 }
 </script>
@@ -60,9 +59,9 @@ async function confirmRestore(name: string): Promise<void> {
             :class="statusColor[doctor.report.status]"
           >
             <component :is="statusIcon[doctor.report.status]" :size="18" aria-hidden="true" />
-            {{ doctor.report.status === "ok" ? "All systems healthy" : doctor.report.status === "warn" ? "Attention needed" : "Problems found" }}
+            {{ doctor.report.status === "ok" ? $t("doctor.allHealthy") : doctor.report.status === "warn" ? $t("doctor.attentionNeeded") : $t("doctor.problemsFound") }}
           </span>
-          <span v-else class="text-sm text-on-surface-variant">Running checks…</span>
+          <span v-else class="text-sm text-on-surface-variant">{{ $t("doctor.runningChecks") }}</span>
         </div>
         <div class="flex items-center gap-2">
           <button
@@ -71,7 +70,7 @@ async function confirmRestore(name: string): Promise<void> {
             @click="openLogs"
           >
             <History :size="15" aria-hidden="true" />
-            Open Logs
+            {{ $t("doctor.openLogs") }}
           </button>
           <button
             type="button"
@@ -81,7 +80,7 @@ async function confirmRestore(name: string): Promise<void> {
           >
             <Loader2 v-if="doctor.loading" :size="15" class="animate-spin" aria-hidden="true" />
             <RefreshCw v-else :size="15" aria-hidden="true" />
-            Re-run
+            {{ $t("doctor.rerun") }}
           </button>
         </div>
       </div>
@@ -89,7 +88,7 @@ async function confirmRestore(name: string): Promise<void> {
       <!-- Diagnostics checks -->
       <section class="rounded-xl border border-outline-variant bg-surface-container">
         <h2 class="border-b border-outline-variant px-5 py-3 text-sm font-bold text-on-surface">
-          Diagnostics
+          {{ $t("doctor.diagnostics") }}
         </h2>
         <ul>
           <li
@@ -116,7 +115,7 @@ async function confirmRestore(name: string): Promise<void> {
             v-if="!doctor.report && !doctor.loading"
             class="px-5 py-6 text-center text-sm text-on-surface-variant"
           >
-            No diagnostics yet.
+            {{ $t("doctor.noDiagnostics") }}
           </li>
         </ul>
       </section>
@@ -125,12 +124,12 @@ async function confirmRestore(name: string): Promise<void> {
       <section class="rounded-xl border border-outline-variant bg-surface-container">
         <div class="flex flex-wrap items-center gap-3 border-b border-outline-variant px-5 py-3">
           <h2 class="text-sm font-bold text-on-surface">
-            Rekordbox backups
-            <span class="font-normal text-on-surface-variant">— restore a previous collection state</span>
+            {{ $t("doctor.backups") }}
+            <span class="font-normal text-on-surface-variant">{{ $t("doctor.backupsSubtitle") }}</span>
           </h2>
           <div class="ml-auto flex items-center gap-3">
             <label class="flex items-center gap-1.5 text-xs text-on-surface-variant">
-              Keep last
+              {{ $t("doctor.keepLast") }}
               <input
                 type="number"
                 min="0"
@@ -138,7 +137,7 @@ async function confirmRestore(name: string): Promise<void> {
                 :value="settings.settings.backupRetention"
                 @change="saveRetention(($event.target as HTMLInputElement).valueAsNumber)"
               />
-              backups
+              {{ $t("doctor.backupsWord") }}
             </label>
             <button
               type="button"
@@ -148,7 +147,7 @@ async function confirmRestore(name: string): Promise<void> {
             >
               <Loader2 v-if="doctor.pruning" :size="13" class="animate-spin" aria-hidden="true" />
               <Trash2 v-else :size="13" aria-hidden="true" />
-              Clean up old backups
+              {{ $t("doctor.cleanupOld") }}
             </button>
           </div>
         </div>
@@ -157,8 +156,7 @@ async function confirmRestore(name: string): Promise<void> {
           v-if="doctor.backups.length > 0"
           class="border-b border-outline-variant px-5 py-2 text-xs text-on-surface-variant"
         >
-          {{ doctor.backups.length }} backup(s) · {{ formatBytes(doctor.backupsTotalBytes) }} total ·
-          rotation keeps the {{ doctor.backupRetention || "∞" }} newest, oldest deleted automatically.
+          {{ $t("doctor.backupsSummary", { count: doctor.backups.length, size: formatBytes(doctor.backupsTotalBytes), keep: doctor.backupRetention || "∞" }) }}
         </p>
 
         <div
@@ -167,16 +165,14 @@ async function confirmRestore(name: string): Promise<void> {
         >
           <AlertTriangle :size="18" class="mt-0.5 shrink-0" aria-hidden="true" />
           <span>
-            The backups folder exists but can’t be read here — this happens in the dev build because
-            macOS blocks a terminal-launched process from listing cloud-storage folders. Your backups
-            are safe; the packaged Syncbox app lists and manages them normally.
+            {{ $t("doctor.backupsUnreadable") }}
           </span>
         </div>
         <div
           v-else-if="doctor.backups.length === 0"
           class="px-5 py-6 text-center text-sm text-on-surface-variant"
         >
-          No backups yet. One is created automatically before every change Syncbox applies.
+          {{ $t("doctor.noBackups") }}
         </div>
         <ul v-else>
           <li
@@ -188,7 +184,7 @@ async function confirmRestore(name: string): Promise<void> {
             <div class="min-w-0 flex-1">
               <strong class="block truncate text-sm text-on-surface">{{ backup.name }}</strong>
               <span class="text-xs text-on-surface-variant">
-                {{ formatDate(backup.createdAt) }} · {{ formatBytes(backup.sizeBytes) }} · {{ backup.fileCount }} file(s)
+                {{ $t("doctor.backupMeta", { date: formatDate(backup.createdAt), size: formatBytes(backup.sizeBytes), count: backup.fileCount }) }}
               </span>
             </div>
             <button
@@ -204,7 +200,7 @@ async function confirmRestore(name: string): Promise<void> {
                 aria-hidden="true"
               />
               <RotateCcw v-else :size="13" aria-hidden="true" />
-              Restore
+              {{ $t("doctor.restore") }}
             </button>
           </li>
         </ul>

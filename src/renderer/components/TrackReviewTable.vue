@@ -3,6 +3,7 @@ import { Eye, EyeOff, Search } from "@lucide/vue";
 import { useVirtualizer } from "@tanstack/vue-virtual";
 import { computed, ref, watch, type ComponentPublicInstance } from "vue";
 import type { AcquisitionJob, StagingFile, TrackReview } from "../lib/api";
+import { t } from "../i18n";
 import StatusBadge from "./StatusBadge.vue";
 
 const props = defineProps<{
@@ -94,9 +95,9 @@ const gridCols = computed(() => {
 
 function rekordboxTitle(track: TrackReview): string {
   if (track.rekordboxTitle) return track.rekordboxTitle;
-  if (track.stagingFilePath) return "Downloaded audio file";
+  if (track.stagingFilePath) return t("trackTable.downloadedFile");
   if (track.rekordboxContentId) return `Rekordbox ${track.rekordboxContentId}`;
-  return "No Rekordbox match";
+  return t("trackTable.noMatch");
 }
 
 function rekordboxDetail(track: TrackReview): string {
@@ -170,10 +171,10 @@ function jobError(track: TrackReview): string | undefined {
         type="button"
         @click="setFilter(f)"
       >
-        {{ f }}
+        {{ $t(`trackTable.filter${f.charAt(0).toUpperCase()}${f.slice(1)}`) }}
       </button>
       <span class="ml-auto text-xs text-on-surface-variant">
-        {{ filteredTracks.length }} track{{ filteredTracks.length !== 1 ? "s" : "" }}
+        {{ $t("trackTable.trackCount", { count: filteredTracks.length }) }}
       </span>
     </div>
 
@@ -185,7 +186,7 @@ function jobError(track: TrackReview): string | undefined {
       <div
         class="min-w-[900px]"
         role="table"
-        aria-label="Track review"
+        :aria-label="$t('trackTable.tableLabel')"
         :aria-rowcount="filteredTracks.length + 1"
       >
         <!-- Sticky header -->
@@ -200,15 +201,15 @@ function jobError(track: TrackReview): string | undefined {
               class="h-4 w-4 rounded border-outline-variant bg-surface accent-primary"
               type="checkbox"
               :checked="allFilteredSelected"
-              aria-label="Select all tracks"
+              :aria-label="$t('trackTable.selectAll')"
               @change="emit('toggleSelectAll', filteredTracks, ($event.target as HTMLInputElement).checked)"
             />
           </div>
-          <div class="px-4 py-3" role="columnheader">Requested Track</div>
-          <div class="px-4 py-3" role="columnheader">Rekordbox / File</div>
-          <div class="px-4 py-3" role="columnheader">Status</div>
-          <div v-if="showTagColumn" class="px-4 py-3" role="columnheader">Tags</div>
-          <div class="px-4 py-3" role="columnheader" aria-label="Actions"></div>
+          <div class="px-4 py-3" role="columnheader">{{ $t("trackTable.colRequested") }}</div>
+          <div class="px-4 py-3" role="columnheader">{{ $t("trackTable.colRekordbox") }}</div>
+          <div class="px-4 py-3" role="columnheader">{{ $t("trackTable.colStatus") }}</div>
+          <div v-if="showTagColumn" class="px-4 py-3" role="columnheader">{{ $t("trackTable.colTags") }}</div>
+          <div class="px-4 py-3" role="columnheader" :aria-label="$t('trackTable.colActions')"></div>
         </div>
 
         <!-- Empty state -->
@@ -216,7 +217,7 @@ function jobError(track: TrackReview): string | undefined {
           v-if="filteredTracks.length === 0"
           class="px-4 py-6 text-sm text-on-surface-variant"
         >
-          No tracks for this filter.
+          {{ $t("trackTable.noTracksFilter") }}
         </div>
 
         <!-- Virtual rows -->
@@ -250,7 +251,7 @@ function jobError(track: TrackReview): string | undefined {
                 class="h-4 w-4 rounded border-outline-variant bg-surface accent-primary"
                 type="checkbox"
                 :checked="selectedIds.includes(filteredTracks[vrow.index].spotifyTrackId)"
-                :aria-label="`Select ${filteredTracks[vrow.index].title}`"
+                :aria-label="$t('trackTable.select', { title: filteredTracks[vrow.index].title })"
                 @change="emit('toggleSelect', filteredTracks[vrow.index], ($event.target as HTMLInputElement).checked)"
               />
             </div>
@@ -271,7 +272,7 @@ function jobError(track: TrackReview): string | undefined {
                   {{ rekordboxDetail(filteredTracks[vrow.index]) }}
                 </span>
                 <span v-if="filteredTracks[vrow.index].rekordboxContentId" class="text-xs text-on-surface-variant">
-                  {{ filteredTracks[vrow.index].matchMethod ?? "match" }} — {{ filteredTracks[vrow.index].confidence }}%
+                  {{ $t("trackTable.matchDetail", { method: filteredTracks[vrow.index].matchMethod ?? $t("trackTable.match"), confidence: filteredTracks[vrow.index].confidence }) }}
                 </span>
                 <!-- Accept match (events: ambiguous) -->
                 <button
@@ -280,7 +281,7 @@ function jobError(track: TrackReview): string | undefined {
                   type="button"
                   @click="emit('acceptSuggestedMatch', filteredTracks[vrow.index])"
                 >
-                  Accept
+                  {{ $t("trackTable.accept") }}
                 </button>
                 <!-- Staging file assignment (events only) -->
                 <select
@@ -288,7 +289,7 @@ function jobError(track: TrackReview): string | undefined {
                   class="max-w-[340px] rounded border border-outline bg-surface-container px-3 py-2 text-xs text-on-surface focus:border-primary focus:outline-none"
                   @change="emit('assignStagingFile', filteredTracks[vrow.index], ($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="">Assign staged file</option>
+                  <option value="">{{ $t("trackTable.assignStaged") }}</option>
                   <option v-for="file in stagingFiles" :key="file.filePath" :value="file.filePath">
                     {{ file.title }} — {{ file.artist || file.filePath }}
                   </option>
@@ -297,8 +298,7 @@ function jobError(track: TrackReview): string | undefined {
                   v-if="stagingFiles !== undefined && filteredTracks[vrow.index].status === 'missing' && stagingFiles.length === 0"
                   class="max-w-[340px] rounded border border-dashed border-outline bg-surface-container/50 px-3 py-2 text-[11px] leading-relaxed text-on-surface-variant"
                 >
-                  Not found on Deezer. Add the audio file manually to the event folder and click
-                  <strong class="text-on-surface">Refresh Folder</strong>.
+                  {{ $t("trackTable.notOnDeezer", { refresh: $t("trackTable.refreshFolder") }) }}
                 </p>
               </div>
             </div>
@@ -339,31 +339,31 @@ function jobError(track: TrackReview): string | undefined {
                   v-if="filteredTracks[vrow.index].status === 'new' || filteredTracks[vrow.index].status === 'missing'"
                   class="inline-flex items-center gap-1 rounded border border-outline bg-surface-container px-2 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
                   type="button"
-                  :title="`Search Deezer for: ${filteredTracks[vrow.index].title}`"
+                  :title="$t('trackTable.searchDeezerFor', { title: filteredTracks[vrow.index].title })"
                   @click="emit('searchDeezer', filteredTracks[vrow.index])"
                 >
                   <Search :size="12" aria-hidden="true" />
-                  Search
+                  {{ $t("trackTable.searchAction") }}
                 </button>
                 <button
                   v-if="filteredTracks[vrow.index].status === 'new' || filteredTracks[vrow.index].status === 'missing'"
                   class="inline-flex items-center gap-1 rounded border border-outline bg-surface-container px-2 py-1 text-[11px] font-bold text-on-surface-variant transition-colors hover:border-outline-variant"
                   type="button"
-                  title="Ignore this track"
+                  :title="$t('trackTable.ignoreTitle')"
                   @click="emit('ignore', filteredTracks[vrow.index])"
                 >
                   <EyeOff :size="12" aria-hidden="true" />
-                  Ignore
+                  {{ $t("trackTable.ignore") }}
                 </button>
                 <button
                   v-if="filteredTracks[vrow.index].status === 'ignored'"
                   class="inline-flex items-center gap-1 rounded border border-secondary/40 bg-secondary/10 px-2 py-1 text-[11px] font-bold text-secondary transition-colors hover:border-secondary"
                   type="button"
-                  title="Restore this track"
+                  :title="$t('trackTable.restoreTitle')"
                   @click="emit('unignore', filteredTracks[vrow.index])"
                 >
                   <Eye :size="12" aria-hidden="true" />
-                  Restore
+                  {{ $t("trackTable.restore") }}
                 </button>
               </div>
             </div>

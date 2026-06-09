@@ -71,12 +71,13 @@ const dotClass: Record<SourceTone, string> = {
   muted: "bg-on-surface-variant/40",
 };
 
-function sourceBadge(source: LibrarySource): { text: string; tone: SourceTone } | null {
+function sourceBadge(source: LibrarySource): { key: string; count: number; tone: SourceTone } | null {
   if (source.conflictTrackCount > 0)
-    return { text: `${source.conflictTrackCount} conflict`, tone: "warn" };
-  if (source.newTrackCount > 0) return { text: `+${source.newTrackCount} new`, tone: "active" };
+    return { key: "library.conflictBadge", count: source.conflictTrackCount, tone: "warn" };
+  if (source.newTrackCount > 0)
+    return { key: "library.newBadge", count: source.newTrackCount, tone: "active" };
   if (source.readyTrackCount > 0)
-    return { text: `${source.readyTrackCount} ready`, tone: "active" };
+    return { key: "library.readyBadge", count: source.readyTrackCount, tone: "active" };
   return null;
 }
 
@@ -122,7 +123,7 @@ function removeDrawerTag(tagName: string): void {
       <div class="border-b border-outline-variant px-4 py-3">
         <div class="mb-3 flex items-center gap-2">
           <h2 class="text-sm font-bold uppercase tracking-wide text-on-surface-variant">
-            Sources
+            {{ $t("library.sources") }}
           </h2>
           <StatusBadge tone="muted">{{ library.sources.length }}</StatusBadge>
         </div>
@@ -131,18 +132,18 @@ function removeDrawerTag(tagName: string): void {
             type="button"
             class="inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded border border-outline bg-surface px-3 py-1.5 text-xs font-semibold text-on-surface hover:border-primary disabled:opacity-60"
             :disabled="ui.loading || library.sources.length === 0"
-            title="Sync all sources"
+            :title="$t('library.syncAllTitle')"
             @click="library.syncAllSources()"
           >
-            <RefreshCw :size="13" aria-hidden="true" /> Sync all
+            <RefreshCw :size="13" aria-hidden="true" /> {{ $t("library.syncAll") }}
           </button>
           <button
             type="button"
             class="inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded bg-primary px-3 py-1.5 text-xs font-bold text-white"
-            title="Follow a playlist / manage mappings"
+            :title="$t('library.manageTitle')"
             @click="setupOpen = true"
           >
-            <Settings2 :size="13" aria-hidden="true" /> Manage
+            <Settings2 :size="13" aria-hidden="true" /> {{ $t("library.manage") }}
           </button>
         </div>
 
@@ -155,7 +156,7 @@ function removeDrawerTag(tagName: string): void {
           <input
             v-model="sourceSearch"
             type="search"
-            placeholder="Search sources…"
+            :placeholder="$t('library.searchSources')"
             class="w-full rounded border border-outline bg-surface-container px-3 py-1.5 pl-8 text-sm text-on-surface focus:border-primary focus:outline-none"
           />
         </div>
@@ -168,7 +169,7 @@ function removeDrawerTag(tagName: string): void {
           @click="attentionOnly = !attentionOnly"
         >
           <ListFilter :size="13" aria-hidden="true" />
-          {{ attentionOnly ? "Showing needs-attention" : `Needs attention (${attentionCount})` }}
+          {{ attentionOnly ? $t("library.showingNeedsAttention") : $t("library.needsAttention", { count: attentionCount }) }}
         </button>
       </div>
 
@@ -200,18 +201,18 @@ function removeDrawerTag(tagName: string): void {
               {{ source.spotifyPlaylistName }}
             </span>
             <span class="block truncate text-xs text-on-surface-variant">
-              {{ source.trackCount }} tracks<template v-if="source.tags.length"> · {{ source.tags.join(", ") }}</template>
+              {{ $t("library.tracksCount", { count: source.trackCount }) }}<template v-if="source.tags.length"> · {{ source.tags.join(", ") }}</template>
             </span>
           </span>
           <span class="flex shrink-0 items-center gap-1.5">
             <StatusBadge v-if="sourceBadge(source)" :tone="sourceBadge(source)!.tone">
-              {{ sourceBadge(source)!.text }}
+              {{ $t(sourceBadge(source)!.key, { count: sourceBadge(source)!.count }) }}
             </StatusBadge>
             <RefreshCw
               :size="14"
               class="shrink-0 text-on-surface-variant opacity-0 transition-opacity hover:text-primary group-hover:opacity-100"
               role="button"
-              aria-label="Sync source"
+              :aria-label="$t('library.syncSource')"
               @click.stop="library.syncSource(source)"
             />
           </span>
@@ -221,8 +222,8 @@ function removeDrawerTag(tagName: string): void {
           v-if="filteredSources.length === 0"
           class="px-3 py-8 text-center text-sm text-on-surface-variant"
         >
-          <template v-if="library.sources.length === 0">No sources yet — click <strong>Manage</strong> to follow a playlist.</template>
-          <template v-else>No sources match.</template>
+          <template v-if="library.sources.length === 0">{{ $t("library.noSourcesYet", { manage: $t("library.manage") }) }}</template>
+          <template v-else>{{ $t("library.noSourcesMatch") }}</template>
         </p>
       </div>
     </aside>
@@ -252,7 +253,7 @@ function removeDrawerTag(tagName: string): void {
                         : 'text-on-surface'
                     "
                   >{{ stat.value }}</strong>
-                  <span class="text-xs text-on-surface-variant">{{ stat.label }}</span>
+                  <span class="text-xs text-on-surface-variant">{{ $t(`library.stat.${stat.label}`) }}</span>
                 </span>
               </div>
             </div>
@@ -260,11 +261,11 @@ function removeDrawerTag(tagName: string): void {
               class="inline-flex shrink-0 items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-bold text-white shadow-[0_4px_12px_rgba(0,112,255,0.3)] transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-60"
               type="button"
               :disabled="ui.loading || !library.readyToApply || !system.rekordboxStatus?.mutationAllowed"
-              :title="!system.rekordboxStatus?.mutationAllowed ? 'Close Rekordbox to import' : ''"
+              :title="!system.rekordboxStatus?.mutationAllowed ? $t('library.closeRekordboxToImport') : ''"
               @click="library.applySource()"
             >
               <UploadCloud :size="16" aria-hidden="true" />
-              Import to Rekordbox
+              {{ $t("library.importToRekordbox") }}
             </button>
           </div>
         </div>
@@ -289,23 +290,23 @@ function removeDrawerTag(tagName: string): void {
           class="shrink-0 border-t border-outline-variant bg-surface-container px-6 py-3"
         >
           <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <StatusBadge tone="active">{{ library.selectedTrackIds.length }} selected</StatusBadge>
+            <StatusBadge tone="active">{{ $t("library.selectedCount", { count: library.selectedTrackIds.length }) }}</StatusBadge>
 
             <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              <span class="text-xs font-semibold text-on-surface-variant">Tags:</span>
+              <span class="text-xs font-semibold text-on-surface-variant">{{ $t("library.tagsLabel") }}</span>
               <button
                 v-for="tagName in selectedTagNames"
                 :key="tagName"
                 class="inline-flex items-center gap-1.5 rounded border border-outline bg-surface-variant px-2 py-0.5 text-xs font-bold text-on-surface"
                 type="button"
-                title="Remove tag"
+                :title="$t('common.remove')"
                 @click="removeDrawerTag(tagName)"
               >
                 {{ tagName }}
                 <X :size="11" aria-hidden="true" />
               </button>
               <span v-if="selectedTagNames.length === 0" class="text-xs text-on-surface-variant">
-                none
+                {{ $t("library.none") }}
               </span>
             </div>
 
@@ -314,7 +315,7 @@ function removeDrawerTag(tagName: string): void {
                 class="w-48 rounded border border-outline bg-surface-container-high px-3 py-1.5 text-sm text-on-surface focus:border-primary focus:outline-none"
                 v-model="drawerTagInput"
                 list="drawer-tags"
-                placeholder="Add existing MyTag"
+                :placeholder="$t('library.addExistingTag')"
                 @change="applyDrawerTag(drawerTagInput)"
                 @keydown.enter.prevent="applyDrawerTag(drawerTagInput)"
               />
@@ -328,7 +329,7 @@ function removeDrawerTag(tagName: string): void {
                 @click="applyDrawerTag(drawerTagInput)"
               >
                 <CheckCircle2 :size="15" aria-hidden="true" />
-                Apply
+                {{ $t("common.apply") }}
               </button>
             </div>
           </div>
@@ -340,9 +341,9 @@ function removeDrawerTag(tagName: string): void {
           <div class="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-surface-container-high">
             <Library class="text-primary" :size="26" aria-hidden="true" />
           </div>
-          <h3 class="mb-1 text-lg font-bold text-on-surface">Select a source</h3>
+          <h3 class="mb-1 text-lg font-bold text-on-surface">{{ $t("library.selectSourceTitle") }}</h3>
           <p class="text-sm text-on-surface-variant">
-            Pick a playlist on the left to review its tracks, download what's missing, and import to Rekordbox.
+            {{ $t("library.selectSourceHint") }}
           </p>
           <button
             v-if="library.sources.length === 0"
@@ -350,7 +351,7 @@ function removeDrawerTag(tagName: string): void {
             class="mt-4 inline-flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-bold text-white"
             @click="setupOpen = true"
           >
-            <Settings2 :size="15" aria-hidden="true" /> Follow a playlist
+            <Settings2 :size="15" aria-hidden="true" /> {{ $t("library.followPlaylist") }}
           </button>
         </div>
       </div>

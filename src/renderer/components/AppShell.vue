@@ -20,14 +20,14 @@ const ui = useUiStore();
 const system = useSystemStore();
 const events = useEventsStore();
 
-const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "library", label: "My Library", icon: Library },
-  { key: "events", label: "Events", icon: CalendarDays },
-  { key: "downloadCenter", label: "Download & Match", icon: ListChecks },
-  { key: "duplicates", label: "Duplicates", icon: Copy },
-  { key: "missing", label: "Missing Files", icon: FileSearch },
-  { key: "untagged", label: "Untagged", icon: Tag }
+const navItems: Array<{ key: ViewKey; labelKey: string; icon: unknown }> = [
+  { key: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { key: "library", labelKey: "nav.library", icon: Library },
+  { key: "events", labelKey: "nav.events", icon: CalendarDays },
+  { key: "downloadCenter", labelKey: "nav.downloadCenter", icon: ListChecks },
+  { key: "duplicates", labelKey: "nav.duplicates", icon: Copy },
+  { key: "missing", labelKey: "nav.missing", icon: FileSearch },
+  { key: "untagged", labelKey: "nav.untagged", icon: Tag }
 ];
 </script>
 
@@ -35,7 +35,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
   <div class="flex h-screen w-full overflow-hidden bg-background text-on-surface">
     <nav
       class="hidden h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-outline-variant bg-background md:flex"
-      aria-label="Primary"
+      :aria-label="$t('shell.primaryNav')"
     >
       <div class="px-6 pb-6 pt-12">
         <!-- Draggable strip; sits below the floating macOS traffic lights. -->
@@ -62,7 +62,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
               @click="ui.navigateTo(item.key)"
             >
               <component :is="item.icon" :size="20" aria-hidden="true" />
-              <span>{{ item.label }}</span>
+              <span>{{ $t(item.labelKey) }}</span>
             </button>
           </li>
         </ul>
@@ -80,7 +80,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
           @click="ui.navigateTo('doctor')"
         >
           <Stethoscope :size="20" aria-hidden="true" />
-          <span>Doctor</span>
+          <span>{{ $t("nav.doctor") }}</span>
         </button>
         <button
           class="mb-6 flex w-full items-center gap-3 rounded-r p-3 text-sm font-medium transition-colors"
@@ -93,7 +93,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
           @click="ui.navigateTo('settings')"
         >
           <Cog :size="20" aria-hidden="true" />
-          <span>Settings</span>
+          <span>{{ $t("nav.settings") }}</span>
         </button>
         <button
           v-if="events.globalJobStats.inProgress > 0 || events.globalJobStats.failed > 0"
@@ -110,10 +110,10 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
           <ListChecks v-else :size="14" class="shrink-0 text-tertiary" aria-hidden="true" />
           <span class="min-w-0 flex-1 truncate text-xs text-on-surface-variant">
             <template v-if="events.globalJobStats.inProgress > 0">
-              {{ events.globalJobStats.inProgress }} downloading…
+              {{ $t("shell.downloading", { count: events.globalJobStats.inProgress }) }}
             </template>
             <template v-else>
-              {{ events.globalJobStats.failed }} download(s) failed
+              {{ $t("shell.downloadsFailed", { count: events.globalJobStats.failed }) }}
             </template>
           </span>
         </button>
@@ -128,7 +128,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
             "
           />
           <span class="text-xs text-on-surface-variant">
-            API {{ system.health?.status ?? "starting" }}
+            {{ $t("shell.apiStatus", { status: system.health?.status ?? $t("shell.starting") }) }}
           </span>
         </div>
         <div class="mb-4 flex items-center gap-2">
@@ -141,7 +141,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
             "
           />
           <span class="text-xs text-on-surface-variant">
-            {{ system.rekordboxStatus?.rekordboxRunning ? "Rekordbox Live" : "Rekordbox Closed" }}
+            {{ system.rekordboxStatus?.rekordboxRunning ? $t("shell.rekordboxLive") : $t("shell.rekordboxClosed") }}
           </span>
         </div>
         <div class="flex items-center gap-2">
@@ -154,7 +154,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
             "
           />
           <span class="text-xs text-on-surface-variant">
-            {{ system.deemixStatus?.available ? "Deemix Available" : "Deemix Offline" }}
+            {{ system.deemixStatus?.available ? $t("shell.deemixAvailable") : $t("shell.deemixOffline") }}
           </span>
         </div>
       </div>
@@ -167,7 +167,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: unknown }> = [
         style="-webkit-app-region: drag"
       >
         <div class="flex min-w-0 items-center gap-4">
-          <h2 class="truncate text-lg font-bold text-on-surface md:text-xl">{{ ui.pageTitle }}</h2>
+          <h2 class="truncate text-lg font-bold text-on-surface md:text-xl">{{ $t(ui.pageTitle) }}</h2>
         </div>
 
       </header>

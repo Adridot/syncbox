@@ -46,19 +46,19 @@ defineEmits<{
         {{ playlist.name }}
       </h3>
       <p class="mt-0.5 truncate text-xs text-on-surface-variant">
-        {{ playlist.owner }} - {{ playlist.public === false ? "Private" : "Spotify" }}
+        {{ playlist.owner }} - {{ playlist.public === false ? $t("playlist.private") : $t("playlist.spotify") }}
       </p>
       <template v-if="!compact">
         <div class="mt-auto flex items-center justify-between border-t border-outline-variant pt-3">
           <span class="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
-            Playlist
+            {{ $t("playlist.playlist") }}
           </span>
           <button
             class="rounded border border-outline bg-surface px-3 py-1.5 text-xs font-bold text-on-surface transition-colors hover:border-primary"
             type="button"
             @click="$emit('select', playlist)"
           >
-            Select
+            {{ $t("playlist.select") }}
           </button>
         </div>
       </template>
@@ -68,7 +68,7 @@ defineEmits<{
         type="button"
         @click="$emit('select', playlist)"
       >
-        Select
+        {{ $t("playlist.select") }}
       </button>
     </div>
   </article>

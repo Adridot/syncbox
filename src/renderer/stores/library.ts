@@ -11,6 +11,7 @@ import type {
   TrackReview,
 } from "../lib/api";
 import type { TagRuleFormState } from "../types/ui";
+import { t } from "../i18n";
 import { useSystemStore } from "./system";
 import { useUiStore } from "./ui";
 import { useSpotifyStore } from "./spotify";
@@ -78,7 +79,7 @@ export const useLibraryStore = defineStore("library", () => {
       activeReview.value = await system.api!.getLibraryReview(source.id);
       selectedTrackIds.value = [];
       ui.navigateTo("library");
-      ui.setMessage("success", `"${source.spotifyPlaylistName}" loaded.`);
+      ui.setMessage("success", t("toast.library.loaded", { name: source.spotifyPlaylistName }));
     });
   }
 
@@ -93,7 +94,7 @@ export const useLibraryStore = defineStore("library", () => {
         const updated = reviews.find((r) => r.source.id === activeReview.value!.source.id);
         if (updated) activeReview.value = updated;
       }
-      ui.setMessage("success", `${reviews.length} source(s) synced.`);
+      ui.setMessage("success", t("toast.library.sourcesSynced", { count: reviews.length }));
       // Auto-download the open source's missing tracks (bounded to the active one).
       if (activeReview.value) await autoDownloadSource(activeReview.value.source.id);
     });
@@ -107,7 +108,7 @@ export const useLibraryStore = defineStore("library", () => {
       activeReview.value = await system.api!.syncLibrarySource(source.id);
       sources.value = await system.api!.listLibrarySources();
       selectedTrackIds.value = [];
-      ui.setMessage("success", `"${source.spotifyPlaylistName}" synced.`);
+      ui.setMessage("success", t("toast.library.synced", { name: source.spotifyPlaylistName }));
       // Missing tracks are fetched automatically; only failures are surfaced.
       await autoDownloadSource(source.id);
     });
@@ -130,7 +131,7 @@ export const useLibraryStore = defineStore("library", () => {
         selectedTrackIds.value = [];
       }
       sources.value = await system.api!.listLibrarySources();
-      ui.setMessage("success", `"${source.spotifyPlaylistName}" removed from library.`);
+      ui.setMessage("success", t("toast.library.removed", { name: source.spotifyPlaylistName }));
     });
   }
 
@@ -140,7 +141,7 @@ export const useLibraryStore = defineStore("library", () => {
     const spotify = useSpotifyStore();
     if (!system.api) return;
     if (!tagRuleForm.sourcePlaylistId) {
-      ui.setMessage("error", "Select a source playlist.");
+      ui.setMessage("error", t("toast.library.selectSource"));
       return;
     }
     await ui.withLoading(async () => {
@@ -160,7 +161,7 @@ export const useLibraryStore = defineStore("library", () => {
       sources.value = await system.api!.listLibrarySources();
       activeReview.value = await system.api!.syncLibrarySource(source.id);
       selectedTrackIds.value = [];
-      ui.setMessage("success", "Permanent playlist source saved and synced.");
+      ui.setMessage("success", t("toast.library.permanentSaved"));
       await autoDownloadSource(source.id);
     });
   }
@@ -187,7 +188,7 @@ export const useLibraryStore = defineStore("library", () => {
         tags,
       });
       sources.value = await system.api!.listLibrarySources();
-      ui.setMessage("success", "Selected track tags updated.");
+      ui.setMessage("success", t("toast.library.selectedTagsUpdated"));
     });
   }
 
@@ -203,7 +204,7 @@ export const useLibraryStore = defineStore("library", () => {
         tags,
       });
       sources.value = await system.api!.listLibrarySources();
-      ui.setMessage("success", "Track tags updated.");
+      ui.setMessage("success", t("toast.library.trackTagsUpdated"));
     });
   }
 
@@ -235,7 +236,7 @@ export const useLibraryStore = defineStore("library", () => {
     const failures = unresolvedFailures(result);
     if (failures.length > 0) {
       const shown = failures.slice(0, 6).join(", ") + (failures.length > 6 ? "…" : "");
-      ui.setMessage("error", `${failures.length} titre(s) introuvable(s) sur Deemix : ${shown}`);
+      ui.setMessage("error", t("toast.library.deemixNotFound", { count: failures.length, titles: shown }));
     }
   }
 
@@ -252,7 +253,11 @@ export const useLibraryStore = defineStore("library", () => {
       selectedTrackIds.value = [];
       ui.setMessage(
         result.warnings.length > 0 ? "error" : "success",
-        `Library imported. Imported ${result.imported}, tagged ${result.tagged}.${result.warnings.length ? " " + result.warnings.join(" ") : ""}`
+        t("toast.library.imported", {
+          imported: result.imported,
+          tagged: result.tagged,
+          warnings: result.warnings.length ? " " + result.warnings.join(" ") : "",
+        })
       );
     });
   }
@@ -315,7 +320,7 @@ export const useLibraryStore = defineStore("library", () => {
       );
       activeReview.value = await system.api!.getLibraryReview(activeReview.value!.source.id);
       sources.value = await system.api!.listLibrarySources();
-      ui.setMessage("success", "Track queued for download.");
+      ui.setMessage("success", t("toast.library.queued"));
       closeDeezerSearch();
     });
   }
@@ -331,7 +336,7 @@ export const useLibraryStore = defineStore("library", () => {
         status: "ignored",
       });
       sources.value = await system.api!.listLibrarySources();
-      ui.setMessage("success", "Track ignored.");
+      ui.setMessage("success", t("toast.library.ignored"));
     });
   }
 
@@ -346,7 +351,7 @@ export const useLibraryStore = defineStore("library", () => {
         status: "new",
       });
       sources.value = await system.api!.listLibrarySources();
-      ui.setMessage("success", "Track restored.");
+      ui.setMessage("success", t("toast.library.restored"));
     });
   }
 

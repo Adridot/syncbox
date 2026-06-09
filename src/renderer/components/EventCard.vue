@@ -41,7 +41,7 @@ defineEmits<{
     </div>
     <div class="mt-auto flex items-center justify-between border-t border-outline-variant pt-3">
       <span class="font-mono text-xs text-on-surface-variant">
-        {{ event.readyTracks }}/{{ event.totalTracks }} ready
+        {{ $t("downloadCenter.eventReady", { ready: event.readyTracks, total: event.totalTracks }) }}
       </span>
       <StatusBadge :tone="event.status === 'applied' ? 'ok' : 'active'">
         {{ event.status }}

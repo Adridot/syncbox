@@ -12,6 +12,7 @@ import type {
   TrackReview,
 } from "../lib/api";
 import type { ImportFormState } from "../types/ui";
+import { t } from "../i18n";
 import { useSystemStore } from "./system";
 import { useUiStore } from "./ui";
 
@@ -113,7 +114,7 @@ export const useEventsStore = defineStore("events", () => {
       if (requestedEventId.value !== summary.id) return;
       activeEvent.value = review;
       acquisitionJobs.value = jobs;
-      ui.setMessage("success", `"${review.eventName}" loaded.`);
+      ui.setMessage("success", t("toast.events.loaded", { name: review.eventName }));
     });
   }
 
@@ -140,7 +141,7 @@ export const useEventsStore = defineStore("events", () => {
       importForm.playlistUrl = "";
       importForm.eventName = "";
       ui.navigateTo("events");
-      ui.setMessage("success", `${created.totalTracks} Spotify tracks analyzed.`);
+      ui.setMessage("success", t("toast.events.analyzed", { count: created.totalTracks }));
       return created;
     });
     // Fetch missing tracks outside the loading overlay so the workspace renders
@@ -156,7 +157,7 @@ export const useEventsStore = defineStore("events", () => {
     if (!system.api) return null;
     const name = eventName.trim();
     if (!name) {
-      ui.setMessage("error", "Event name is required.");
+      ui.setMessage("error", t("toast.events.nameRequired"));
       return null;
     }
     const review = await ui.withLoading(async () => {
@@ -166,7 +167,7 @@ export const useEventsStore = defineStore("events", () => {
       acquisitionJobs.value = await system.api!.listAcquisitionJobs(created.id);
       summaries.value = await system.api!.listEvents();
       ui.navigateTo("events");
-      ui.setMessage("success", `Event "${created.eventName}" created.`);
+      ui.setMessage("success", t("toast.events.created", { name: created.eventName }));
       return created;
     });
     return review ?? null;
@@ -183,7 +184,7 @@ export const useEventsStore = defineStore("events", () => {
       // its final result, and the refresh/SSE poll streams progress live.
       acquisitionJobs.value = await system.api!.listAcquisitionJobs(eventId);
       summaries.value = await system.api!.listEvents();
-      ui.setMessage("success", "Track added to the event.");
+      ui.setMessage("success", t("toast.events.trackAdded"));
       return true;
     });
     // Missing tracks are fetched automatically (outside the loading overlay so
@@ -202,7 +203,7 @@ export const useEventsStore = defineStore("events", () => {
     if (!system.api) return false;
     const url = input.url.trim();
     if (!url) {
-      ui.setMessage("error", "Paste a Spotify track link first.");
+      ui.setMessage("error", t("toast.events.pasteLink"));
       return false;
     }
     const newName = input.newEventName?.trim();
@@ -213,7 +214,7 @@ export const useEventsStore = defineStore("events", () => {
       eventId = review.id;
     }
     if (!eventId) {
-      ui.setMessage("error", "Choose a target event or create a new one.");
+      ui.setMessage("error", t("toast.events.chooseTarget"));
       return false;
     }
     return await addSpotifyTrack(eventId, url);
@@ -227,12 +228,12 @@ export const useEventsStore = defineStore("events", () => {
     // create-form name when preparing a standalone live import.
     const eventName = (activeEvent.value?.eventName ?? importForm.eventName).trim();
     if (!eventName) {
-      ui.setMessage("error", "Open an event or enter a name for the live import.");
+      ui.setMessage("error", t("toast.events.liveImportTarget"));
       return;
     }
     await ui.withLoading(async () => {
       liveImportPackage.value = await system.api!.createLiveImport({ eventName });
-      ui.setMessage("success", `Live import ready with ${liveImportPackage.value!.trackCount} audio file(s).`);
+      ui.setMessage("success", t("toast.events.liveImportReady", { count: liveImportPackage.value!.trackCount }));
     });
   }
 
@@ -251,7 +252,7 @@ export const useEventsStore = defineStore("events", () => {
       if (requestedEventId.value !== eventId) return;
       activeEvent.value = review;
       acquisitionJobs.value = jobs;
-      ui.setMessage("success", `Folder refreshed. ${review.stagingFiles.length} staged file(s) found.`);
+      ui.setMessage("success", t("toast.events.folderRefreshed", { count: review.stagingFiles.length }));
     });
   }
 
@@ -281,7 +282,7 @@ export const useEventsStore = defineStore("events", () => {
     const failures = unresolvedFailures(result);
     if (failures.length > 0) {
       const shown = failures.slice(0, 6).join(", ") + (failures.length > 6 ? "…" : "");
-      ui.setMessage("error", `${failures.length} titre(s) introuvable(s) sur Deemix : ${shown}`);
+      ui.setMessage("error", t("toast.events.deemixNotFound", { count: failures.length, titles: shown }));
     }
   }
 
@@ -313,7 +314,11 @@ export const useEventsStore = defineStore("events", () => {
       summaries.value = await system.api!.listEvents();
       ui.setMessage(
         result.warnings.length > 0 ? "error" : "success",
-        `Event applied. Imported ${result.imported}, tagged ${result.tagged}.${result.warnings.length ? " " + result.warnings.join(" ") : ""}`
+        t("toast.events.applied", {
+          imported: result.imported,
+          tagged: result.tagged,
+          warnings: result.warnings.length ? " " + result.warnings.join(" ") : "",
+        })
       );
     });
   }
@@ -341,7 +346,11 @@ export const useEventsStore = defineStore("events", () => {
       acquisitionJobs.value = [];
       summaries.value = await system.api!.listEvents();
       globalAcquisitionJobs.value = await system.api!.listGlobalAcquisitionJobs();
-      ui.setMessage("success", `Event deleted. Rekordbox tracks removed ${result.deletedFromRekordbox}, event tags removed ${result.removedEventTags}, protected ${result.protectedTracks}.`);
+      ui.setMessage("success", t("toast.events.deleted", {
+        removed: result.deletedFromRekordbox,
+        tags: result.removedEventTags,
+        protected: result.protectedTracks,
+      }));
     });
   }
 
@@ -355,7 +364,7 @@ export const useEventsStore = defineStore("events", () => {
         stagingFilePath: value,
         status: "ready",
       });
-      ui.setMessage("success", "Staged file assigned.");
+      ui.setMessage("success", t("toast.events.stagedAssigned"));
     });
   }
 
@@ -382,7 +391,7 @@ export const useEventsStore = defineStore("events", () => {
           (job) => !terminal.has(job.status)
         );
       }
-      ui.setMessage("success", `${result.cleared} download job(s) cleared.`);
+      ui.setMessage("success", t("toast.events.downloadsCleared", { count: result.cleared }));
     });
   }
 
@@ -396,7 +405,7 @@ export const useEventsStore = defineStore("events", () => {
         rekordboxContentId: track.rekordboxContentId,
         status: "matched",
       });
-      ui.setMessage("success", "Suggested Rekordbox match accepted.");
+      ui.setMessage("success", t("toast.events.matchAccepted"));
     });
   }
 
@@ -436,7 +445,7 @@ export const useEventsStore = defineStore("events", () => {
       );
       closeDeezerSearch();
       await refreshActiveEvent();
-      ui.setMessage("success", `Queued: ${result.title}`);
+      ui.setMessage("success", t("toast.events.queued", { title: result.title }));
     });
   }
 
@@ -449,7 +458,7 @@ export const useEventsStore = defineStore("events", () => {
         spotifyTrackId: track.spotifyTrackId,
         status: "ignored",
       });
-      ui.setMessage("success", "Track ignored.");
+      ui.setMessage("success", t("toast.events.ignored"));
     });
   }
 
@@ -462,7 +471,7 @@ export const useEventsStore = defineStore("events", () => {
         spotifyTrackId: track.spotifyTrackId,
         status: "missing",
       });
-      ui.setMessage("success", "Track restored.");
+      ui.setMessage("success", t("toast.events.restored"));
     });
   }
 

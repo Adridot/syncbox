@@ -23,17 +23,9 @@ export const useUiStore = defineStore("ui", () => {
   const toasts = ref<Toast[]>([]);
   let nextToastId = 1;
 
-  const pageTitle = computed(() => {
-    if (activeView.value === "dashboard") return "Dashboard";
-    if (activeView.value === "library") return "My Library";
-    if (activeView.value === "events") return "Events";
-    if (activeView.value === "downloadCenter") return "Download & Match Center";
-    if (activeView.value === "duplicates") return "Duplicates";
-    if (activeView.value === "missing") return "Missing Files";
-    if (activeView.value === "untagged") return "Untagged Tracks";
-    if (activeView.value === "doctor") return "Doctor";
-    return "Settings";
-  });
+  // Returns an i18n key; AppShell renders it through $t so the header title
+  // follows the active language.
+  const pageTitle = computed(() => `pageTitle.${activeView.value}`);
 
   function navigateTo(view: ViewKey): void {
     activeView.value = view;

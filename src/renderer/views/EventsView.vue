@@ -4,6 +4,7 @@ import EventCard from "../components/EventCard.vue";
 import EventCreatePanel from "../components/EventCreatePanel.vue";
 import EventWorkspace from "../components/EventWorkspace.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import { t } from "../i18n";
 import { useEventsStore } from "../stores/events";
 import { useUiStore } from "../stores/ui";
 
@@ -14,7 +15,7 @@ const events = useEventsStore();
 
 async function openDesktopPath(path: string): Promise<void> {
   if (!window.desktop) {
-    ui.setMessage("success", `Open this path in Finder: ${path}`);
+    ui.setMessage("success", t("events.openInFinder", { path }));
     return;
   }
   try {
@@ -36,13 +37,13 @@ async function openDesktopPath(path: string): Promise<void> {
           @click="events.closeActiveEvent()"
         >
           <Plus :size="15" aria-hidden="true" />
-          New event
+          {{ $t("events.newEvent") }}
         </button>
       </div>
 
       <div class="flex-1 overflow-y-auto p-3">
         <div class="mb-2 flex items-center justify-between px-1">
-          <span class="text-xs font-bold uppercase tracking-wider text-on-surface-variant">Events</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-on-surface-variant">{{ $t("events.title") }}</span>
           <StatusBadge tone="active">{{ events.summaries.length }}</StatusBadge>
         </div>
         <div class="flex flex-col gap-2">
@@ -57,7 +58,7 @@ async function openDesktopPath(path: string): Promise<void> {
             v-if="events.summaries.length === 0"
             class="rounded-lg border border-dashed border-outline bg-surface-container p-4 text-xs text-on-surface-variant"
           >
-            No events yet.
+            {{ $t("events.noEvents") }}
           </div>
         </div>
       </div>
@@ -66,22 +67,22 @@ async function openDesktopPath(path: string): Promise<void> {
       <div class="border-t border-outline-variant p-4">
         <div class="mb-2 flex items-center gap-2">
           <FileAudio class="text-secondary" :size="15" aria-hidden="true" />
-          <span class="text-xs font-bold text-on-surface">Live Import (M3U8)</span>
+          <span class="text-xs font-bold text-on-surface">{{ $t("events.liveImport") }}</span>
         </div>
         <p class="mb-2 text-[11px] text-on-surface-variant">
-          Generates a Rekordbox playlist file (no <code>master.db</code> write) — works while Rekordbox is open.
+          {{ $t("events.liveImportHint") }}
         </p>
         <!-- An event is open: target it directly, no name to retype. -->
         <div v-if="events.activeEvent" class="flex items-center gap-2">
           <span class="min-w-0 flex-1 truncate text-[11px] text-on-surface">
-            For <strong>{{ events.activeEvent.eventName }}</strong>
+            {{ $t("events.liveImportFor", { name: events.activeEvent.eventName }) }}
           </span>
           <button
             class="shrink-0 rounded border border-outline bg-surface px-2.5 py-1 text-[11px] font-bold text-on-surface transition-colors hover:border-primary"
             type="button"
             @click="events.createLiveImportPackage()"
           >
-            Prepare
+            {{ $t("common.prepare") }}
           </button>
         </div>
         <!-- No event open: standalone live import needs a name. -->
@@ -90,7 +91,7 @@ async function openDesktopPath(path: string): Promise<void> {
             class="min-w-0 flex-1 rounded border border-outline bg-surface-container-high px-2.5 py-1 text-[11px] text-on-surface focus:border-primary focus:outline-none"
             v-model="events.importForm.eventName"
             type="text"
-            placeholder="Event name"
+            :placeholder="$t('events.eventName')"
             @keyup.enter="events.createLiveImportPackage()"
           />
           <button
@@ -99,7 +100,7 @@ async function openDesktopPath(path: string): Promise<void> {
             :disabled="!events.importForm.eventName.trim()"
             @click="events.createLiveImportPackage()"
           >
-            Prepare
+            {{ $t("common.prepare") }}
           </button>
         </div>
         <div v-if="events.liveImportPackage" class="mt-2 space-y-2 text-[11px] text-on-surface-variant">
@@ -110,14 +111,14 @@ async function openDesktopPath(path: string): Promise<void> {
               type="button"
               @click="openDesktopPath(events.liveImportPackage.audioDir)"
             >
-              Open Audio
+              {{ $t("events.openAudio") }}
             </button>
             <button
               class="rounded border border-outline bg-surface-container px-2 py-1 font-bold text-on-surface transition-colors hover:border-primary"
               type="button"
               @click="openDesktopPath(events.liveImportPackage.playlistPath)"
             >
-              Open M3U8
+              {{ $t("events.openM3u8") }}
             </button>
           </div>
         </div>

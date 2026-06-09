@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, reactive, ref } from "vue";
 import type { MissingFilesReport, MissingTrack, RelinkCandidate } from "../../lib/api";
+import { t } from "../../i18n";
 import { useSystemStore } from "../../stores/system";
 import { useUiStore } from "../../stores/ui";
 
@@ -77,7 +78,7 @@ export function useMissing() {
     lock(track.contentId, "remove");
     try {
       const r = await system.api!.removeMissingEntry(track.contentId);
-      ui.setMessage("success", `${r.message} A backup was made.`);
+      ui.setMessage("success", `${r.message} ${t("toast.backupMade")}`);
       drop(track.contentId);
     } catch (e) {
       ui.setMessage("error", e instanceof Error ? e.message : String(e));
@@ -90,7 +91,7 @@ export function useMissing() {
     lock(track.contentId, "relink");
     try {
       const r = await system.api!.relinkMissingEntry(track.contentId, filePath);
-      ui.setMessage("success", `${r.message} A backup was made.`);
+      ui.setMessage("success", `${r.message} ${t("toast.backupMade")}`);
       drop(track.contentId);
     } catch (e) {
       ui.setMessage("error", e instanceof Error ? e.message : String(e));

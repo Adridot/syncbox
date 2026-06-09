@@ -6,6 +6,7 @@ import type {
   UntaggedSuggestion,
   UntaggedTrack,
 } from "../../lib/api";
+import { t } from "../../i18n";
 import { useSystemStore } from "../../stores/system";
 import { useUiStore } from "../../stores/ui";
 
@@ -139,7 +140,11 @@ export function useUntagged() {
       const r = await tagMutation.mutateAsync({ ids, name });
       ui.setMessage(
         "success",
-        `Tagged ${r.tagged} track(s) with "${r.tagName}"${r.createdTag ? " (new tag created)" : ""}. A backup was made.`,
+        t("toast.untagged.tagged", {
+          count: r.tagged,
+          name: r.tagName,
+          created: r.createdTag ? t("toast.untagged.tagCreated") : "",
+        }),
       );
       dropFromCache(new Set(ids));
     } catch {
@@ -152,7 +157,7 @@ export function useUntagged() {
     if (ids.length === 0) return;
     try {
       const r = await deleteMutation.mutateAsync(ids);
-      ui.setMessage("success", `Removed ${r.removed} track(s) from the collection. A backup was made.`);
+      ui.setMessage("success", t("toast.untagged.removed", { count: r.removed }));
       dropFromCache(new Set(ids));
     } catch {
       /* handled in onError */
