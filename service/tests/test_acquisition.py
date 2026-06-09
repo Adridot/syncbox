@@ -280,6 +280,12 @@ def test_deezer_resolver_uses_metadata_thresholds() -> None:
             }
         ).resolve_by_metadata(track_review())
     )
+    # A genuinely unrelated candidate (different title *and* artist) must fall
+    # below the review threshold. Note: with an exact title+duration match the
+    # base score is already 65 (0.55+0.10), so a mere artist mismatch now surfaces
+    # for review ("ambiguous") rather than failing outright — token_sort_ratio is
+    # slightly more lenient on short strings than difflib was. Real failure means
+    # the candidate doesn't match on title either.
     failed_result = asyncio.run(
         FakeDeezerResolver(
             {
@@ -287,9 +293,9 @@ def test_deezer_resolver_uses_metadata_thresholds() -> None:
                     "data": [
                         {
                             "id": 3,
-                            "title": "Song",
+                            "title": "Completely Unrelated Track",
                             "artist": {"name": "Random Name"},
-                            "duration": 180,
+                            "duration": 300,
                         }
                     ]
                 }

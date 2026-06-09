@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from difflib import SequenceMatcher
 from typing import Any, Iterable
+
+from rapidfuzz import fuzz
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +110,9 @@ def fuzzy_signature(track: dict[str, Any]) -> str:
 def _ratio(a: str, b: str) -> float:
     if not a or not b:
         return 0.0
-    return SequenceMatcher(None, a, b).ratio()
+    # ÷100 keeps the 0..1 scale the fuzzy thresholds expect; token_sort_ratio is
+    # word-order-insensitive and far faster than difflib on big collections.
+    return fuzz.token_sort_ratio(a, b) / 100.0
 
 
 # ---------------------------------------------------------------------------

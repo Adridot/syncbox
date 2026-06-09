@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from functools import lru_cache
+
+from rapidfuzz import fuzz
 
 from .models import RekordboxTrack, SpotifyTrack
 
@@ -36,7 +37,11 @@ def normalize_text(value: str) -> str:
 def text_similarity(left: str, right: str) -> int:
     if not left or not right:
         return 0
-    return round(SequenceMatcher(None, normalize_text(left), normalize_text(right)).ratio() * 100)
+    # token_sort_ratio is word-order-insensitive, so "Artist - Title" still lines
+    # up with "Title - Artist" and multi-artist orderings match; rapidfuzz's C++
+    # implementation is also ~10-100x faster than difflib over a large candidate
+    # set (the hot path when scoring a Spotify track against the whole collection).
+    return round(fuzz.token_sort_ratio(normalize_text(left), normalize_text(right)))
 
 
 def duration_score(left_ms: int | None, right_ms: int | None) -> int:
