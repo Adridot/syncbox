@@ -11,10 +11,10 @@ import {
 } from "@lucide/vue";
 import { ref } from "vue";
 import type { MissingTrack } from "../lib/api";
-import { useMissingStore } from "../stores/missing";
+import { useMissing } from "../composables/queries/useMissing";
 import { useSystemStore } from "../stores/system";
 
-const missing = useMissingStore();
+const missing = useMissing();
 const system = useSystemStore();
 
 // Which track currently has its relink-candidate panel open.

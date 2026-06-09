@@ -9,20 +9,13 @@ import {
   Trash2,
   XCircle,
 } from "@lucide/vue";
-import { onMounted } from "vue";
 import type { DiagnosticStatus } from "../lib/api";
 import { formatBytes, formatDate } from "../lib/format";
-import { useDoctorStore } from "../stores/doctor";
+import { useDoctor } from "../composables/queries/useDoctor";
 import { useSettingsStore } from "../stores/settings";
-import { useSystemStore } from "../stores/system";
 
-const doctor = useDoctorStore();
+const doctor = useDoctor();
 const settings = useSettingsStore();
-const system = useSystemStore();
-
-onMounted(() => {
-  if (system.api) doctor.refresh();
-});
 
 async function saveRetention(value: number): Promise<void> {
   const n = Math.max(0, Math.floor(Number(value) || 0));
