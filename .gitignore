@@ -1,1 +1,34 @@
+# Python
+sidecar/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+sidecar/build/
+sidecar/dist/
+*.spec.bak
+
+# Rust / Tauri
+shell/target/
+shell/src-tauri/target/
+
+# Node / Vue
+ui/node_modules/
+ui/dist/
+
+# POC scratch (jetable) — verdicts conservés, artefacts non
+poc/**/build/
+poc/**/dist/
+poc/testdata/master.db
+poc/testdata/master.db-wal
+poc/testdata/master.db-shm
+poc/testdata/masterPlaylists6.xml
+poc/**/*.mp3
+poc/**/*.flac
+poc/**/*.wav
+poc/**/*.aiff
+
+# OS
 .DS_Store
+
+# POC cargo shells
+poc/**/target/

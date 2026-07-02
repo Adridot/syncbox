@@ -1,0 +1,18 @@
+[package]
+name = "poc-shell"
+version = "0.1.0"
+edition = "2021"
+
+# ponytail: shared minimal Tauri shell for POC #2 (lifecycle/tree-kill) and POC #4 (SSE in
+# real WKWebView). Not the production shell; disposable.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
