@@ -8,6 +8,9 @@ import { defineStore } from 'pinia'
 import { onInFlightMutations } from '../api/client'
 import { connectJobStream, type JobDoneEvent, type JobProgressEvent } from '../api/sse'
 
+// second arg of connectJobStream (injectable EventSource factory, for tests)
+type MakeSource = Parameters<typeof connectJobStream>[1]
+
 export const useJobsStore = defineStore('jobs', {
   state: () => ({
     /** one job of a kind at a time (sidecar lock) — keyed by kind */
@@ -24,12 +27,13 @@ export const useJobsStore = defineStore('jobs', {
     progressOf: (state) => (kind: string) => state.active[kind] ?? null,
   },
   actions: {
-    /** Call once at app boot. */
-    start() {
+    /** Call once at app boot. ``makeSource`` is injectable for tests. */
+    start(makeSource?: MakeSource) {
       onInFlightMutations((count) => {
         this.inFlightMutations = count
       })
-      connectJobStream({
+      connectJobStream(
+        {
         onProgress: (event) => {
           this.active[event.kind] = event
         },
@@ -48,7 +52,9 @@ export const useJobsStore = defineStore('jobs', {
           this.sseConnected = false
           this.active = {}
         },
-      })
+        },
+        makeSource,
+      )
     },
   },
 })

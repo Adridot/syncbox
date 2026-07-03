@@ -14,8 +14,9 @@ shell/harness/build/
 shell/node_modules/
 
 # Node / Vue
-ui/node_modules/
+node_modules/
 ui/dist/
+ui/tsconfig.tsbuildinfo
 
 # POC scratch (jetable) — verdicts conservés, artefacts non
 poc/**/build/
@@ -31,6 +32,9 @@ poc/**/*.aiff
 
 # OS
 .DS_Store
+
+# Editor / tooling scaffolding (not a build artifact)
+.claude/
 
 # POC cargo shells
 poc/**/target/

@@ -11,6 +11,7 @@ import { useRouter } from 'vue-router'
 import { NetworkError, api } from '../api/client'
 import JobRow from '../components/JobRow.vue'
 import LoadingState from '../components/LoadingState.vue'
+import { useCancellablePoll } from '../lib/poll-until'
 import { openExternal } from '../shell'
 import { useHealthStore } from '../stores/health'
 import { useJobsStore } from '../stores/jobs'
@@ -33,6 +34,7 @@ const status = useStatusStore()
 const health = useHealthStore()
 const jobs = useJobsStore()
 const settings = useSettingsStore()
+const poll = useCancellablePoll()
 
 const readouts = ref<Readouts | null>(null)
 const lastBackup = ref<string | null>(null)
@@ -135,11 +137,9 @@ async function syncSources() {
 async function connectSpotify() {
   const { url } = await api.get<{ url: string }>('/api/spotify/authorize')
   await openExternal(url)
-  // the callback lands on the sidecar; poll status until it flips
-  for (let attempt = 0; attempt < 60 && !status.spotifyConnected; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    await status.refresh()
-  }
+  // the callback lands on the sidecar; poll status until it flips (auto-
+  // cancels if the user navigates away before OAuth completes)
+  await poll(() => status.spotifyConnected, () => status.refresh())
 }
 </script>
 

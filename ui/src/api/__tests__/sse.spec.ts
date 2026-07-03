@@ -73,3 +73,29 @@ test('reconnect lifecycle reaches the handlers; disconnect closes', () => {
   disconnect()
   expect(source.closed).toBe(true)
 })
+
+test('jobs store clears stale active jobs on SSE (re)connect — no replay', async () => {
+  const { createPinia, setActivePinia } = await import('pinia')
+  setActivePinia(createPinia())
+  const { useJobsStore } = await import('../../stores/jobs')
+  const jobs = useJobsStore()
+
+  let source!: FakeEventSource
+  jobs.start((url) => {
+    source = new FakeEventSource(url)
+    return source
+  })
+
+  source.emit('job.progress', JSON.stringify({ job: 'j', kind: 'duplicates.scan', done: 3, total: 9, pct: 33 }))
+  expect(jobs.jobRunning).toBe(true)
+
+  // (re)connect: the HTTP response is the authority, not stale SSE state
+  source.onopen?.({})
+  expect(Object.keys(jobs.active)).toHaveLength(0)
+  expect(jobs.jobRunning).toBe(false)
+
+  // an error also clears (belt-and-suspenders)
+  source.emit('job.progress', JSON.stringify({ job: 'k', kind: 'sources.sync', done: 1, total: 4, pct: 25 }))
+  source.onerror?.({})
+  expect(Object.keys(jobs.active)).toHaveLength(0)
+})

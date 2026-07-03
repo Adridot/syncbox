@@ -1,10 +1,18 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
+
 import AppSidebar from './components/AppSidebar.vue'
 import BackendDownOverlay from './components/BackendDownOverlay.vue'
+import ConsentModal from './components/ConsentModal.vue'
+import OnboardingOverlay from './components/OnboardingOverlay.vue'
 import RbGuardBanner from './components/RbGuardBanner.vue'
+import { useOnboardingStore } from './stores/onboarding'
 import { useStatusStore } from './stores/status'
 
 const status = useStatusStore()
+const onboarding = useOnboardingStore()
+
+onMounted(() => onboarding.maybeStart())
 </script>
 
 <template>
@@ -17,6 +25,8 @@ const status = useStatusStore()
       </div>
       <BackendDownOverlay v-if="status.backendDown" />
     </div>
+    <ConsentModal />
+    <OnboardingOverlay v-if="onboarding.active" />
   </div>
 </template>
 
