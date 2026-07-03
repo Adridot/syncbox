@@ -1,0 +1,72 @@
+/* Syncbox design tokens — SPEC-DESIGN §7 (dark studio / DJ booth, dark-only v1).
+   One source of truth; components consume the variables, never raw hex. */
+
+:root {
+  /* §7.1 colors */
+  --bg-base: #0a0c10;
+  --bg-sidebar: #070910;
+  --surface: #0c0f16;
+  --surface-2: #0e1119;
+  --surface-raised: #11141c;
+  --border: #1c2230;
+  --border-2: #1f2532;
+  --border-subtle: #141925;
+  --border-subtle-2: #1a1f2b;
+  --text-primary: #e7ebf2;
+  --text-secondary: #9aa4b4;
+  --text-secondary-bright: #cdd5e1;
+  --text-muted: #5f6b7d;
+  --text-muted-bright: #7a8699;
+
+  --accent: #4da3ff; /* azure: primary actions, active nav, matched */
+  --accent-hover: #7cc0ff;
+  --teal: #2dd4bf; /* Smart Fixes, ready, recommended legal path */
+  --success: #34d399;
+  --warning: #f5b544;
+  --warning-text: #f5cd7a;
+  --danger: #f76e6e;
+  --danger-text: #f59a9a;
+  --uncertain: #9b8cce; /* cautious quality verdict — NEVER red */
+
+  /* background tints for badges/active states (§7.1: .12–.14, borders .25–.35) */
+  --accent-tint: rgba(77, 163, 255, 0.13);
+  --accent-border: rgba(77, 163, 255, 0.3);
+  --teal-tint: rgba(45, 212, 191, 0.13);
+  --teal-border: rgba(45, 212, 191, 0.3);
+  --success-tint: rgba(52, 211, 153, 0.13);
+  --success-border: rgba(52, 211, 153, 0.3);
+  --warning-tint: rgba(245, 181, 68, 0.13);
+  --warning-border: rgba(245, 181, 68, 0.3);
+  --danger-tint: rgba(247, 110, 110, 0.13);
+  --danger-border: rgba(247, 110, 110, 0.3);
+  --uncertain-tint: rgba(155, 140, 206, 0.13);
+  --uncertain-border: rgba(155, 140, 206, 0.3);
+  --neutral-tint: rgba(154, 164, 180, 0.12);
+  --neutral-border: rgba(154, 164, 180, 0.25);
+
+  /* §7.2 typography */
+  --font-ui: 'Geist Sans', -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace; /* technical readouts */
+  --text-h1: 600 24px/1.25 var(--font-ui);
+  --text-h3: 600 14px/1.35 var(--font-ui);
+  --size-body: 13px;
+  --size-meta: 11px;
+  --size-label: 10px; /* uppercase labels */
+  --label-tracking: 0.07em;
+
+  /* §7.3 spacing / shape / density */
+  --radius-card: 14px;
+  --radius-inner: 11px;
+  --radius-control: 8px;
+  --radius-modal: 16px;
+  --screen-padding: 28px 32px;
+  --content-max-width: 1180px;
+  --content-max-width-narrow: 760px;
+  --row-padding-y: 11px;
+  --control-min-height: 28px;
+  --shadow-overlay: 0 8px 28px rgba(0, 0, 0, 0.5);
+
+  /* §7.4 motion — no purely decorative animation */
+  --motion-modal: 0.18s;
+  --motion-shimmer: 1.3s;
+}

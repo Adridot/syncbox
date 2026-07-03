@@ -11,14 +11,29 @@ from dataclasses import dataclass
 
 from rapidfuzz import fuzz
 
-# SPEC-01 2.1 constants - the exact values are the contract.
+# SPEC-01 2.1 constants - the exact values are the contract (and the G4
+# settings defaults; SPEC-DESIGN 4 exposes thresholds/weights/policy, the
+# ALGORITHM - ISRC-first, D19 pipeline, duration buckets - stays locked).
 WEIGHT_TITLE = 0.52
 WEIGHT_ARTIST = 0.36
 WEIGHT_DURATION = 0.12
+DEFAULT_WEIGHTS = {
+    "title": WEIGHT_TITLE,
+    "artist": WEIGHT_ARTIST,
+    "duration": WEIGHT_DURATION,
+}
 MIN_CONFIDENCE = 82
 AMBIGUITY_MARGIN = 6
 ISRC_DURATION_GUARD_MS = 15000
 ISRC_TITLE_GUARD = 82
+
+# G4 isrc_collision_policy values (owner arbitration 2026-07-03):
+# - guarded (spec default): reject an ISRC match only when duration AND
+#   title BOTH disagree; missing duration -> blind trust in the ISRC;
+# - trust_isrc: never reject an exact ISRC match;
+# - strict: reject when duration OR title disagrees (missing duration ->
+#   title alone decides).
+ISRC_COLLISION_POLICIES = ("guarded", "trust_isrc", "strict")
 
 _PARENS = re.compile(r"[(\[][^)\]]*[)\]]")
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
@@ -64,26 +79,40 @@ def _isrc(value: str | None) -> str:
     return (value or "").strip().upper()
 
 
-def _isrc_collision(spotify_track, candidate) -> bool:
-    """ISRC match is rejected ONLY when BOTH duration and title disagree
-    (SPEC-01 2.1). Missing duration (0/None) -> blind trust in the ISRC."""
+def _isrc_collision(spotify_track, candidate, policy: str = "guarded") -> bool:
+    """Should an exact-ISRC match be rejected, per the G4 policy?
+
+    Default 'guarded' is the SPEC-01 2.1 guard: rejected ONLY when BOTH
+    duration and title disagree; missing duration (0/None) -> blind trust.
+    """
+    if policy == "trust_isrc":
+        return False
     sp_ms = spotify_track.get("duration_ms") or 0
     rb_ms = candidate.get("duration_ms") or 0
-    if not sp_ms or not rb_ms:
-        return False
-    if abs(sp_ms - rb_ms) <= ISRC_DURATION_GUARD_MS:
+    duration_off = bool(sp_ms and rb_ms and abs(sp_ms - rb_ms) > ISRC_DURATION_GUARD_MS)
+    if policy == "strict":
+        if duration_off:
+            return True
+        return (
+            similarity(spotify_track.get("title"), candidate.get("title"))
+            < ISRC_TITLE_GUARD
+        )
+    if not duration_off:
         return False
     return similarity(spotify_track.get("title"), candidate.get("title")) < ISRC_TITLE_GUARD
 
 
-def fuzzy_confidence(spotify_track, candidate) -> int:
+def fuzzy_confidence(spotify_track, candidate, weights: dict | None = None) -> int:
+    weights = DEFAULT_WEIGHTS if weights is None else weights
     title = similarity(spotify_track.get("title"), candidate.get("title"))
     artist = similarity(spotify_track.get("artist"), candidate.get("artist"))
     sp_ms = spotify_track.get("duration_ms") or 0
     rb_ms = candidate.get("duration_ms") or 0
     duration = duration_score(sp_ms - rb_ms) if sp_ms and rb_ms else 0
     return round(
-        title * WEIGHT_TITLE + artist * WEIGHT_ARTIST + duration * WEIGHT_DURATION
+        title * weights["title"]
+        + artist * weights["artist"]
+        + duration * weights["duration"]
     )
 
 
@@ -93,26 +122,28 @@ def match(
     *,
     min_confidence: int = MIN_CONFIDENCE,
     ambiguity_margin: int = AMBIGUITY_MARGIN,
+    weights: dict | None = None,
+    isrc_collision_policy: str = "guarded",
 ) -> MatchResult:
     """Match one Spotify track against Rekordbox snapshot candidates.
 
     Candidate dicts carry: content_id, title, artist, duration_ms, isrc.
-    Thresholds are parameters because SPEC-DESIGN 4 exposes them in
-    Settings > Advanced; the ALGORITHM (ISRC-first, D19 pipeline, buckets)
-    is locked and not configurable.
+    Thresholds/weights/policy are parameters because SPEC-DESIGN 4 exposes
+    them in Settings > Advanced (G4); the ALGORITHM (ISRC-first, D19
+    pipeline, buckets) is locked and not configurable.
     """
     # --- ISRC exact first (uppercase compare) --------------------------------
     wanted = _isrc(spotify_track.get("isrc"))
     if wanted:
         for candidate in candidates:
             if _isrc(candidate.get("isrc")) == wanted and not _isrc_collision(
-                spotify_track, candidate
+                spotify_track, candidate, isrc_collision_policy
             ):
                 return MatchResult("matched", candidate["content_id"], "isrc", 100)
 
     # --- fuzzy ---------------------------------------------------------------
     scored = sorted(
-        ((fuzzy_confidence(spotify_track, c), c) for c in candidates),
+        ((fuzzy_confidence(spotify_track, c, weights), c) for c in candidates),
         key=lambda pair: pair[0],
         reverse=True,
     )
@@ -123,3 +154,32 @@ def match(
         # Ambiguous still returns the best content_id (SPEC-01 2.1).
         return MatchResult("ambiguous", best["content_id"], "fuzzy", best_score)
     return MatchResult("matched", best["content_id"], "fuzzy", best_score)
+
+
+def score_candidates(
+    spotify_track: dict,
+    candidates: list[dict],
+    *,
+    weights: dict | None = None,
+    isrc_collision_policy: str = "guarded",
+) -> list[tuple[int, dict]]:
+    """The matcher's scored view of the snapshot for ONE track (G2).
+
+    Every candidate is fuzzy-scored; an exact-ISRC non-colliding candidate is
+    pinned to 100 (the matcher would take it first). Sorted best-first; the
+    caller truncates. Feeds ReMatchModal's candidate list."""
+    wanted = _isrc(spotify_track.get("isrc"))
+    scored = []
+    for candidate in candidates:
+        confidence = fuzzy_confidence(spotify_track, candidate, weights)
+        pinned = (
+            wanted
+            and _isrc(candidate.get("isrc")) == wanted
+            and not _isrc_collision(spotify_track, candidate, isrc_collision_policy)
+        )
+        if pinned:
+            confidence = 100
+        scored.append((confidence, bool(pinned), candidate))
+    # ISRC-pinned wins ties at equal confidence, like the matcher's order.
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [(confidence, candidate) for confidence, _pinned, candidate in scored]

@@ -1188,3 +1188,240 @@ def test_sse_stream_carries_real_job_progress(tmp_path, monkeypatch):
     assert {p["job"] for p in progress} == {done[0]["job"]}
     assert response.status_code == 200
     assert len(response.json()["groups"]) == 2
+
+
+# --- M4.2 sidecar surface completion (G1-G5) -----------------------------------------
+
+
+def test_status_reports_rb_and_spotify_truthfully(tmp_path, monkeypatch):
+    """G1: read-only status from the real guard probe + token presence."""
+    env = make_env(
+        tmp_path,
+        spotify_auth=SimpleNamespace(
+            connected=lambda: True, handle_callback=lambda params: {"ok": True}
+        ),
+    )
+    monkeypatch.setattr(process_guard, "is_rekordbox_running", lambda: True)
+    assert env.client.get("/api/status").json() == {
+        "rb_open": True,
+        "spotify_connected": True,
+    }
+    monkeypatch.setattr(process_guard, "is_rekordbox_running", lambda: False)
+    bare = make_env(tmp_path / "bare")  # no spotify_auth wired
+    assert bare.client.get("/api/status").json() == {
+        "rb_open": False,
+        "spotify_connected": False,
+    }
+
+
+def test_track_candidates_scored_shape(tmp_path):
+    """G2 read half: matcher-scored shortlist, ISRC pinned first, capped."""
+    rows = [
+        rb_row("exact", title="Whatever", artist="Whoever", isrc="USX17600001"),
+        rb_row("close", title="Song", artist="A"),
+        rb_row("far", title="Completely Different", artist="Zzz"),
+    ]
+    env = make_env(tmp_path, rows=rows)
+    _, tracks = seed_source(
+        env.conn,
+        [
+            {
+                "spotify_track_id": "t1",
+                "title": "Song",
+                "artist": "A",
+                "isrc": "USX17600001",
+                "status": "conflict",
+            }
+        ],
+    )
+    body = env.client.get(f"/api/library/tracks/{tracks[0]['id']}/candidates").json()
+    assert body["track_id"] == tracks[0]["id"]
+    candidates = body["candidates"]
+    assert [c["content_id"] for c in candidates[:2]] == ["exact", "close"]
+    assert candidates[0]["confidence"] == 100
+    assert set(candidates[0]) == {
+        "content_id",
+        "title",
+        "artist",
+        "duration_ms",
+        "bit_rate",
+        "confidence",
+    }
+    confidences = [c["confidence"] for c in candidates]
+    assert confidences == sorted(confidences, reverse=True)
+
+
+def test_track_manual_match_transition(tmp_path):
+    """G2 write half: manual confirm -> matched/manual/100; refusal rules
+    mirror the automatic re-match."""
+    env = make_env(tmp_path, rows=[rb_row("42")])
+    _, tracks = seed_source(
+        env.conn,
+        [
+            {"spotify_track_id": "t1", "title": "X", "artist": "A", "status": "conflict"},
+            {"spotify_track_id": "t2", "title": "Y", "artist": "B", "status": "ignored"},
+        ],
+    )
+    updated = env.client.post(
+        f"/api/library/tracks/{tracks[0]['id']}/match", json={"content_id": "42"}
+    ).json()
+    assert updated["status"] == "matched"
+    assert updated["content_id"] == "42"
+    assert updated["match_method"] == "manual"
+    assert updated["confidence"] == 100
+
+    unknown = env.client.post(
+        f"/api/library/tracks/{tracks[0]['id']}/match", json={"content_id": "999"}
+    )
+    assert unknown.status_code == 404
+
+    refused = env.client.post(
+        f"/api/library/tracks/{tracks[1]['id']}/match", json={"content_id": "42"}
+    )
+    assert refused.status_code == 409
+    assert "ignored" in refused.json()["message"]
+
+
+def test_missing_remove_soft_deletes_via_mutate(tmp_path, monkeypatch):
+    """G3: remove = soft-delete through mutate (fingerprint checked), no
+    audio deletion; protected and present-file rows are refused."""
+    rows = [
+        rb_row("1", file_missing=True),
+        rb_row("2", file_missing=True, protected=True),
+        rb_row("3"),  # file present
+    ]
+    env = make_env(tmp_path, rows=rows)
+    deleted = []
+    seen = {}
+
+    @contextmanager
+    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+        seen["fingerprint"] = expected_fingerprint
+        yield "db"
+
+    monkeypatch.setattr(api, "mutate", fake_mutate)
+    monkeypatch.setattr(api, "soft_delete_content", lambda db, cid: deleted.append(cid))
+
+    ok = env.client.post("/api/missing/collection/1/remove")
+    assert ok.status_code == 200
+    assert ok.json() == {"soft_deleted": "1"}
+    assert deleted == ["1"]
+    assert seen["fingerprint"] == env.cache.current_fingerprint
+
+    assert env.client.post("/api/missing/collection/2/remove").status_code == 409
+    assert env.client.post("/api/missing/collection/3/remove").status_code == 409
+    assert env.client.post("/api/missing/collection/9/remove").status_code == 404
+
+
+def test_missing_remove_blocked_is_423(tmp_path, monkeypatch):
+    env = make_env(tmp_path, rows=[rb_row("1", file_missing=True)])
+
+    def blocked(db_path):
+        raise MutationBlockedError()
+
+    monkeypatch.setattr(process_guard, "assert_mutation_ready", blocked)
+    response = env.client.post("/api/missing/collection/1/remove")
+    assert response.status_code == 423
+    assert not env.deps.backups_root.exists()
+
+
+def test_settings_g4_validation(tmp_path):
+    """G4: weights sum==1.00, policy enum, threshold bounds - all 400."""
+    env = make_env(tmp_path)
+    put = lambda payload: env.client.put("/api/settings", json=payload)
+
+    assert put({"match_weights": {"title": 0.5, "artist": 0.3, "duration": 0.1}}).status_code == 400
+    assert put({"match_weights": {"title": 1.0}}).status_code == 400
+    assert put({"isrc_collision_policy": "nope"}).status_code == 400
+    assert put({"match_confidence_threshold": 101}).status_code == 400
+    assert put({"match_ambiguity_margin": -1}).status_code == 400
+
+    good = put(
+        {
+            "match_weights": {"title": 0.4, "artist": 0.4, "duration": 0.2},
+            "isrc_collision_policy": "strict",
+            "match_confidence_threshold": 90,
+        }
+    )
+    assert good.status_code == 200
+    body = good.json()
+    assert body["match_weights"] == {"title": 0.4, "artist": 0.4, "duration": 0.2}
+    assert body["isrc_collision_policy"] == "strict"
+    # defaults present on GET (reset = PUT these back)
+    fresh = make_env(tmp_path / "fresh").client.get("/api/settings").json()
+    assert fresh["match_confidence_threshold"] == 82
+    assert fresh["match_ambiguity_margin"] == 6
+    assert fresh["match_weights"] == {"title": 0.52, "artist": 0.36, "duration": 0.12}
+    assert fresh["isrc_collision_policy"] == "guarded"
+
+
+def test_matcher_consumes_settings_thresholds(tmp_path):
+    """G4: the re-match path reads thresholds/weights live from settings."""
+    env = make_env(tmp_path, rows=[rb_row("42", title="Song", artist="A")])
+    _, tracks = seed_source(
+        env.conn,
+        [{"spotify_track_id": "t1", "title": "Song", "artist": "A", "status": "conflict"}],
+    )
+    track_id = tracks[0]["id"]
+    rematch = lambda: env.client.post(f"/api/library/tracks/{track_id}/rematch").json()
+
+    # default threshold 82: title+artist agree (no duration) -> 88 -> matched
+    assert rematch()["status"] == "matched"
+
+    # raise the threshold above 88 -> the same track becomes missing
+    env.client.put("/api/settings", json={"match_confidence_threshold": 90})
+    env.conn.execute(
+        "UPDATE library_tracks SET status = 'conflict' WHERE id = ?", (track_id,)
+    )
+    assert rematch()["status"] == "missing"
+
+    # title-only weights push confidence to 100 -> matched again at 90
+    env.client.put(
+        "/api/settings",
+        json={"match_weights": {"title": 1.0, "artist": 0.0, "duration": 0.0}},
+    )
+    result = rematch()
+    assert result["status"] == "matched"
+    assert result["confidence"] == 100
+
+
+def test_spotify_playlist_preview(tmp_path):
+    """G5: read-only resolved preview for AddSourceModal."""
+    payload = {
+        "name": "Peak Time",
+        "owner": {"display_name": "Adrien"},
+        "tracks": {"total": 42},
+        "images": [{"url": "https://i.scdn.co/image/x"}],
+    }
+    env = make_env(tmp_path, spotify_client=SimpleNamespace(get=lambda path: payload))
+    body = env.client.get("/api/spotify/playlists/PL1/preview").json()
+    assert body == {
+        "name": "Peak Time",
+        "owner": "Adrien",
+        "tracks_total": 42,
+        "image_url": "https://i.scdn.co/image/x",
+    }
+
+    payload["images"] = []
+    assert env.client.get("/api/spotify/playlists/PL1/preview").json()["image_url"] is None
+
+
+def test_spotify_playlist_preview_errors_map(tmp_path):
+    from syncbox.spotify import SpotifyApiError
+
+    not_connected = make_env(tmp_path)  # no client wired
+    response = not_connected.client.get("/api/spotify/playlists/PL1/preview")
+    assert response.status_code == 409
+    assert response.json()["error"] == "spotify_not_connected"
+
+    def raise_api_error(path):
+        raise SpotifyApiError(404, "playlist not found or private")
+
+    failing = make_env(
+        tmp_path / "err", spotify_client=SimpleNamespace(get=raise_api_error)
+    )
+    response = failing.client.get("/api/spotify/playlists/PL1/preview")
+    assert response.status_code == 502
+    body = response.json()
+    assert body["error"] == "spotify_api_error"
+    assert body["status_code"] == 404

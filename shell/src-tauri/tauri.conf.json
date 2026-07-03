@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Syncbox",
+  "version": "0.1.0",
+  "identifier": "dev.syncbox.app",
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm dev",
+    "frontendDist": "../../ui/dist",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Syncbox",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8765; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  }
+}

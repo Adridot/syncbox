@@ -150,6 +150,13 @@ class PortInUseError(RuntimeError):
 
 def ensure_port_free(host: str = HOST, port: int = PORT) -> None:
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # SO_REUSEADDR mirrors uvicorn's own bind: without it, server-side
+    # TIME_WAIT remnants of closed /health connections (~15 s on macOS) make
+    # the probe fail on a crash-restart (supervisor backoff is 1 s), even
+    # though uvicorn itself would bind fine. The probe must answer "can
+    # uvicorn bind?", not "does any TIME_WAIT remnant exist?" - found by the
+    # shell/harness lifecycle driver (M4.3).
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         probe.bind((host, port))
     except OSError as exc:

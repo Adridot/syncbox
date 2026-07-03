@@ -37,7 +37,13 @@ class SecretsStore:
 
     def _connect(self):
         if self._conn is None:
-            conn = sqlcipher3.connect(str(self._db_path))
+            # check_same_thread=False for the same reason as appdb.connect:
+            # every HTTP handler runs in a threadpool worker, all serialized
+            # behind ONE lock (api.Deps.lock), so the connection is handed
+            # between threads but never used concurrently. Without it the
+            # SECOND request from a different worker thread dies with
+            # ProgrammingError -> 500 (found live through GET /api/status).
+            conn = sqlcipher3.connect(str(self._db_path), check_same_thread=False)
             # Raw-key form: PRAGMA key = "x'<64 hex>'" (no KDF passphrase).
             conn.execute(f"PRAGMA key = \"x'{self._key()}'\"")
             conn.execute(
