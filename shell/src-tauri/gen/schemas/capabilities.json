@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Main window: core defaults plus opening external URLs in the system browser (purchase links, Spotify authorize, logs folder).","local":true,"windows":["main"],"permissions":["core:default","opener:default"]}}

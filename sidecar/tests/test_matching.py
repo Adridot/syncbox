@@ -154,3 +154,72 @@ def test_thresholds_are_parameters_but_default_to_spec():
     # margin 0: no ambiguity possible
     result = match(sp("Strobe", "deadmau5"), twins, ambiguity_margin=0)
     assert result.status == "matched"
+
+
+# --- G4: policy / weights / candidate scoring (M4.2) ---------------------------
+
+
+def test_isrc_policy_trust_isrc_never_rejects():
+    from syncbox.matching import ISRC_COLLISION_POLICIES
+
+    assert ISRC_COLLISION_POLICIES == ("guarded", "trust_isrc", "strict")
+    # both duration and title disagree: guarded rejects, trust_isrc keeps
+    colliding = sp("Completely Other", "Someone", duration_ms=300_000, isrc="X1")
+    candidate = [rb("c1", "Strobe", "deadmau5", duration_ms=200_000, isrc="X1")]
+    assert match(colliding, candidate).method != "isrc"
+    trusted = match(colliding, candidate, isrc_collision_policy="trust_isrc")
+    assert (trusted.method, trusted.confidence) == ("isrc", 100)
+
+
+def test_isrc_policy_strict_rejects_on_either_disagreement():
+    candidate = [rb("c1", "Strobe", "deadmau5", duration_ms=200_000, isrc="X1")]
+    # duration off alone: guarded keeps, strict rejects
+    duration_off = sp("Strobe", "deadmau5", duration_ms=300_000, isrc="X1")
+    assert match(duration_off, candidate).method == "isrc"
+    assert match(duration_off, candidate, isrc_collision_policy="strict").method != "isrc"
+    # title off alone: guarded keeps, strict rejects
+    title_off = sp("Completely Other", "Someone", duration_ms=200_500, isrc="X1")
+    assert match(title_off, candidate).method == "isrc"
+    assert match(title_off, candidate, isrc_collision_policy="strict").method != "isrc"
+    # strict with missing duration: title alone decides
+    no_duration_bad_title = sp("Completely Other", "Someone", duration_ms=0, isrc="X1")
+    assert match(no_duration_bad_title, candidate, isrc_collision_policy="strict").method != "isrc"
+    no_duration_good_title = sp("Strobe", "deadmau5", duration_ms=0, isrc="X1")
+    assert match(no_duration_good_title, candidate, isrc_collision_policy="strict").method == "isrc"
+
+
+def test_custom_weights_change_the_verdict():
+    # title matches, artist does not: default weights fail the threshold,
+    # title-only weights pass it (proves weights are consumed, G4)
+    track = sp("Strobe", "Someone Else", duration_ms=0)
+    candidate = [rb("c1", "Strobe", "deadmau5", duration_ms=0)]
+    assert match(track, candidate).status == "missing"
+    weighted = match(
+        track, candidate, weights={"title": 1.0, "artist": 0.0, "duration": 0.0}
+    )
+    assert weighted.status == "matched"
+    assert weighted.confidence == 100
+
+
+def test_score_candidates_pins_isrc_and_sorts_best_first():
+    from syncbox.matching import score_candidates
+
+    track = sp("Strobe", "deadmau5", isrc="X1")
+    scored = score_candidates(
+        track,
+        [
+            rb("far", "Ghosts n Stuff", "Someone"),
+            rb("close", "Strobe (Club Edit)", "deadmau5"),
+            rb("exact", "Whatever Name", "Whoever", isrc="x1"),  # ISRC, case-insensitive
+        ],
+    )
+    confidences = [confidence for confidence, _ in scored]
+    assert confidences == sorted(confidences, reverse=True)
+    assert scored[0][1]["content_id"] == "exact"
+    assert scored[0][0] == 100
+    # colliding ISRC candidate is NOT pinned (falls back to its fuzzy score)
+    colliding = score_candidates(
+        sp("Completely Other", "Someone", duration_ms=300_000, isrc="X1"),
+        [rb("exact", "Strobe", "deadmau5", duration_ms=200_000, isrc="X1")],
+    )
+    assert colliding[0][0] < 100

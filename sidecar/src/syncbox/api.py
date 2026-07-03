@@ -64,6 +64,7 @@ from syncbox.safety.paths import (
     resolve_stored_path,
     tcc_exists,
 )
+from syncbox.safety import process_guard
 from syncbox.safety.process_guard import MutationBlockedError
 from syncbox.server import JobBus, create_app
 from syncbox.settings import Settings, validate_directory
@@ -344,6 +345,18 @@ def _get_event(deps: Deps, event_id: int) -> dict:
     return event
 
 
+def _matching_thresholds(deps: Deps) -> dict:
+    """G4: the user-tunable matching knobs (SPEC-DESIGN 4), read live from
+    settings and forwarded to matching.match / score_candidates. The
+    algorithm itself is locked."""
+    return {
+        "min_confidence": deps.settings.get("match_confidence_threshold"),
+        "ambiguity_margin": deps.settings.get("match_ambiguity_margin"),
+        "weights": deps.settings.get("match_weights"),
+        "isrc_collision_policy": deps.settings.get("isrc_collision_policy"),
+    }
+
+
 def _track_resolver(deps: Deps):
     """Spotify metadata resolver for event track additions (11.1)."""
     client = deps.spotify_client
@@ -407,7 +420,8 @@ def sources_sync_one(deps, request, body):
     progress = _Progress(deps.bus, "sources.sync")
     progress.publish(0, 1)
     result = library_service.sync_one_source(
-        deps.conn, client, deps.cache(), deps.storage_root, source
+        deps.conn, client, deps.cache(), deps.storage_root, source,
+        **_matching_thresholds(deps),
     )
     progress.publish(1, 1)
     progress.done(source_id=source["id"], **result["stats"])
@@ -420,10 +434,12 @@ def sources_sync_all(deps, request, body):
     sources = [s for s in repos.list_sources(deps.conn) if s["enabled"]]
     progress = _Progress(deps.bus, "sources.sync_all")
     results = []
+    thresholds = _matching_thresholds(deps)
     for done, source in enumerate(sources, start=1):
         try:
             result = library_service.sync_one_source(
-                deps.conn, client, deps.cache(), deps.storage_root, source
+                deps.conn, client, deps.cache(), deps.storage_root, source,
+                **thresholds,
             )
             results.append({"source_id": source["id"], **result})
         except SpotifyApiError as exc:
@@ -479,7 +495,82 @@ def source_apply(deps, request, body):
     return result
 
 
+# --- status (G1) --------------------------------------------------------------------
+
+
+def status_get(deps, request, body):
+    """G1: proactive read-only status - feeds the RB banner / dashboard hero /
+    HealthPill without waiting for a failing mutation. The UI polls it
+    (interval + window focus + after any 423)."""
+    connected = deps.spotify_auth is not None and deps.spotify_auth.connected()
+    return {
+        "rb_open": process_guard.is_rekordbox_running(),
+        "spotify_connected": connected,
+    }
+
+
 # --- library tracks ----------------------------------------------------------------
+
+
+_CANDIDATE_LIMIT = 10  # ReMatchModal shows a shortlist, not the collection
+
+
+def track_candidates(deps, request, body):
+    """G2 read half: the matcher's scored top-N for ONE track, so
+    ReMatchModal shows a candidate list instead of a blind re-run."""
+    track = _get_track(deps, request.path_params["track_id"])
+    _require_rekordbox(deps)
+    thresholds = _matching_thresholds(deps)
+    scored = matching.score_candidates(
+        {
+            "title": track["title"],
+            "artist": track["artist"],
+            "duration_ms": track["duration_ms"],
+            "isrc": track["isrc"],
+        },
+        deps.cache().get(deps.storage_root),
+        weights=thresholds["weights"],
+        isrc_collision_policy=thresholds["isrc_collision_policy"],
+    )
+    return {
+        "track_id": track["id"],
+        "candidates": [
+            {
+                "content_id": row["content_id"],
+                "title": row["title"],
+                "artist": row["artist"],
+                "duration_ms": row["duration_ms"],
+                "bit_rate": row["bit_rate"],
+                "confidence": confidence,
+            }
+            for confidence, row in scored[:_CANDIDATE_LIMIT]
+        ],
+    }
+
+
+def track_match_manual(deps, request, body):
+    """G2 write half: the user confirmed a candidate in ReMatchModal.
+    Same status guard as the automatic re-match (D22/5.6 transitions stay
+    owned by their flows); confidence=100 - a user confirmation is
+    authoritative, and the match method is 'manual' anyway."""
+    track = _get_track(deps, request.path_params["track_id"])
+    if track["status"] in _REMATCH_REFUSED:
+        raise ConflictError(
+            f"track {track['id']} is {track['status']!r}; manual match applies "
+            "only to unresolved rows (restore/unignore first when applicable)"
+        )
+    _require_rekordbox(deps)
+    content_id = str(_require(body, "content_id"))
+    known = {row["content_id"] for row in deps.cache().get(deps.storage_root)}
+    if content_id not in known:
+        raise KeyError(f"content {content_id} not found in the Rekordbox snapshot")
+    deps.conn.execute(
+        "UPDATE library_tracks SET status = 'matched', content_id = ?, "
+        "match_method = 'manual', confidence = 100, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (content_id, track["id"]),
+    )
+    return repos.get_track(deps.conn, track["id"])
 
 
 def track_rematch(deps, request, body):
@@ -498,6 +589,7 @@ def track_rematch(deps, request, body):
             "isrc": track["isrc"],
         },
         deps.cache().get(deps.storage_root),
+        **_matching_thresholds(deps),
     )
     deps.conn.execute(
         "UPDATE library_tracks SET status = ?, content_id = ?, match_method = ?, "
@@ -631,7 +723,8 @@ def events_match(deps, request, body):
     event = _get_event(deps, request.path_params["event_id"])
     _require_rekordbox(deps)
     tracks = events_service.match_event_tracks(
-        deps.conn, event, deps.cache(), deps.storage_root
+        deps.conn, event, deps.cache(), deps.storage_root,
+        **_matching_thresholds(deps),
     )
     return {"tracks": tracks}
 
@@ -721,6 +814,37 @@ def missing_restore(deps, request, body):
     return missing_service.restore_missing(
         deps.conn, request.path_params["scope"], request.path_params["row_id"]
     )
+
+
+def missing_remove(deps, request, body):
+    """G3: 'remove' a missing collection entry = SOFT-DELETE through mutate
+    (423-guarded, backup, reversible). Never touches audio files."""
+    _require_rekordbox(deps)
+    content_id = str(request.path_params["content_id"])
+    cache = deps.cache()
+    row = next(
+        (r for r in cache.get(deps.storage_root) if r["content_id"] == content_id),
+        None,
+    )
+    if row is None:
+        raise KeyError(f"content {content_id} not found in the Rekordbox snapshot")
+    if row["protected"]:
+        raise ConflictError(f"protected tracks are never deleted (5.4): {content_id}")
+    if not row["file_missing"]:
+        raise ConflictError(
+            f"content {content_id} has a present file; remove applies to "
+            "missing entries only (5.8)"
+        )
+    with mutate(
+        deps.db_path,
+        deps.backups_root,
+        retention=deps.retention,
+        expected_fingerprint=cache.current_fingerprint,
+        open_db=open_rekordbox,
+        invalidate_cache=cache.invalidate,
+    ) as db:
+        soft_delete_content(db, content_id)
+    return {"soft_deleted": content_id}
 
 
 def missing_relink(deps, request, body):
@@ -1085,6 +1209,25 @@ def spotify_authorize(deps, request, body):
     return {"url": deps.spotify_auth.begin_authorization()}
 
 
+def spotify_playlist_preview(deps, request, body):
+    """G5: read-only playlist preview for AddSourceModal, resolved BEFORE
+    following. 409 spotify_not_connected / 502 spotify_api_error map
+    automatically (404 = private playlist, actionable)."""
+    client = _sync_client(deps)
+    playlist_id = request.path_params["playlist_id"]
+    payload = client.get(
+        f"/playlists/{playlist_id}"
+        "?fields=name,owner(display_name),tracks(total),images(url)"
+    )
+    images = payload.get("images") or []
+    return {
+        "name": payload.get("name"),
+        "owner": (payload.get("owner") or {}).get("display_name"),
+        "tracks_total": (payload.get("tracks") or {}).get("total") or 0,
+        "image_url": images[0]["url"] if images else None,
+    }
+
+
 # --- route table -------------------------------------------------------------------
 
 
@@ -1093,6 +1236,7 @@ def routes(deps: Deps) -> list[Route]:
         return Route(path, _endpoint(deps, handler), methods=methods)
 
     return [
+        r("/api/status", status_get, ["GET"]),
         r("/api/sources", sources_list, ["GET"]),
         r("/api/sources", sources_add, ["POST"]),
         r("/api/sources/sync", sources_sync_all, ["POST"]),
@@ -1102,6 +1246,8 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/sources/{source_id:int}/tracks", source_tracks, ["GET"]),
         r("/api/sources/{source_id:int}/apply", source_apply, ["POST"]),
         r("/api/library/tracks/tags", tracks_tag_delta, ["POST"]),
+        r("/api/library/tracks/{track_id:int}/candidates", track_candidates, ["GET"]),
+        r("/api/library/tracks/{track_id:int}/match", track_match_manual, ["POST"]),
         r("/api/library/tracks/{track_id:int}/rematch", track_rematch, ["POST"]),
         r("/api/library/tracks/{track_id:int}/ignore", track_ignore, ["POST"]),
         r("/api/library/tracks/{track_id:int}/restore", track_restore, ["POST"]),
@@ -1116,6 +1262,7 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/events/{event_id:int}/reapply", events_reapply, ["POST"]),
         r("/api/events/{event_id:int}/delete", events_delete, ["POST"]),
         r("/api/missing/collection/{content_id}/relink", missing_relink, ["POST"]),
+        r("/api/missing/collection/{content_id}/remove", missing_remove, ["POST"]),
         r("/api/missing/{scope}", missing_list, ["GET"]),
         r("/api/missing/{scope}/{row_id:int}/status", missing_status, ["POST"]),
         r("/api/missing/{scope}/{row_id:int}/restore", missing_restore, ["POST"]),
@@ -1141,4 +1288,9 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/doctor/retention", doctor_retention, ["POST"]),
         r("/api/doctor/logs", doctor_logs, ["GET"]),
         r("/api/spotify/authorize", spotify_authorize, ["GET"]),
+        r(
+            "/api/spotify/playlists/{playlist_id}/preview",
+            spotify_playlist_preview,
+            ["GET"],
+        ),
     ]

@@ -1,0 +1,13 @@
+{
+  "name": "syncbox-shell",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --dir ../ui dev",
+    "build": "pnpm --dir ../ui build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0"
+  }
+}

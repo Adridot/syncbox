@@ -58,3 +58,23 @@ def test_existing_key_reused_not_rotated(tmp_path):
     second = SecretsStore(tmp_path)
     assert second.get("s") == "v"
     assert (tmp_path / "secrets.key").read_text() == key_before
+
+
+def test_store_survives_cross_thread_access(tmp_path):
+    """The HTTP layer hands the store between threadpool workers (serialized
+    behind api.Deps.lock). sqlite refuses cross-thread use unless the
+    connection opts out - a regression here 500s GET /api/status."""
+    import threading
+
+    store = SecretsStore(tmp_path)
+    store.set("spotify.refresh_token", "tok")  # connection born on this thread
+
+    results = []
+
+    def read():
+        results.append(store.get("spotify.refresh_token"))
+
+    worker = threading.Thread(target=read)
+    worker.start()
+    worker.join()
+    assert results == ["tok"]

@@ -10,6 +10,8 @@ sidecar/dist/
 # Rust / Tauri
 shell/target/
 shell/src-tauri/target/
+shell/harness/build/
+shell/node_modules/
 
 # Node / Vue
 ui/node_modules/

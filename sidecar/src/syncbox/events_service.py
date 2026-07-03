@@ -184,12 +184,13 @@ def add_track(
 # --- matching (5.7 event flavor) ---------------------------------------------------
 
 
-def match_event_tracks(conn, event, cache, storage_root) -> list[dict]:
+def match_event_tracks(conn, event, cache, storage_root, **thresholds) -> list[dict]:
     """Run the 5.3 matcher over the event's pending tracks.
 
     Event flavor (5.7): 'ambiguous' STAYS 'ambiguous' (never the library
     'conflict'), and NO default tag is attached to tracks - the event tag
-    is applied to CONTENT at apply time only.
+    is applied to CONTENT at apply time only. ``thresholds`` are the G4
+    matching knobs, forwarded verbatim to matching.match.
     """
     candidates = cache.get(storage_root)
     now = _now()
@@ -206,6 +207,7 @@ def match_event_tracks(conn, event, cache, storage_root) -> list[dict]:
                 "isrc": track["isrc"],
             },
             candidates,
+            **thresholds,
         )
         conn.execute(
             "UPDATE event_tracks SET status = ?, content_id = ?, confidence = ?,"

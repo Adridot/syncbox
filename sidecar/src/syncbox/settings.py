@@ -19,7 +19,16 @@ DEFAULTS = {
     "storage_root": "",
     "backup_retention": 15,
     "language": "en",
+    # G4 matching knobs (SPEC-DESIGN 4): thresholds/weights/policy only -
+    # the algorithm (ISRC-first, D19 pipeline, buckets) is locked. Defaults
+    # mirror the SPEC-01 2.1 constants in matching.py; reset = PUT defaults.
+    "match_confidence_threshold": 82,
+    "match_ambiguity_margin": 6,
+    "match_weights": {"title": 0.52, "artist": 0.36, "duration": 0.12},
+    "isrc_collision_policy": "guarded",
 }
+
+ISRC_COLLISION_POLICIES = ("guarded", "trust_isrc", "strict")
 
 # Blank-preserving keys: an empty incoming value means "leave as stored",
 # because settings forms round-trip masked/empty credential fields.
@@ -28,6 +37,29 @@ CREDENTIAL_KEYS = frozenset({"spotify_client_id"})
 # ponytail: the key catalog grows with M3/M4 (event folders, matching
 # thresholds per SPEC-DESIGN 4); unknown keys are rejected so a typo cannot
 # silently create a parallel setting.
+
+
+def _validate(key: str, value) -> None:
+    """G4 value rules (trust boundary: PUT /api/settings)."""
+    if key == "match_weights":
+        if set(value) != {"title", "artist", "duration"}:
+            raise ValueError(
+                "match_weights needs exactly the keys title/artist/duration"
+            )
+        for weight in value.values():
+            if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+                raise ValueError("match_weights values must be numbers")
+            if weight < 0:
+                raise ValueError("match_weights values must be >= 0")
+        if round(sum(value.values()), 2) != 1.0:
+            raise ValueError("match_weights must sum to 1.00")
+    elif key == "isrc_collision_policy" and value not in ISRC_COLLISION_POLICIES:
+        raise ValueError(
+            f"isrc_collision_policy must be one of {ISRC_COLLISION_POLICIES}"
+        )
+    elif key in ("match_confidence_threshold", "match_ambiguity_margin"):
+        if not 0 <= value <= 100:
+            raise ValueError(f"{key} must be between 0 and 100")
 
 
 class Settings:
@@ -61,6 +93,7 @@ class Settings:
                     raise TypeError(
                         f"setting {key!r} expects {type(DEFAULTS[key]).__name__}"
                     )
+                _validate(key, value)
                 self._conn.execute(
                     "INSERT INTO settings (key, value) VALUES (?, ?) "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",

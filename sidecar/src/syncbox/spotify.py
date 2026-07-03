@@ -113,6 +113,10 @@ class SpotifyAuth:
             return {"ok": False, "error": f"token_exchange_failed_{exc.status_code}"}
         return {"ok": True}
 
+    def connected(self) -> bool:
+        """Token presence only - no network call (feeds GET /api/status, G1)."""
+        return self._secrets.get(REFRESH_TOKEN) is not None
+
     def refresh(self) -> None:
         refresh_token = self._secrets.get(REFRESH_TOKEN)
         if not refresh_token:
