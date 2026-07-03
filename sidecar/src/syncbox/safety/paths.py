@@ -102,6 +102,22 @@ def paths_equal(a, b, storage_root) -> bool:
     return canonical_key(a, storage_root) == canonical_key(b, storage_root)
 
 
+def resolve_stored_path(raw, storage_root) -> Path:
+    """Absolute Path for a master.db-stored path (volume-relative or not)."""
+    return Path(os.path.expanduser(_volume_resolve(os.fspath(raw), storage_root)))
+
+
+def is_protected_path(raw, storage_root) -> bool:
+    """True when the stored path lives under <storage_root>/rekordbox/ -
+    the protected zone (Collection / Collection manuelle, SPEC-UNIFIED 4)."""
+    root = _storage_root(storage_root)
+    try:
+        rel = resolve_stored_path(raw, storage_root).relative_to(root)
+    except ValueError:
+        return False
+    return bool(rel.parts) and rel.parts[0] == "rekordbox"
+
+
 def tcc_exists(path) -> bool:
     """Existence check that is safe inside cloud folders (SPEC-01 1.5).
 
