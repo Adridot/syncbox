@@ -227,6 +227,41 @@ def test_relink_requires_an_existing_local_file(tmp_path):
     assert not (tmp_path / "backups").exists()
 
 
+def test_relink_unknown_content_is_key_error_before_backup(tmp_path, monkeypatch):
+    """A stale/unknown content_id (snapshot row deleted in Rekordbox since)
+    must fail as KeyError (-> 404) BEFORE mutate: no backup slot consumed,
+    no raw sqlalchemy NoResultFound escaping as a 500."""
+
+    class FakeRO:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def execute(self, sql, params):
+            rows = self._rows
+            return type("Cur", (), {"fetchone": lambda self_: rows.get(params[0])})()
+
+        def close(self):
+            pass
+
+    target = tmp_path / "found.mp3"
+    target.write_bytes(b"\x00")
+    cache = FakeCache([])
+
+    # unknown id AND soft-deleted id both refuse cleanly
+    for rows in ({}, {"C1": (1,)}):
+        monkeypatch.setattr(
+            missing_service, "open_readonly", lambda path, rows=rows: FakeRO(rows)
+        )
+        with pytest.raises(KeyError, match="C1"):
+            relink_collection_file(
+                tmp_path / "master.db", tmp_path / "backups", cache,
+                tmp_path / "storage", "C1", target,
+                anlz_consent=True,
+            )
+    assert not (tmp_path / "backups").exists()  # no backup for a dead mutation
+    assert cache.invalidations == 0
+
+
 @needs_fixture
 def test_relink_collection_file_writes_stored_form_and_preserves_links(tmp_path):
     from syncbox import rb
@@ -287,3 +322,11 @@ def test_relink_collection_file_writes_stored_form_and_preserves_links(tmp_path)
     fresh = {r["content_id"]: r for r in cache.get(storage)}[content_id]
     assert fresh["file_path"] == stored
     assert fresh["file_missing"] is False
+
+    # unknown content id on the REAL db: KeyError before mutate, no new backup
+    with pytest.raises(KeyError):
+        relink_collection_file(
+            db_path, backups, cache, storage,
+            "no-such-content-id", new_file, anlz_consent=True,
+        )
+    assert len(list(backups.iterdir())) == 1  # unchanged

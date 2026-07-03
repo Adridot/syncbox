@@ -233,6 +233,55 @@ def test_null_and_local_tracks_are_skipped(conn, source, tmp_path):
     assert [r["spotify_track_id"] for r in rows] == ["t1"]
 
 
+def test_sync_carries_ignored_prior_status(conn, source, tmp_path):
+    """D22: prior_status stored on entering 'ignored' must SURVIVE a sync
+    (ignored rows are carried as-is, 5.6) so a later unignore still works."""
+    repos.replace_source_tracks(
+        conn,
+        source["id"],
+        [
+            {
+                "spotify_track_id": "t1",
+                "title": "Strobe",
+                "artist": "deadmau5",
+                "status": "ignored",
+                "prior_status": "missing",
+            }
+        ],
+    )
+    client, _ = make_client(
+        api_ok(playlist_payload([item("t1", "Strobe", "deadmau5")]))
+    )
+    sync_one_source(conn, client, FakeCache(CANDIDATES), tmp_path, source)
+
+    row = repos.list_source_tracks(conn, source["id"])[0]
+    assert row["status"] == "ignored"  # carried as-is (5.6)
+    assert row["prior_status"] == "missing"  # NOT erased by the sync
+    assert repos.restore_track(conn, row["id"])["status"] == "missing"
+
+
+def test_library_tag_ids_conflict_without_fixture(monkeypatch, tmp_path):
+    """5.6 binding invariant, fixture-less: library MyTags must pre-exist -
+    a missing one is a ConflictError naming it; categories never match."""
+
+    class FakeRO:
+        def execute(self, sql):
+            return [("5", "House"), ("6", "House")]  # duplicate name: first wins
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(library_service, "open_readonly", lambda path: FakeRO())
+    assert library_service._library_tag_ids(tmp_path / "x.db", ["House"]) == ["5"]
+    with pytest.raises(ConflictError, match="Nope"):
+        library_service._library_tag_ids(tmp_path / "x.db", ["House", "Nope"])
+    # no tags requested: no DB access at all
+    monkeypatch.setattr(
+        library_service, "open_readonly", lambda path: pytest.fail("must not open")
+    )
+    assert library_service._library_tag_ids(tmp_path / "x.db", []) == []
+
+
 # --- apply_to_rekordbox: preconditions (pure, no master.db needed) ------------------
 
 

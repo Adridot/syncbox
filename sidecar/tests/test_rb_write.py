@@ -162,6 +162,107 @@ def test_full_write_flow_through_mutate(tmp_path, monkeypatch):
 
 
 @needs_fixture
+def test_reassign_memberships_moves_active_links_to_keeper(tmp_path):
+    """SPEC-UNIFIED 5.4: dedup resolve relinks the loser's ACTIVE playlist
+    and MyTag memberships onto the keeper before the loser is soft-deleted
+    - REAL coverage on the fixture, not a monkeypatched stand-in."""
+    from syncbox.rb_write import (
+        find_or_create_mytag,
+        open_rekordbox,
+        reassign_memberships,
+        soft_delete_content,
+        tag_content,
+    )
+    from syncbox.safety.mutate import mutate
+
+    live = tmp_path / "live"
+    live.mkdir()
+    db_path = live / "master.db"
+    shutil.copy2(FIXTURE, db_path)
+    backups = tmp_path / "backups"
+
+    cache = rb.SnapshotCache(db_path)
+    rows = cache.get(tmp_path / "storage")
+    loser = next(r for r in rows if r["playlist_count"] > 0)
+    keeper = next(r for r in rows if r["content_id"] != loser["content_id"])
+
+    # guarantee the loser also carries a MyTag link that must move
+    with mutate(db_path, backups, open_db=open_rekordbox) as db:
+        tag = find_or_create_mytag(db, "IT Dedup Tag", "Situation")
+        tag_content(db, loser["content_id"], tag.ID)
+        tag_id = str(tag.ID)
+
+    conn = rb.open_readonly(db_path)
+    loser_playlists = [
+        str(pid)
+        for (pid,) in conn.execute(
+            "SELECT PlaylistID FROM djmdSongPlaylist"
+            " WHERE ContentID = ? AND rb_local_deleted = 0",
+            (loser["content_id"],),
+        )
+    ]
+    loser_tags = [
+        str(tid)
+        for (tid,) in conn.execute(
+            "SELECT MyTagID FROM djmdSongMyTag"
+            " WHERE ContentID = ? AND rb_local_deleted = 0",
+            (loser["content_id"],),
+        )
+    ]
+    conn.close()
+    assert loser_playlists and tag_id in loser_tags
+
+    with mutate(db_path, backups, open_db=open_rekordbox) as db:
+        reassign_memberships(db, loser["content_id"], keeper["content_id"])
+        soft_delete_content(db, loser["content_id"])
+
+    conn = rb.open_readonly(db_path)
+    # loser: NO active membership survives
+    for table in ("djmdSongPlaylist", "djmdSongMyTag"):
+        left = conn.execute(
+            f"SELECT COUNT(*) FROM {table}"
+            " WHERE ContentID = ? AND rb_local_deleted = 0",
+            (loser["content_id"],),
+        ).fetchone()[0]
+        assert left == 0
+    # keeper: exactly ONE active link per playlist/tag the loser had (5.4)
+    for pid in loser_playlists:
+        active = conn.execute(
+            "SELECT TrackNo FROM djmdSongPlaylist"
+            " WHERE ContentID = ? AND PlaylistID = ? AND rb_local_deleted = 0",
+            (keeper["content_id"], pid),
+        ).fetchall()
+        assert len(active) == 1
+        assert int(active[0][0] or 0) >= 1  # a real TrackNo, never 0
+    for tid in loser_tags:
+        active = conn.execute(
+            "SELECT COUNT(*) FROM djmdSongMyTag"
+            " WHERE ContentID = ? AND MyTagID = ? AND rb_local_deleted = 0",
+            (keeper["content_id"], tid),
+        ).fetchone()[0]
+        assert active == 1
+    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    conn.close()
+
+    # idempotent: the consent-retry re-run (loser already soft-deleted with
+    # no active links) changes nothing
+    with mutate(db_path, backups, open_db=open_rekordbox) as db:
+        reassign_memberships(db, loser["content_id"], keeper["content_id"])
+
+    conn = rb.open_readonly(db_path)
+    for pid in loser_playlists:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM djmdSongPlaylist"
+                " WHERE ContentID = ? AND PlaylistID = ? AND rb_local_deleted = 0",
+                (keeper["content_id"], pid),
+            ).fetchone()[0]
+            == 1
+        )
+    conn.close()
+
+
+@needs_fixture
 def test_smartfixes_runner_end_to_end(tmp_path):
     from syncbox import smartfixes_run
     from syncbox.safety.mutate import StaleSnapshotError
@@ -179,7 +280,7 @@ def test_smartfixes_runner_end_to_end(tmp_path):
     assert len(dry["payload"]) > 0
     assert all(c["before"] != c["after"] for c in dry["payload"])
 
-    result = smartfixes_run.execute(db_path, backups, cache, dry)
+    result = smartfixes_run.execute(db_path, backups, cache, tmp_path / "storage", dry)
     assert result["fields_applied"] == len(dry["payload"])
 
     # idempotence: a fresh dry-run after mutate is empty (5.11)
@@ -190,4 +291,4 @@ def test_smartfixes_runner_end_to_end(tmp_path):
     with open(db_path, "ab") as f:
         f.write(b"x")
     with pytest.raises(StaleSnapshotError):
-        smartfixes_run.execute(db_path, backups, cache, dry)
+        smartfixes_run.execute(db_path, backups, cache, tmp_path / "storage", dry)

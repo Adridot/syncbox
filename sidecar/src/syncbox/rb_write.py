@@ -332,6 +332,19 @@ def add_content(db, staging_path, metadata: dict, *, storage_root):
     return row
 
 
+def find_active_content_by_path(db, stored_path: str):
+    """Active content row whose FolderPath equals the stored (3.2) form, or
+    None. The event-apply retry guard: after a crash in the window between
+    the durable master.db commit and the app-DB update, the event row is
+    still 'ready' and re-running add_content would create a DUPLICATE
+    content row for the same staged file - the retry must reuse this one."""
+    rows = db.query(tables.DjmdContent).filter_by(FolderPath=str(stored_path)).all()
+    for row in rows:
+        if not int(row.rb_local_deleted or 0):
+            return row
+    return None
+
+
 def soft_delete_content(db, content_id: str) -> None:
     row = db.query(tables.DjmdContent).filter_by(ID=str(content_id)).one()
     _apply(row, soft_delete_values())

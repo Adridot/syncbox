@@ -27,6 +27,7 @@ from syncbox.rb_write import (
     add_content,
     create_or_repair_smart_playlist,
     ensure_playlist_folder,
+    find_active_content_by_path,
     find_or_create_mytag,
     open_rekordbox,
     soft_delete_content,
@@ -36,7 +37,7 @@ from syncbox.rb_write import (
     untag_content,
 )
 from syncbox.safety.mutate import mutate
-from syncbox.safety.paths import is_protected_path
+from syncbox.safety.paths import is_protected_path, stored_form
 
 EVENT_FOLDER_NAME = "Event Imports"
 SITUATION_CATEGORY = "Situation"
@@ -325,10 +326,12 @@ def apply_event(
     """Apply the event inside ONE mutate() unit-of-work (5.7, 11.2).
 
     matched -> tag the existing content; ready -> create a new content row
-    from the staged file (rb_write.add_content) then tag it; applied
-    tracks reset their 11.2 delta flag. ``only_delta`` restricts to
-    added_after_apply rows; reapply with no delta is a strict no-op
-    checked BEFORE mutate() so no backup is wasted.
+    from the staged file (rb_write.add_content) then tag it - unless an
+    active row for that staged path already exists (a retry after a
+    post-commit crash reuses it, never duplicates); applied tracks reset
+    their 11.2 delta flag. ``only_delta`` restricts to added_after_apply
+    rows; reapply with no delta is a strict no-op checked BEFORE mutate()
+    so no backup is wasted.
     """
     event = get_event(conn, event["id"])
     db_path = Path(db_path)
@@ -361,18 +364,27 @@ def apply_event(
         tag_id, playlist_id = str(tag.ID), str(playlist.ID)
         for track in applicable:
             if track["status"] == "ready":
-                content = add_content(
-                    db,
-                    track["staging_file_path"],
-                    {
-                        "title": track["title"],
-                        "artist": track["artist"],
-                        "duration_ms": track["duration_ms"],
-                        "isrc": track["isrc"],
-                    },
-                    storage_root=storage_root,
-                )
-                content_id = str(content.ID)
+                # Crash-window retry guard: a failure AFTER the durable
+                # master.db commit (xml restore, app-DB update, crash) leaves
+                # this row 'ready'; the retry must REUSE the content row the
+                # first commit created, never add a duplicate.
+                stored = stored_form(track["staging_file_path"], storage_root)
+                existing = find_active_content_by_path(db, stored)
+                if existing is not None:
+                    content_id = str(existing.ID)
+                else:
+                    content = add_content(
+                        db,
+                        track["staging_file_path"],
+                        {
+                            "title": track["title"],
+                            "artist": track["artist"],
+                            "duration_ms": track["duration_ms"],
+                            "isrc": track["isrc"],
+                        },
+                        storage_root=storage_root,
+                    )
+                    content_id = str(content.ID)
             else:
                 content_id = str(track["content_id"])
             tag_content(db, content_id, tag_id)  # the event tag - nothing else (5.7)

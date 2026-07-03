@@ -58,7 +58,12 @@ from syncbox.rb import SnapshotCache, open_readonly
 from syncbox.rb_write import open_rekordbox, reassign_memberships, soft_delete_content
 from syncbox.safety.backup import list_backups, restore_backup
 from syncbox.safety.mutate import StaleSnapshotError, mutate
-from syncbox.safety.paths import is_protected_path, resolve_stored_path, tcc_exists
+from syncbox.safety.paths import (
+    is_protected_path,
+    paths_equal,
+    resolve_stored_path,
+    tcc_exists,
+)
 from syncbox.safety.process_guard import MutationBlockedError
 from syncbox.server import JobBus, create_app
 from syncbox.settings import Settings, validate_directory
@@ -66,8 +71,11 @@ from syncbox.spotify import NotConnectedError, SpotifyApiError
 
 # Statuses a single-track re-match refuses to clobber: 'ignored' would
 # silently unignore (D22 owns that transition), 'imported' is already in
-# Rekordbox, 'ready' carries a claimed staging file.
-_REMATCH_REFUSED = frozenset({"ignored", "imported", "ready"})
+# Rekordbox, 'ready' carries a claimed staging file, and
+# 'removed_from_source' is the 5.6 sync verdict - re-matching would erase
+# the marker (and, once 'missing', re-expose purchase links that 5.13
+# excludes for removed_from_source); the next sync owns that transition.
+_REMATCH_REFUSED = frozenset({"ignored", "imported", "ready", "removed_from_source"})
 # 5.6 library vocabulary for matcher outcomes (events keep 'ambiguous').
 _LIBRARY_STATUS = {"matched": "matched", "ambiguous": "conflict", "missing": "missing"}
 
@@ -785,8 +793,10 @@ def duplicates_resolve(deps, request, body):
     """Per-group confirm (D5). Order is load-bearing (5.4): relink
     memberships -> soft-delete losers inside ONE mutate() -> file deletion
     strictly AFTER the durable commit, through the OS-trash-first consent
-    contract. Re-entrant: a 428 consent retry skips the already-committed
-    DB work and finishes the file cleanup."""
+    contract. A loser whose path denotes the keeper's own file (either 3.2
+    spelling) is reported and NEVER deleted. Re-entrant: a 428 consent
+    retry skips the already-committed DB work and finishes the file
+    cleanup."""
     _require_rekordbox(deps)
     keeper = str(_require(body, "keeper_content_id"))
     losers = [str(c) for c in _require_list(body, "loser_content_ids")]
@@ -845,12 +855,22 @@ def duplicates_resolve(deps, request, body):
                 reassign_memberships(db, loser, keeper)  # playlists + MyTags
                 soft_delete_content(db, loser)
 
+    keeper_stored = states[keeper]["path"]
     files = []
     for loser in losers:
         stored = states[loser]["path"]
         if not stored:
             continue
         resolved = resolve_stored_path(stored, deps.storage_root)
+        if keeper_stored and paths_equal(stored, keeper_stored, deps.storage_root):
+            # 5.4: the keeper's audio file is NEVER deleted. A loser ROW can
+            # share the keeper's physical file (double import, manual relink
+            # onto the same copy - dedup groups on metadata, never on path),
+            # in either the volume-relative or absolute spelling (3.2).
+            files.append(
+                {"content_id": loser, "path": str(resolved), "result": "kept_keeper_file"}
+            )
+            continue
         if tcc_exists(resolved):
             outcome = delete_file(resolved, consent_to_permanent_delete=consent)
             files.append(
@@ -945,14 +965,23 @@ def smartfixes_dry_run(deps, request, body):
 
 def smartfixes_execute(deps, request, body):
     """Executes EXACTLY the confirmed dry-run payload (B10); the dry-run
-    fingerprint re-asserts freshness inside mutate (stale -> 409)."""
+    fingerprint re-asserts freshness (stale -> 409) and the payload is
+    re-checked server-side against the 5.11 plan - a protected track needs
+    the per-call include_protected_ids opt-in HERE too, never remembered."""
     _require_rekordbox(deps)
     dry = {
         "payload": _require_list(body, "payload"),
         "fingerprint": _fingerprint_tuple(_require(body, "fingerprint")),
     }
+    include = frozenset(str(c) for c in body.get("include_protected_ids") or [])
     return smartfixes_run.execute(
-        deps.db_path, deps.backups_root, deps.cache(), dry, retention=deps.retention
+        deps.db_path,
+        deps.backups_root,
+        deps.cache(),
+        deps.storage_root,
+        dry,
+        include_protected_ids=include,
+        retention=deps.retention,
     )
 
 

@@ -26,6 +26,7 @@ import json
 from pathlib import Path
 
 from syncbox.purchase_links import links_for_track
+from syncbox.rb import open_readonly
 from syncbox.rb_write import open_rekordbox, relink_content_path
 from syncbox.relink import find_candidates
 from syncbox.safety.mutate import mutate
@@ -230,9 +231,12 @@ def relink_collection_file(
     lawfully owns. Returns the stored (3.2) form written to master.db.
 
     Order is load-bearing: consent gate FIRST (no consent -> nothing is
-    touched, not even a backup), then the TCC-safe existence check, then
-    the single mutate() unit-of-work. Only FolderPath changes - cues, tags
-    and playlist memberships are preserved by construction (rb_write).
+    touched, not even a backup), then the TCC-safe existence check, then a
+    read-only check that the content row still exists (the missing list
+    comes from the snapshot cache, so a row deleted in Rekordbox since can
+    reach here stale: unknown -> KeyError/404, no backup wasted), then the
+    single mutate() unit-of-work. Only FolderPath changes - cues, tags and
+    playlist memberships are preserved by construction (rb_write).
     """
     if not anlz_consent:
         raise AnlzConsentRequired(
@@ -242,6 +246,16 @@ def relink_collection_file(
         )
     if not tcc_exists(new_path):
         raise FileNotFoundError(f"relink target does not exist locally: {new_path}")
+    ro = open_readonly(db_path)
+    try:
+        row = ro.execute(
+            "SELECT rb_local_deleted FROM djmdContent WHERE ID = ?",
+            (str(content_id),),
+        ).fetchone()
+    finally:
+        ro.close()
+    if row is None or int(row[0] or 0):
+        raise KeyError(f"collection content {content_id} not found")
     stored = stored_form(new_path, storage_root)
     with mutate(
         db_path,

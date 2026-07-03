@@ -8,7 +8,9 @@ tmp_path (apply -> reapply delta -> delete with preview).
 import hashlib
 import shutil
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -316,6 +318,205 @@ def test_reapply_without_delta_is_noop_before_mutate(conn, tmp_path):
     assert not backups.exists()
 
 
+def test_reapply_delta_ignores_non_delta_matched_rows(conn, tmp_path):
+    """11.2 killing test: reapply is the apply pipeline restricted to
+    added_after_apply rows ONLY - a pre-apply row that merely became
+    'matched' since the first apply must NOT be silently imported."""
+    event = create_event(conn, tmp_path / "storage", "Delta Strict")
+    track = add_track(conn, event, title="Matched Later")
+    # matched but NOT a delta row (added_after_apply = 0)
+    conn.execute(
+        "UPDATE event_tracks SET status = 'matched', content_id = 'C1' WHERE id = ?",
+        (track["id"],),
+    )
+    conn.execute("UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],))
+
+    backups = tmp_path / "backups"
+    result = apply_event(
+        conn,
+        tmp_path / "does-not-exist" / "master.db",
+        backups,
+        object(),  # never touched: the no-op fires before mutate
+        tmp_path / "storage",
+        event,
+        only_delta=True,
+    )
+    assert result["noop"] is True and result["applied"] == 0
+    assert not backups.exists()
+    row = list_event_tracks(conn, event["id"])[0]
+    assert row["status"] == "matched"  # untouched: waiting for a FULL apply
+
+
+# --- apply harness fakes (no master.db) --------------------------------------------
+
+
+def _fake_apply_helpers(monkeypatch, fake_mutate):
+    monkeypatch.setattr(events_service, "mutate", fake_mutate)
+    monkeypatch.setattr(
+        events_service, "find_or_create_mytag", lambda db, n, c: SimpleNamespace(ID="T1")
+    )
+    monkeypatch.setattr(
+        events_service, "ensure_playlist_folder", lambda db, n: SimpleNamespace(ID="F1")
+    )
+    monkeypatch.setattr(
+        events_service,
+        "create_or_repair_smart_playlist",
+        lambda db, n, p, t: SimpleNamespace(ID="P1"),
+    )
+    monkeypatch.setattr(events_service, "tag_content", lambda db, c, t: None)
+
+
+def test_apply_retry_after_post_commit_crash_reuses_content_row(
+    conn, tmp_path, monkeypatch
+):
+    """M3 crash-window contract: a failure AFTER the durable master.db
+    commit leaves the row 'ready'; the retry must reuse the committed
+    content row, never add_content a duplicate for the same staged file."""
+    from syncbox.safety.paths import stored_form
+
+    storage = tmp_path / "storage"
+    event = create_event(conn, storage, "Crash Party")
+    track = add_track(conn, event, title="Staged")
+    staged = Path(event["staging_dir"]) / "Staged.mp3"
+    staged.write_bytes(b"x")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'ready', staging_file_path = ? WHERE id = ?",
+        (str(staged), track["id"]),
+    )
+
+    master = {}  # stored FolderPath -> content row: the fake master.db state
+    added = []
+
+    @contextmanager
+    def fake_mutate(db_path, backups_root, *, retention=15, expected_fingerprint=None, open_db, invalidate_cache=None):
+        yield "db"
+        if invalidate_cache:
+            invalidate_cache()
+
+    def fake_add_content(db, staging_path, metadata, *, storage_root):
+        row = SimpleNamespace(ID=f"NEW{len(added) + 1}")
+        added.append(str(staging_path))
+        master[stored_form(staging_path, storage_root)] = row
+        return row
+
+    _fake_apply_helpers(monkeypatch, fake_mutate)
+    monkeypatch.setattr(events_service, "add_content", fake_add_content)
+    monkeypatch.setattr(
+        events_service,
+        "find_active_content_by_path",
+        lambda db, stored: master.get(stored),
+    )
+
+    class CrashAfterCommit:
+        """Delegates to the real app-DB conn but dies at the post-commit
+        update - the exact crash window (master.db durable, app DB stale)."""
+
+        def __init__(self, real):
+            self._real = real
+
+        def execute(self, sql, *args):
+            if sql.strip() == "BEGIN":
+                raise RuntimeError("simulated crash after the master.db commit")
+            return self._real.execute(sql, *args)
+
+    cache = FakeCache([])
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        apply_event(
+            CrashAfterCommit(conn),
+            tmp_path / "master.db",
+            tmp_path / "b",
+            cache,
+            storage,
+            event,
+        )
+    assert added == [str(staged)]  # committed once into (fake) master.db
+    row = list_event_tracks(conn, event["id"])[0]
+    assert row["status"] == "ready"  # the app DB never saw the apply
+
+    # The user's retry: same 'ready' row, same staged file.
+    result = apply_event(
+        conn, tmp_path / "master.db", tmp_path / "b", cache, storage, event
+    )
+    assert result["noop"] is False and result["applied"] == 1
+    assert added == [str(staged)]  # add_content NOT called again: no duplicate
+    row = list_event_tracks(conn, event["id"])[0]
+    assert row["status"] == "applied"
+    assert row["content_id"] == "NEW1"  # linked to the FIRST commit's row
+
+
+def test_apply_restores_xml_byte_identical_after_commit(conn, tmp_path, monkeypatch):
+    """SPEC-01 1.6 without the fixture: pyrekordbox rewrites the xml at
+    commit; apply_event must restore it byte-identical and keep the crash
+    -window .bak in the staging dir."""
+    storage = tmp_path / "storage"
+    event = create_event(conn, storage, "XML Night")
+    track = add_track(conn, event, title="Matched")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'matched', content_id = 'C1' WHERE id = ?",
+        (track["id"],),
+    )
+    live = tmp_path / "live"
+    live.mkdir()
+    db_path = live / "master.db"
+    db_path.write_bytes(b"fake")
+    xml_path = live / "masterPlaylists6.xml"
+    original = b"<original playlists/>"
+    xml_path.write_bytes(original)
+
+    @contextmanager
+    def fake_mutate(db_path_, backups_root, *, retention=15, expected_fingerprint=None, open_db, invalidate_cache=None):
+        yield "db"
+        # pyrekordbox rewrites the xml as part of its commit
+        xml_path.write_bytes(b"<pyrekordbox rewrote this/>")
+
+    _fake_apply_helpers(monkeypatch, fake_mutate)
+
+    result = apply_event(conn, db_path, tmp_path / "b", FakeCache([]), storage, event)
+    assert result["applied"] == 1
+    assert xml_path.read_bytes() == original  # byte-identical restore (1.6)
+    bak = Path(event["staging_dir"]) / "masterPlaylists6.xml.bak"
+    assert bak.read_bytes() == original  # covers the commit->restore window
+
+
+def test_delete_event_flows_consent_to_delete_file(conn, tmp_path, monkeypatch):
+    """D21/6.9: the consent_to_permanent_delete flag must reach
+    platform_os.delete_file for every staged artifact - both values."""
+
+    class EmptyRO:
+        def execute(self, sql, params):
+            return SimpleNamespace(fetchall=lambda: [])
+
+        def close(self):
+            pass
+
+    consents = []
+
+    def fake_delete(path, *, consent_to_permanent_delete=False):
+        consents.append(consent_to_permanent_delete)
+        Path(path).unlink()
+        return "trashed"
+
+    monkeypatch.setattr(events_service, "open_readonly", lambda p: EmptyRO())
+    monkeypatch.setattr(events_service, "delete_file", fake_delete)
+
+    for consent in (True, False):
+        event = create_event(conn, tmp_path / "storage", f"Consent {consent}")
+        (Path(event["staging_dir"]) / "a.mp3").write_bytes(b"x")
+        done = delete_event(
+            conn,
+            tmp_path / "master.db",
+            tmp_path / "b",
+            FakeCache([]),
+            tmp_path / "storage",
+            event,
+            dry_run=False,
+            consent_to_permanent_delete=consent,
+        )
+        assert len(done["removed_files"]) == 1
+        assert get_event(conn, event["id"]) is None
+    assert consents == [True, False]  # the flag flowed through, per call
+
+
 # --- delete preview rules (SPEC-01 1.8) --------------------------------------------
 
 
@@ -481,12 +682,34 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
     ro.close()
     assert len(list(backups.iterdir())) == 1
 
+    # --- crash-window retry: master.db committed but the app-DB update was
+    # lost -> re-applying must reuse the committed row, never duplicate it.
+    conn.execute(
+        "UPDATE event_tracks SET status = 'ready', content_id = NULL WHERE id = ?",
+        (track_b["id"],),
+    )
+    retry = apply_event(conn, db_path, backups, cache, storage_root, event)
+    assert retry["noop"] is False and retry["applied"] == 1
+    ro = rb.open_readonly(db_path)
+    assert (
+        ro.execute(
+            "SELECT COUNT(*) FROM djmdContent WHERE Title = ? AND rb_local_deleted = 0",
+            ("Syncbox IT Staged Tune QQ",),
+        ).fetchone()[0]
+        == 1
+    )  # still exactly ONE content row for the staged file
+    ro.close()
+    row_b = {t["id"]: t for t in list_event_tracks(conn, event["id"])}[track_b["id"]]
+    assert row_b["status"] == "applied"
+    assert row_b["content_id"] == content_b  # relinked to the FIRST commit's row
+    assert len(list(backups.iterdir())) == 2
+
     # --- reapply with no delta: strict no-op, no backup wasted (11.2) ------------
     noop = apply_event(
         conn, db_path, backups, cache, storage_root, event, only_delta=True
     )
     assert noop["noop"] is True
-    assert len(list(backups.iterdir())) == 1
+    assert len(list(backups.iterdir())) == 2
 
     # --- delta: post-apply addition -> reapply delta only (11.2) -----------------
     track_c = add_track(
@@ -518,7 +741,7 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
     assert all(t["status"] == "applied" and t["added_after_apply"] == 0 for t in tracks)
     event = get_event(conn, event["id"])
     assert event["status"] == "applied"
-    assert len(list(backups.iterdir())) == 2
+    assert len(list(backups.iterdir())) == 3
 
     # --- delete setup: a protected content + a legacy '<name> - Smart' playlist --
     with mutate(
@@ -529,7 +752,7 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
         create_or_repair_smart_playlist(
             db, "IT Event Lifecycle - Smart", folder.ID, tag_id
         )
-    assert len(list(backups.iterdir())) == 3
+    assert len(list(backups.iterdir())) == 4
     # the raw setup mutate above deliberately skipped the xml snapshot/restore
     # (it is not the events pipeline), so pyrekordbox rewrote the xml at its
     # commit; the delete below must restore byte-identically to THIS state.
@@ -550,7 +773,7 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
     }
     assert str(staged_b) in preview["artifacts"]
     assert str(staged_c) in preview["artifacts"]
-    assert len(list(backups.iterdir())) == 3  # dry-run wrote nothing
+    assert len(list(backups.iterdir())) == 4  # dry-run wrote nothing
 
     # --- real delete ---------------------------------------------------------------
     deletions = []
@@ -631,7 +854,7 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
     assert ro.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     ro.close()
 
-    # app DB rows gone (cascade), exactly 4 mutations left 4 backups
+    # app DB rows gone (cascade), exactly 5 mutations left 5 backups
     assert get_event(conn, event["id"]) is None
     assert (
         conn.execute(
@@ -639,5 +862,5 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
         ).fetchone()[0]
         == 0
     )
-    assert len(list(backups.iterdir())) == 4
+    assert len(list(backups.iterdir())) == 5
     conn.close()

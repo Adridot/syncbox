@@ -240,6 +240,44 @@ def test_apply_wrong_status_is_409(tmp_path):
     assert "matched/ready" in response.json()["message"]
 
 
+def test_sync_all_publishes_per_source_progress(tmp_path, monkeypatch):
+    """F16: sync-all progress units are real (one per source synced), never
+    a single faked 100%."""
+    published = []
+
+    class RecordingProgress:
+        def __init__(self, bus, kind):
+            self.kind = kind
+
+        def publish(self, done, total):
+            published.append((self.kind, done, total))
+
+        def done(self, **summary):
+            published.append((self.kind, "done", summary))
+
+    monkeypatch.setattr(api, "_Progress", RecordingProgress)
+    second_id = "B" * 22
+    payload = {"snapshot_id": "s1", "name": "PL", "tracks": {"items": [], "next": None}}
+    payloads = {
+        f"/playlists/{PLAYLIST_ID}": dict(payload),
+        f"/playlists/{second_id}": dict(payload),
+    }
+    client = SimpleNamespace(get=lambda path: payloads[path])
+    env = make_env(tmp_path, spotify_client=client)
+    repos.add_source(env.conn, PLAYLIST_ID)
+    repos.add_source(env.conn, second_id)
+
+    response = env.client.post("/api/sources/sync")
+    assert response.status_code == 200
+    assert len(response.json()["results"]) == 2
+    progress = [
+        (done, total)
+        for kind, done, total in published
+        if kind == "sources.sync_all" and isinstance(done, int)
+    ]
+    assert progress == [(1, 2), (2, 2)]  # one real unit per source
+
+
 # --- library tracks ----------------------------------------------------------------
 
 
@@ -271,6 +309,29 @@ def test_rematch_single_track(tmp_path):
     repos.set_track_status(env.conn, tracks[0]["id"], "imported")
     refused = env.client.post(f"/api/library/tracks/{tracks[0]['id']}/rematch")
     assert refused.status_code == 409
+
+
+def test_rematch_refuses_removed_from_source(tmp_path):
+    """5.6/5.13: re-matching a removed_from_source row would erase the sync
+    verdict and (once 'missing') re-expose purchase links 5.13 excludes."""
+    isrc = "USABC1234567"
+    env = make_env(tmp_path, rows=[rb_row("42", isrc=isrc, title="Song")])
+    source, tracks = seed_source(
+        env.conn,
+        [
+            {
+                "spotify_track_id": "t1",
+                "title": "Song",
+                "artist": "Artist",
+                "isrc": isrc,
+                "status": "removed_from_source",
+            }
+        ],
+    )
+    refused = env.client.post(f"/api/library/tracks/{tracks[0]['id']}/rematch")
+    assert refused.status_code == 409
+    row = repos.get_track(env.conn, tracks[0]["id"])
+    assert row["status"] == "removed_from_source"  # marker untouched
 
 
 def test_ignore_restore_is_d22(tmp_path):
@@ -318,6 +379,22 @@ def test_bulk_tag_delta_d16(tmp_path):
 
 
 # --- events ------------------------------------------------------------------------
+
+
+def test_events_list_reports_pending_delta_badge(tmp_path):
+    """11.2: the events list surfaces N additions waiting for a re-apply -
+    not a constant 0."""
+    env = make_env(tmp_path)
+    event = env.client.post("/api/events", json={"name": "Delta Gig"}).json()
+    env.client.post(f"/api/events/{event['id']}/tracks", json={"title": "Before"})
+    env.conn.execute(
+        "UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],)
+    )
+    env.client.post(f"/api/events/{event['id']}/tracks", json={"title": "After"})
+
+    listing = env.client.get("/api/events").json()["events"]
+    assert listing[0]["n_tracks"] == 2
+    assert listing[0]["pending_delta"] == 1  # exactly the post-apply addition
 
 
 def test_event_create_add_manual_track_and_detail(tmp_path):
@@ -498,6 +575,30 @@ def test_missing_collection_relink_requires_anlz_consent(tmp_path):
     assert missing_file.status_code == 404
 
 
+def test_missing_relink_unknown_content_is_404_without_backup(tmp_path, monkeypatch):
+    """A stale content_id (row deleted in Rekordbox since the snapshot) must
+    map to a clean 404 - never a raw 500 - and waste no backup slot."""
+    env = make_env(tmp_path)
+    target = tmp_path / "found.mp3"
+    target.write_bytes(b"\x00")
+
+    class FakeRO:
+        def execute(self, sql, params):
+            return SimpleNamespace(fetchone=lambda: None)  # unknown content id
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(api.missing_service, "open_readonly", lambda path: FakeRO())
+    response = env.client.post(
+        "/api/missing/collection/GONE/relink",
+        json={"path": str(target), "anlz_consent": True},
+    )
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
+    assert not env.deps.backups_root.exists()  # no backup for a dead mutation
+
+
 # --- duplicates --------------------------------------------------------------------
 
 
@@ -585,6 +686,104 @@ def test_duplicates_resolve_order_and_reentry(tmp_path, monkeypatch):
     assert deletes and min(deletes) > mutate_exit  # files strictly AFTER commit (5.4)
     assert ("mutate:enter", (("db", 1),)) in order  # scan fingerprint guards the txn
     assert not any(step == "reassign:3->1" for step in order)
+
+
+def test_duplicates_resolve_never_deletes_a_shared_keeper_file(tmp_path, monkeypatch):
+    """5.4: two content rows can share ONE physical file (double import,
+    manual relink onto the other copy - dedup groups on metadata, never on
+    path). Resolving must not trash the keeper's own file via the loser."""
+    env = make_env(tmp_path, rows=_isrc_pair_rows())
+    shared = "/music/shared.mp3"
+    states = {
+        "1": (shared, 0),  # keeper
+        "2": (shared, 0),  # loser sharing the keeper's file
+        "3": ("/music/3.mp3", 0),  # loser with its own file
+    }
+
+    class FakeRO:
+        def execute(self, sql, params):
+            return [(cid, *states[cid]) for cid in params if cid in states]
+
+        def close(self):
+            pass
+
+    deleted = []
+
+    @contextmanager
+    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+        yield "db"
+
+    monkeypatch.setattr(api, "open_readonly", lambda path: FakeRO())
+    monkeypatch.setattr(api, "mutate", fake_mutate)
+    monkeypatch.setattr(api, "reassign_memberships", lambda db, a, b: None)
+    monkeypatch.setattr(api, "soft_delete_content", lambda db, cid: None)
+    monkeypatch.setattr(api, "tcc_exists", lambda path: True)
+    monkeypatch.setattr(
+        api,
+        "delete_file",
+        lambda path, *, consent_to_permanent_delete: deleted.append(str(path))
+        or "trashed",
+    )
+
+    response = env.client.post(
+        "/api/duplicates/resolve",
+        json={
+            "keeper_content_id": "1",
+            "loser_content_ids": ["2", "3"],
+            "consent_to_permanent_delete": True,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["soft_deleted"] == ["2", "3"]  # DB rows still soft-deleted
+    # The shared file was NEVER deleted - reported as kept instead (5.4).
+    assert deleted == ["/music/3.mp3"]
+    results = {f["content_id"]: f["result"] for f in body["files"]}
+    assert results == {"2": "kept_keeper_file", "3": "trashed"}
+
+
+def test_duplicates_resolve_keeper_guard_equates_32_spellings(tmp_path, monkeypatch):
+    """3.2: the volume-relative and absolute spellings of one file compare
+    equal - a loser stored in the other spelling must not defeat the guard."""
+    env = make_env(tmp_path, rows=_isrc_pair_rows())
+    # Keeper absolute under the storage root; loser volume-relative spelling
+    # of the SAME file (outside rekordbox/ so the protected guard passes).
+    absolute = str(env.storage / "inbox" / "song.mp3")
+    volume_relative = f"/{env.storage.name}/inbox/song.mp3"
+    states = {"1": (absolute, 0), "2": (volume_relative, 0)}
+
+    class FakeRO:
+        def execute(self, sql, params):
+            return [(cid, *states[cid]) for cid in params if cid in states]
+
+        def close(self):
+            pass
+
+    deleted = []
+
+    @contextmanager
+    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+        yield "db"
+
+    monkeypatch.setattr(api, "open_readonly", lambda path: FakeRO())
+    monkeypatch.setattr(api, "mutate", fake_mutate)
+    monkeypatch.setattr(api, "reassign_memberships", lambda db, a, b: None)
+    monkeypatch.setattr(api, "soft_delete_content", lambda db, cid: None)
+    monkeypatch.setattr(api, "tcc_exists", lambda path: True)
+    monkeypatch.setattr(
+        api,
+        "delete_file",
+        lambda path, *, consent_to_permanent_delete: deleted.append(str(path))
+        or "trashed",
+    )
+
+    response = env.client.post(
+        "/api/duplicates/resolve",
+        json={"keeper_content_id": "1", "loser_content_ids": ["2"]},
+    )
+    assert response.status_code == 200
+    assert deleted == []  # same file either spelling: never deleted
+    assert [f["result"] for f in response.json()["files"]] == ["kept_keeper_file"]
 
 
 def test_duplicates_resolve_validation_and_protection(tmp_path, monkeypatch):
@@ -732,15 +931,91 @@ def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
 
     captured = {}
 
-    def fake_execute(db_path, backups_root, cache, dry_payload, *, retention=15):
+    def fake_execute(
+        db_path,
+        backups_root,
+        cache,
+        storage_root,
+        dry_payload,
+        *,
+        include_protected_ids=frozenset(),
+        retention=15,
+    ):
         captured.update(dry_payload)
+        captured["include_protected_ids"] = include_protected_ids
+        captured["storage_root"] = storage_root
         return {"fields_applied": 1, "tracks_touched": 1}
 
     monkeypatch.setattr(api.smartfixes_run, "execute", fake_execute)
-    response = env.client.post("/api/smartfixes/execute", json=dry)
+    response = env.client.post(
+        "/api/smartfixes/execute", json={**dry, "include_protected_ids": ["9"]}
+    )
     assert response.status_code == 200
     # JSON round-trip must restore the EXACT tuple fingerprint mutate compares.
     assert captured["fingerprint"] == (("db", 1),)
+    # The per-call opt-in reaches the runner (5.11) with the storage root.
+    assert captured["include_protected_ids"] == frozenset({"9"})
+    assert captured["storage_root"] == str(env.storage)
+
+
+def test_smartfixes_dry_run_protected_opt_in_wiring(tmp_path):
+    """5.11: protected tracks are skipped by default and fixable ONLY via
+    the per-call include_protected_ids body field - the HTTP layer must
+    actually carry the ids into the planner."""
+    rows = [rb_row("p1", title="Bad   Title", protected=True)]
+    env = make_env(tmp_path, rows=rows)
+
+    skipped = env.client.post("/api/smartfixes/dry-run", json={}).json()
+    assert skipped["payload"] == []
+    assert [s["content_id"] for s in skipped["skipped_protected"]] == ["p1"]
+
+    opted = env.client.post(
+        "/api/smartfixes/dry-run", json={"include_protected_ids": ["p1"]}
+    ).json()
+    assert [c["content_id"] for c in opted["payload"]] == ["p1"]
+    assert opted["skipped_protected"] == []
+
+
+def test_smartfixes_execute_refuses_protected_without_per_call_opt_in(
+    tmp_path, monkeypatch
+):
+    """5.11 write-path guard: the opt-in is per-call, never remembered - a
+    payload naming a protected track is refused server-side on execute
+    unless include_protected_ids is re-sent, whatever the client claims."""
+    rows = [rb_row("p1", title="Bad   Title", protected=True)]
+    env = make_env(tmp_path, rows=rows)
+    dry = env.client.post(
+        "/api/smartfixes/dry-run", json={"include_protected_ids": ["p1"]}
+    ).json()
+    assert dry["payload"]  # the protected fix is in the confirmed payload
+
+    # Execute WITHOUT re-sending the opt-in: refused before any backup.
+    refused = env.client.post(
+        "/api/smartfixes/execute",
+        json={"payload": dry["payload"], "fingerprint": dry["fingerprint"]},
+    )
+    assert refused.status_code == 400
+    assert "include_protected_ids" in refused.json()["message"]
+    assert not env.deps.backups_root.exists()
+
+    # Execute WITH the per-call opt-in: the write goes through.
+    applied = []
+
+    @contextmanager
+    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+        yield "db"
+
+    monkeypatch.setattr(api.smartfixes_run, "mutate", fake_mutate)
+    monkeypatch.setattr(
+        api.smartfixes_run,
+        "set_content_fields",
+        lambda db, cid, changes: applied.append((cid, changes)),
+    )
+    ok = env.client.post(
+        "/api/smartfixes/execute", json={**dry, "include_protected_ids": ["p1"]}
+    )
+    assert ok.status_code == 200
+    assert applied == [("p1", {"title": "Bad Title"})]
 
 
 def test_smartfixes_execute_stale_snapshot_is_409(tmp_path, monkeypatch):
