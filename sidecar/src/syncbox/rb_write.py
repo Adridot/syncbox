@@ -15,10 +15,12 @@ Load-bearing mechanics owned by Syncbox, not pyrekordbox:
 """
 
 import uuid
+from pathlib import Path
 
 from pyrekordbox.db6 import Rekordbox6Database, tables
 from pyrekordbox.db6.smartlist import LogicalOperator, Operator, SmartList
 
+from syncbox.safety.paths import stored_form
 from syncbox.safety.statuses import reactivate_values, soft_delete_values
 
 NEW_ROW_STATUS = {
@@ -270,6 +272,65 @@ def create_or_repair_smart_playlist(db, name: str, parent_id: str, tag_id: str):
 
 # --- content -----------------------------------------------------------------------
 
+_FILE_TYPE_BY_EXT = {
+    ".mp3": int(tables.FileType.MP3),
+    ".m4a": int(tables.FileType.M4A),
+    ".flac": int(tables.FileType.FLAC),
+    ".wav": int(tables.FileType.WAV),
+    ".aiff": int(tables.FileType.AIFF),
+    ".aif": int(tables.FileType.AIFF),
+}
+
+
+def add_content(db, staging_path, metadata: dict, *, storage_root):
+    """New content row for a staged event file (SPEC-01 1.6, the poc/05
+    phase-4 pattern verified on a real RB 7.x master.db).
+
+    Load-bearing: STRING primary key with ID = MasterSongID = rb_file_id;
+    FolderPath written in stored form (safety.paths.stored_form - staging
+    paths are outside <storage_root>/rekordbox/ so they stay absolute);
+    the artist goes through find-or-create including the soft-deleted
+    self-heal. ``metadata``: {title, artist, duration_ms?, isrc?}.
+    """
+    from datetime import datetime
+
+    path = Path(staging_path)
+    content_id = _new_id(db, tables.DjmdContent)
+    artist = find_or_create_artist(db, metadata.get("artist") or "Unknown Artist")
+    device = db.get_device().first()
+    now = datetime.now()
+    duration_ms = metadata.get("duration_ms") or 0
+    try:
+        file_size = path.stat().st_size
+    except OSError:
+        file_size = 0
+    row = tables.DjmdContent.create(
+        ID=content_id,
+        MasterSongID=content_id,
+        rb_file_id=content_id,  # SPEC-01 1.6: ID = MasterSongID = rb_file_id
+        UUID=str(uuid.uuid4()),
+        Title=metadata.get("title"),
+        ArtistID=artist.ID,
+        ISRC=metadata.get("isrc"),
+        Length=duration_ms // 1000 if duration_ms else None,
+        FolderPath=stored_form(path, storage_root),
+        FileNameL=path.name,
+        # ponytail: unrecognized extensions land as FileType 0 (unknown) -
+        # Rekordbox re-derives the real type at import/analysis. Extend the
+        # map only when a real event stages another container.
+        FileType=_FILE_TYPE_BY_EXT.get(path.suffix.lower(), 0),
+        FileSize=file_size,
+        DeviceID=device.ID if device else None,
+        MasterDBID=device.MasterDBID if device else None,
+        StockDate=now.strftime("%Y-%m-%d"),
+        DateCreated=now.strftime("%Y-%m-%d"),
+        HotCueAutoLoad="on",
+        **NEW_ROW_STATUS,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
 
 def soft_delete_content(db, content_id: str) -> None:
     row = db.query(tables.DjmdContent).filter_by(ID=str(content_id)).one()
@@ -280,6 +341,83 @@ def soft_delete_content(db, content_id: str) -> None:
 def reactivate_content(db, content_id: str) -> None:
     row = db.query(tables.DjmdContent).filter_by(ID=str(content_id)).one()
     _apply(row, reactivate_values())
+    db.flush()
+
+
+def soft_delete_playlist(db, playlist_id: str) -> None:
+    """Reversible playlist removal (event delete cleanup, SPEC-01 1.8)."""
+    row = db.query(tables.DjmdPlaylist).filter_by(ID=str(playlist_id)).one()
+    _apply(row, soft_delete_values())
+    db.flush()
+
+
+def soft_delete_mytag(db, tag_id: str) -> None:
+    """Reversible MyTag removal (event delete cleanup, SPEC-01 1.8)."""
+    row = db.query(tables.DjmdMyTag).filter_by(ID=str(tag_id)).one()
+    _apply(row, soft_delete_values())
+    db.flush()
+
+
+def reassign_memberships(db, from_content_id: str, to_content_id: str) -> None:
+    """Dedup keeper relink (SPEC-UNIFIED 5.4): move the loser's ACTIVE
+    playlist and MyTag memberships onto the keeper, BEFORE the loser row is
+    soft-deleted.
+
+    Same discipline as tag_content/untag_content: never rewrite a link row's
+    ContentID in place - the keeper gets an equivalent link (created with the
+    byte-identical NEW_ROW_STATUS tuple, or a soft-deleted one reactivated)
+    and the loser's link is soft-deleted. Idempotent: a loser with no active
+    links (e.g. a consent-retry after the mutation already committed) is a
+    no-op. Cues stay with the loser row - they describe its audio file.
+    """
+    from_id, to_id = str(from_content_id), str(to_content_id)
+    for tag_link in db.query(tables.DjmdSongMyTag).filter_by(ContentID=from_id).all():
+        if int(tag_link.rb_local_deleted or 0):
+            continue
+        tag_content(db, to_id, tag_link.MyTagID)
+        _apply(tag_link, soft_delete_values())
+    for song in db.query(tables.DjmdSongPlaylist).filter_by(ContentID=from_id).all():
+        if int(song.rb_local_deleted or 0):
+            continue
+        existing = (
+            db.query(tables.DjmdSongPlaylist)
+            .filter_by(ContentID=to_id, PlaylistID=song.PlaylistID)
+            .one_or_none()
+        )
+        if existing is None:
+            track_no = max(
+                (
+                    int(row.TrackNo or 0)
+                    for row in db.query(tables.DjmdSongPlaylist).filter_by(
+                        PlaylistID=song.PlaylistID
+                    )
+                ),
+                default=0,
+            )
+            db.add(
+                tables.DjmdSongPlaylist.create(
+                    ID=_new_id(db, tables.DjmdSongPlaylist),
+                    PlaylistID=song.PlaylistID,
+                    ContentID=to_id,
+                    TrackNo=track_no + 1,
+                    UUID=str(uuid.uuid4()),
+                    **NEW_ROW_STATUS,
+                )
+            )
+        elif int(existing.rb_local_deleted or 0):
+            _apply(existing, reactivate_values())
+        _apply(song, soft_delete_values())
+    db.flush()
+
+
+def relink_content_path(db, content_id: str, stored_path: str) -> None:
+    """Manual relink writer (5.5): ONLY FolderPath changes. Cues, MyTag
+    links and playlist memberships live in separate rows keyed by ContentID
+    and are preserved by construction. ``stored_path`` must already be in
+    the 3.2 stored form (safety.paths.stored_form) - this layer never
+    re-derives it."""
+    row = db.query(tables.DjmdContent).filter_by(ID=str(content_id)).one()
+    row.FolderPath = stored_path
     db.flush()
 
 

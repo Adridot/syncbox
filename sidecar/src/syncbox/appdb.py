@@ -27,7 +27,11 @@ def connect(db_path) -> sqlite3.Connection:
     control. Never combine this connection with executescript().
     """
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, isolation_level=None)
+    # check_same_thread=False: the HTTP layer (api.py) runs every handler in
+    # a worker thread, all serialized behind one lock (api.Deps.lock), so the
+    # connection is never used concurrently - only handed between threads,
+    # which the default same-thread check would wrongly reject.
+    conn = sqlite3.connect(db_path, isolation_level=None, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

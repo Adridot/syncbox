@@ -79,9 +79,12 @@ class ShutdownController:
             self._trigger()
 
 
-def create_app(*, bus: JobBus | None = None, oauth_callback=None) -> Starlette:
+def create_app(*, bus: JobBus | None = None, oauth_callback=None, routes=()) -> Starlette:
     """App factory. oauth_callback(params: dict) -> dict is injected by the
-    OAuth layer (spotify.SpotifyAuth.handle_callback)."""
+    OAuth layer (spotify.SpotifyAuth.handle_callback); ``routes`` appends
+    extra Route objects (the REST API layer, api.build_app) after the
+    transport routes - /health, /events (SSE), /shutdown and /callback stay
+    canonical and cannot be shadowed."""
     bus = bus if bus is not None else JobBus()
     shutdown = ShutdownController()
 
@@ -115,6 +118,7 @@ def create_app(*, bus: JobBus | None = None, oauth_callback=None) -> Starlette:
             Route("/events", events),
             Route("/shutdown", request_shutdown, methods=["POST"]),
             Route("/callback", callback),
+            *routes,
         ],
         middleware=[
             Middleware(
@@ -122,7 +126,7 @@ def create_app(*, bus: JobBus | None = None, oauth_callback=None) -> Starlette:
                 allow_origins=WEBVIEW_ORIGINS,
                 allow_origin_regex=LOOPBACK_ORIGIN_REGEX,
                 allow_credentials=False,
-                allow_methods=["GET", "POST"],
+                allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
                 allow_headers=["content-type"],
             )
         ],

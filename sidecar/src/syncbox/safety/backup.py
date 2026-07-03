@@ -98,6 +98,29 @@ def _backup_dirs_oldest_first(backups_root: Path) -> list[Path]:
     return [child for _, _, child in keyed]
 
 
+def list_backups(backups_root) -> list[dict]:
+    """Doctor inventory (SPEC-UNIFIED 5.10/F9): newest-first backup folders.
+
+    Only folders matching the timestamped naming scheme count - the same
+    filter rotation and restore use, so the doctor can never show a backup
+    that restore would refuse.
+    """
+    root = Path(backups_root)
+    if not root.is_dir():
+        return []
+    out = []
+    for child in reversed(_backup_dirs_oldest_first(root)):
+        files = sorted(f for f in child.iterdir() if f.is_file())
+        out.append(
+            {
+                "name": child.name,
+                "files": [f.name for f in files],
+                "size_bytes": sum(f.stat().st_size for f in files),
+            }
+        )
+    return out
+
+
 def _rotate(backups_root: Path, retention: int, just_created: Path) -> None:
     if retention <= 0:  # 0 = unlimited
         return
