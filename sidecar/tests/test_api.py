@@ -118,6 +118,18 @@ def test_build_app_keeps_transport_routes(tmp_path):
     assert env.client.post("/shutdown").status_code == 202
 
 
+def test_db_path_expands_tilde(tmp_path):
+    # Regression: a stored '~/...' path used to reach sqlite un-expanded and
+    # fail with ENOENT at scan time. deps.db_path/storage_root must expand it;
+    # the empty "not configured yet" sentinel must survive untouched.
+    env = make_env(tmp_path)
+    env.deps.settings.update({"rekordbox_db_path": "~/Library/x/master.db"})
+    assert env.deps.db_path == str(Path("~/Library/x/master.db").expanduser())
+    assert "~" not in env.deps.db_path
+    env.deps.settings.update({"storage_root": ""})
+    assert env.deps.storage_root == ""
+
+
 def test_invalid_json_body_is_400_not_500(tmp_path):
     env = make_env(tmp_path)
     response = env.client.post(

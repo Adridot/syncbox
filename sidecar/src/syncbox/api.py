@@ -118,11 +118,11 @@ class Deps:
 
     @property
     def db_path(self) -> str:
-        return self.settings.get("rekordbox_db_path")
+        return _expanduser(self.settings.get("rekordbox_db_path"))
 
     @property
     def storage_root(self) -> str:
-        return self.settings.get("storage_root")
+        return _expanduser(self.settings.get("storage_root"))
 
     @property
     def backups_root(self) -> Path:
@@ -310,6 +310,14 @@ def _fingerprint_tuple(value):
         return tuple(tuple(part) for part in value)
     except TypeError:
         raise ValueError("fingerprint must be the value returned by the dry-run")
+
+
+def _expanduser(value):
+    # '~' must be expanded before any open() — sqlite/os don't expand it, so an
+    # un-expanded '~/Library/.../master.db' fails with ENOENT at scan time even
+    # though Settings validation (which DOES expanduser) showed a green tick.
+    # Guard falsy so the empty/None "not configured yet" sentinel is preserved.
+    return str(Path(value).expanduser()) if value else value
 
 
 def _require_rekordbox(deps: Deps) -> None:
