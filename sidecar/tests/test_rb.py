@@ -85,7 +85,7 @@ def test_protected_path_rule(tmp_path):
     root = tmp_path / "DJ"
     (root / "rekordbox" / "Collection").mkdir(parents=True)
     inside = root / "rekordbox" / "Collection" / "track.aiff"
-    outside = root / "_rekordbox_sync" / "inbox" / "track.aiff"
+    outside = root / "_syncbox" / "inbox" / "track.aiff"
     assert is_protected_path(str(inside), root)
     assert is_protected_path(f"/{root.name}/rekordbox/Collection/track.aiff", root)
     assert not is_protected_path(str(outside), root)

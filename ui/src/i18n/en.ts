@@ -375,8 +375,7 @@ export const en = {
       junkchars: 'Strip junk characters / URLs',
       encoding: 'Fix encoding (mojibake)',
     },
-    protectedNote: '🔒 Protected tracks are {excluded} — including them requires an explicit opt-in in the preview.',
-    protectedExcluded: 'excluded by default',
+    backupNote: 'Metadata only — no file is touched. A timestamped backup of the database is created before any write.',
     dryRunCta: 'Run the preview (dry-run)',
     executed: '{fields} fields written on {tracks} tracks. Timestamped backup created.',
     dryrun: {
@@ -387,9 +386,6 @@ export const en = {
       wsLegend: 'red dots mark invisible whitespace (leading/trailing, doubled, non-breaking) — the change is real even when both sides look identical',
       stale: 'The collection changed since this preview — re-run the dry-run to see the exact effect before writing.',
       rerun: 'Re-run the preview',
-      includeProtected: 'Include the protected track “{name}”',
-      optInHelp: 'Protected tracks are excluded by default. This opt-in is not remembered — it must be re-armed on the next run.',
-      protectedIncluded: '{n} protected track included in this run | {n} protected tracks included in this run',
       summary: '{n} field change(s)',
       confirm: 'Write {n} change | Write {n} changes',
     },
@@ -421,31 +417,52 @@ export const en = {
       clientIdLabel: 'Spotify Client ID',
       clientIdPlaceholder: '32-character hex id from your Spotify app',
       clientIdSaved: 'Spotify Client ID saved.',
-      clientIdHelpTitle: 'Where do I find my Client ID?',
-      helpStep1: 'Open the Spotify Developer Dashboard',
-      helpStep2: '“Create app” — any name and description.',
-      helpStep3: 'Redirect URI:',
-      helpStep3b: '— it must match exactly (fixed port).',
-      helpStep4: 'Copy the Client ID (not the secret — none is needed, PKCE) and paste it here.',
+      clientIdHelpTitle: 'Create my Spotify app, step by step',
+      helpIntro:
+        'Syncbox connects through your own (free) Spotify app, created once. Allow 5 minutes:',
+      helpStep1: 'Open the Spotify Developer Dashboard and sign in with your regular Spotify account.',
+      helpStep2: '“Create app” — pick any name (e.g. Syncbox) and description.',
+      helpStep3:
+        'In the “Redirect URIs” field, paste EXACTLY this address (Spotify checks it character for character), then “Add”:',
+      helpStep3warn:
+        '“localhost” does not work: Spotify requires the 127.0.0.1 address, exactly as above.',
+      helpStep4:
+        'For “Which API/SDKs are you planning to use?”, tick “Web API”, accept the terms and Save.',
+      helpStep5:
+        'On your app page, “Settings” → copy the “Client ID” (NOT the secret — none is needed) into the field above, then Validate and Connect.',
+      redirectErrorHint:
+        'If Spotify shows “redirect_uri: Not matching configuration”, the address registered in your Spotify app does not match: go back to its Settings and re-paste the address above, with no extra space or trailing slash.',
+      copy: 'Copy',
+      copied: 'Copied ✓',
     },
     paths: {
       title: 'Folders',
       validate: 'Validate',
+      browse: 'Browse…',
       dbLabel: 'Rekordbox database (master.db)',
       dbHelp: 'The encrypted database where Rekordbox keeps your collection (tracks, playlists, cues, MyTags). Syncbox reads it and writes MyTags / smart playlists into it — with a timestamped backup before every write.',
       useMacDefault: 'Use the macOS default',
       dbFindTitle: 'How do I find it?',
       dbFindBody: 'Rekordbox → Preferences → Advanced → Database shows the folder. On macOS it is almost always ~/Library/Pioneer/rekordbox/master.db.',
       rootLabel: 'Storage root',
-      rootHelp: 'The folder holding your music and the Syncbox working area. Everything under <root>/rekordbox/ is the PROTECTED zone: Syncbox never deletes or moves anything there, and you organize its subfolders however you like — no folder name is imposed. Syncbox manages only its own <root>/_rekordbox_sync/ working folder.',
+      rootHelp: 'The folder holding your music and the Syncbox working area. Everything under <root>/rekordbox/ is the PROTECTED zone: Syncbox never deletes or moves anything there, and you organize its subfolders however you like — no folder name is imposed there. Syncbox manages only its own <root>/_syncbox/ working folder.',
       derivedTitle: 'Derived layout (read-only)',
       derived: {
         protected: 'Protected zone (your audio)',
+        protectedDesc:
+          'Your Syncbox-managed music: the synced collection AND the manual collection, in subfolders of your choosing. The “rekordbox” name is fixed because it is part of the paths Rekordbox stores in master.db — changing it would break every existing track.',
         inbox: 'Inbox (staged imports)',
+        inboxDesc:
+          'Drop manually retrieved audio files here: the Missing tracks center offers them for relinking automatically.',
         events: 'Events staging',
+        eventsDesc:
+          'Files prepared for each event, one subfolder per event, before they move into your collection.',
         backups: 'Database backups',
+        backupsDesc:
+          'A timestamped copy of master.db before EVERY write, rotated per the retention below.',
       },
-      derivedNote: 'The _rekordbox_sync folders are created automatically on first use. Your audio folders under rekordbox/ are yours — Syncbox only reads them.',
+      derivedNote:
+        'The _syncbox folders are created automatically on first use; their names are fixed because paths already written into master.db point at them. Your audio folders under rekordbox/ are yours — Syncbox only reads them.',
     },
     retention: {
       title: 'Backup retention',

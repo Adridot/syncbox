@@ -103,3 +103,13 @@ button {
     background-position: 24px 0;
   }
 }
+
+/* Selection targets are comfortable everywhere (owner feedback 07/07/2026):
+   18px boxes, accent-tinted, and the pointer shows they are clickable. */
+input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: none;
+}

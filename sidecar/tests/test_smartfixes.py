@@ -63,32 +63,21 @@ def make_row(content_id, title, artist="Artist", protected=False):
 
 
 def test_plan_emits_exact_payload_without_noops():
-    payload, skipped = plan(
-        [make_row("c1", "Track  x"), make_row("c2", "Clean Title")]
-    )
+    payload = plan([make_row("c1", "Track  x"), make_row("c2", "Clean Title")])
     assert payload == [
         {"content_id": "c1", "field": "title", "before": "Track  x", "after": "Track x"}
     ]
-    assert skipped == []
 
 
-def test_plan_excludes_protected_by_default_and_names_them():
-    payload, skipped = plan(
-        [make_row("c1", "Dirty  Title", artist="KAROL G ", protected=True)]
-    )
-    assert payload == []
-    assert skipped == [{"content_id": "c1", "name": "KAROL G  - Dirty  Title"}]
-
-
-def test_protected_opt_in_is_per_call_only():
-    rows = [make_row("c1", "Dirty  Title", protected=True)]
-    payload, skipped = plan(rows, include_protected_ids={"c1"})
-    assert len(payload) == 1 and skipped == []
-    # next call without the opt-in: excluded again (never remembered)
-    payload2, skipped2 = plan(rows)
-    assert payload2 == [] and len(skipped2) == 1
+def test_plan_includes_protected_tracks():
+    # Owner amendment 2026-07-07: Smart Fixes are metadata-only (backed up),
+    # the protected guard stays on file-destructive ops only.
+    payload = plan([make_row("c1", "Dirty  Title", artist="KAROL G ", protected=True)])
+    assert {(c["field"], c["after"]) for c in payload} == {
+        ("title", "Dirty Title"),
+        ("artist", "KAROL G"),
+    }
 
 
 def test_plan_handles_none_fields():
-    payload, skipped = plan([make_row("c1", None, artist=None)])
-    assert payload == [] and skipped == []
+    assert plan([make_row("c1", None, artist=None)]) == []

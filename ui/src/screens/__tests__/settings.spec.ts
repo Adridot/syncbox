@@ -81,8 +81,8 @@ test('R1: the connect CTA is gated while spotify_client_id is empty, with an act
   const connect = wrapper.get('.spotify-row .btn-primary')
   expect(connect.attributes('disabled')).toBeDefined()
   expect(wrapper.text()).toContain('Renseigne ton Client ID Spotify')
-  // the inline help explains where to get it
-  expect(wrapper.text()).toContain('Où trouver mon Client ID ?')
+  // the inline help walks through creating the app, redirect URI verbatim
+  expect(wrapper.text()).toContain('Créer mon app Spotify, pas à pas')
   expect(wrapper.text()).toContain('http://127.0.0.1:8765/callback')
 })
 

@@ -415,7 +415,7 @@ def test_event_create_add_manual_track_and_detail(tmp_path):
     assert created.status_code == 201
     event = created.json()
     assert event["slug"] == "wedding-bash"
-    assert (env.storage / "_rekordbox_sync" / "events" / "wedding-bash").is_dir()
+    assert (env.storage / "_syncbox" / "events" / "wedding-bash").is_dir()
 
     track = env.client.post(
         f"/api/events/{event['id']}/tracks", json={"title": "Song", "artist": "A"}
@@ -938,7 +938,6 @@ def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
     assert dry["payload"] == [
         {"content_id": "1", "field": "title", "before": "Song   Twice", "after": "Song Twice"}
     ]
-    assert dry["skipped_protected"] == []
     assert dry["fingerprint"] == [["db", 1]]
 
     captured = {}
@@ -950,67 +949,31 @@ def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
         storage_root,
         dry_payload,
         *,
-        include_protected_ids=frozenset(),
         retention=15,
     ):
         captured.update(dry_payload)
-        captured["include_protected_ids"] = include_protected_ids
         captured["storage_root"] = storage_root
         return {"fields_applied": 1, "tracks_touched": 1}
 
     monkeypatch.setattr(api.smartfixes_run, "execute", fake_execute)
-    response = env.client.post(
-        "/api/smartfixes/execute", json={**dry, "include_protected_ids": ["9"]}
-    )
+    response = env.client.post("/api/smartfixes/execute", json=dry)
     assert response.status_code == 200
     # JSON round-trip must restore the EXACT tuple fingerprint mutate compares.
     assert captured["fingerprint"] == (("db", 1),)
-    # The per-call opt-in reaches the runner (5.11) with the storage root.
-    assert captured["include_protected_ids"] == frozenset({"9"})
     assert captured["storage_root"] == str(env.storage)
 
 
-def test_smartfixes_dry_run_protected_opt_in_wiring(tmp_path):
-    """5.11: protected tracks are skipped by default and fixable ONLY via
-    the per-call include_protected_ids body field - the HTTP layer must
-    actually carry the ids into the planner."""
+def test_smartfixes_include_protected_tracks(tmp_path, monkeypatch):
+    """Owner amendment to 5.11 (2026-07-07): Smart Fixes are metadata-only
+    (automatic backup before write), so protected tracks are planned and
+    written like any other - no per-call opt-in. The protected guard stays
+    on file-destructive operations (untagged delete, duplicates)."""
     rows = [rb_row("p1", title="Bad   Title", protected=True)]
     env = make_env(tmp_path, rows=rows)
 
-    skipped = env.client.post("/api/smartfixes/dry-run", json={}).json()
-    assert skipped["payload"] == []
-    assert [s["content_id"] for s in skipped["skipped_protected"]] == ["p1"]
+    dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
+    assert [c["content_id"] for c in dry["payload"]] == ["p1"]
 
-    opted = env.client.post(
-        "/api/smartfixes/dry-run", json={"include_protected_ids": ["p1"]}
-    ).json()
-    assert [c["content_id"] for c in opted["payload"]] == ["p1"]
-    assert opted["skipped_protected"] == []
-
-
-def test_smartfixes_execute_refuses_protected_without_per_call_opt_in(
-    tmp_path, monkeypatch
-):
-    """5.11 write-path guard: the opt-in is per-call, never remembered - a
-    payload naming a protected track is refused server-side on execute
-    unless include_protected_ids is re-sent, whatever the client claims."""
-    rows = [rb_row("p1", title="Bad   Title", protected=True)]
-    env = make_env(tmp_path, rows=rows)
-    dry = env.client.post(
-        "/api/smartfixes/dry-run", json={"include_protected_ids": ["p1"]}
-    ).json()
-    assert dry["payload"]  # the protected fix is in the confirmed payload
-
-    # Execute WITHOUT re-sending the opt-in: refused before any backup.
-    refused = env.client.post(
-        "/api/smartfixes/execute",
-        json={"payload": dry["payload"], "fingerprint": dry["fingerprint"]},
-    )
-    assert refused.status_code == 400
-    assert "include_protected_ids" in refused.json()["message"]
-    assert not env.deps.backups_root.exists()
-
-    # Execute WITH the per-call opt-in: the write goes through.
     applied = []
 
     @contextmanager
@@ -1023,11 +986,26 @@ def test_smartfixes_execute_refuses_protected_without_per_call_opt_in(
         "set_content_fields",
         lambda db, cid, changes: applied.append((cid, changes)),
     )
-    ok = env.client.post(
-        "/api/smartfixes/execute", json={**dry, "include_protected_ids": ["p1"]}
-    )
+    ok = env.client.post("/api/smartfixes/execute", json=dry)
     assert ok.status_code == 200
     assert applied == [("p1", {"title": "Bad Title"})]
+
+
+def test_smartfixes_execute_refuses_payload_outside_plan(tmp_path):
+    """The server still re-derives the plan on execute: a forged payload
+    entry (not produced by the current plan) is refused before any backup."""
+    env = make_env(tmp_path, rows=[rb_row("1", title="Song   Twice")])
+    dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
+    forged = {
+        "payload": [
+            {"content_id": "1", "field": "title", "before": "Song   Twice", "after": "Hacked"}
+        ],
+        "fingerprint": dry["fingerprint"],
+    }
+    refused = env.client.post("/api/smartfixes/execute", json=forged)
+    assert refused.status_code == 400
+    assert "server-side plan" in refused.json()["message"]
+    assert not env.deps.backups_root.exists()
 
 
 def test_smartfixes_execute_stale_snapshot_is_409(tmp_path, monkeypatch):

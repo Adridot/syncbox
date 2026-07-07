@@ -59,6 +59,7 @@ from syncbox.rb_write import open_rekordbox, reassign_memberships, soft_delete_c
 from syncbox.safety.backup import list_backups, restore_backup
 from syncbox.safety.mutate import StaleSnapshotError, mutate
 from syncbox.safety.paths import (
+    SYNC_DIR_NAME,
     is_protected_path,
     paths_equal,
     resolve_stored_path,
@@ -126,7 +127,7 @@ class Deps:
 
     @property
     def backups_root(self) -> Path:
-        return Path(self.storage_root) / "_rekordbox_sync" / "backups"
+        return Path(self.storage_root) / SYNC_DIR_NAME / "backups"
 
     @property
     def retention(self) -> int:
@@ -1164,32 +1165,26 @@ def untagged_delete(deps, request, body):
 
 def smartfixes_dry_run(deps, request, body):
     """Read-only preview: snapshot cache only, master.db never opened, RB
-    may be running. The protected opt-in is per-call ids, never remembered."""
+    may be running."""
     _require_rekordbox(deps)
-    include = frozenset(str(c) for c in body.get("include_protected_ids") or [])
-    return smartfixes_run.dry_run(
-        deps.cache(), deps.storage_root, include_protected_ids=include
-    )
+    return smartfixes_run.dry_run(deps.cache(), deps.storage_root)
 
 
 def smartfixes_execute(deps, request, body):
     """Executes EXACTLY the confirmed dry-run payload (B10); the dry-run
     fingerprint re-asserts freshness (stale -> 409) and the payload is
-    re-checked server-side against the 5.11 plan - a protected track needs
-    the per-call include_protected_ids opt-in HERE too, never remembered."""
+    re-checked server-side against the freshly derived plan."""
     _require_rekordbox(deps)
     dry = {
         "payload": _require_list(body, "payload"),
         "fingerprint": _fingerprint_tuple(_require(body, "fingerprint")),
     }
-    include = frozenset(str(c) for c in body.get("include_protected_ids") or [])
     return smartfixes_run.execute(
         deps.db_path,
         deps.backups_root,
         deps.cache(),
         deps.storage_root,
         dry,
-        include_protected_ids=include,
         retention=deps.retention,
     )
 

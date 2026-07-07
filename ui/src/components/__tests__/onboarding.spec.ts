@@ -46,7 +46,7 @@ test('bi-phase rail: exactly 10 clickable steps — 4 Configuration + 6 Prise en
   expect(wrapper.text()).toContain('Prise en main')
   // no deprecated "Module" step, missing tracks replaces acquisition
   expect(wrapper.text()).not.toContain('Module')
-  expect(wrapper.text()).toContain('Missing tracks')
+  expect(wrapper.text()).toContain('Titres manquants')
 
   // the rail is clickable: jump straight to the last step
   await rows[9].trigger('click')

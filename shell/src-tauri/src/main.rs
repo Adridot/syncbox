@@ -213,6 +213,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![restart_sidecar])
         .setup(|app| {
             eprintln!("PRIMARY_INSTANCE_STARTED shell_pid={}", std::process::id());

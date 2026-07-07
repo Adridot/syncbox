@@ -37,7 +37,7 @@ from syncbox.rb_write import (
     untag_content,
 )
 from syncbox.safety.mutate import mutate
-from syncbox.safety.paths import is_protected_path, stored_form
+from syncbox.safety.paths import SYNC_DIR_NAME, is_protected_path, stored_form
 
 EVENT_FOLDER_NAME = "Event Imports"
 SITUATION_CATEGORY = "Situation"
@@ -96,14 +96,14 @@ def create_event(conn, storage_root, name, *, spotify_playlist_id=None, manual=F
     Modes (5.7/11.1): from a followed playlist or a Spotify link (the API
     layer resolves the link to ``spotify_playlist_id``), or empty/manual
     metadata entry (no playlist -> identity 'manual:<slug>'). The staging
-    dir <storage_root>/_rekordbox_sync/events/<slug> is claimed with
+    dir <storage_root>/<SYNC_DIR_NAME>/events/<slug> is claimed with
     mkdir(exist_ok=False); slug collision walks '-2', '-3', ...
     """
     if manual and spotify_playlist_id:
         raise ValueError("a manual event cannot also carry a spotify_playlist_id")
     events_root = (
         Path(os.path.expanduser(os.fspath(storage_root)))
-        / "_rekordbox_sync"
+        / SYNC_DIR_NAME
         / "events"
     )
     events_root.mkdir(parents=True, exist_ok=True)

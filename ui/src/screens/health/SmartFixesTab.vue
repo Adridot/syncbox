@@ -3,7 +3,8 @@
 // descriptive text, not options (M4-PLAN §1.4). Strict dry-run → confirm →
 // mutate; the dry-run reads the snapshot only (RB may be open), the execute
 // is RB-guarded and re-asserts freshness (409 → stale banner in the modal).
-// The protected opt-in re-runs the dry-run with per-call ids — never stored.
+// No protected opt-in here (owner amendment 2026-07-07): Smart Fixes are
+// metadata-only behind an automatic backup; the guard stays on file deletes.
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -18,7 +19,6 @@ const jobs = useJobsStore()
 const FAMILIES = ['extract', 'case', 'junkchars', 'encoding'] as const
 
 const dry = ref<SmartFixesDryRun | null>(null)
-const includedIds = ref<string[]>([])
 const stale = ref(false)
 const busy = ref(false)
 const modalError = ref<string | null>(null)
@@ -28,15 +28,12 @@ function describe(cause: unknown): string {
   return cause instanceof ApiError ? cause.message : t('common.networkError')
 }
 
-async function runDryRun(includeIds: string[] = []) {
+async function runDryRun() {
   banner.value = null
   busy.value = true
   modalError.value = null
   try {
-    dry.value = await api.post<SmartFixesDryRun>('/api/smartfixes/dry-run', {
-      include_protected_ids: includeIds,
-    })
-    includedIds.value = includeIds
+    dry.value = await api.post<SmartFixesDryRun>('/api/smartfixes/dry-run', {})
     stale.value = false
   } catch (cause) {
     // B1: the dry-run click reports its failure (400 paths, network, …)
@@ -45,14 +42,6 @@ async function runDryRun(includeIds: string[] = []) {
   } finally {
     busy.value = false
   }
-}
-
-async function toggleInclude(contentId: string) {
-  const next = includedIds.value.includes(contentId)
-    ? includedIds.value.filter((id) => id !== contentId)
-    : [...includedIds.value, contentId]
-  // the opt-in re-plans server-side — per-call ids, never remembered
-  await runDryRun(next)
 }
 
 async function execute() {
@@ -65,7 +54,6 @@ async function execute() {
       {
         payload: dry.value.payload,
         fingerprint: dry.value.fingerprint,
-        include_protected_ids: includedIds.value,
       },
     )
     banner.value = {
@@ -76,7 +64,6 @@ async function execute() {
       }),
     }
     dry.value = null
-    includedIds.value = []
   } catch (cause) {
     if (cause instanceof ApiError && cause.code === 'stale_snapshot') {
       stale.value = true // the modal shows "Relancer l'aperçu"
@@ -113,11 +100,7 @@ async function execute() {
       </div>
 
       <div class="foot">
-        <i18n-t tag="div" class="protected-note" keypath="smartfixes.protectedNote">
-          <template #excluded>
-            <b>{{ t('smartfixes.protectedExcluded') }}</b>
-          </template>
-        </i18n-t>
+        <div class="protected-note">{{ t('smartfixes.backupNote') }}</div>
         <button class="dryrun-cta" :disabled="busy || jobs.jobRunning" @click="runDryRun()">
           {{ busy && !dry ? t('common.loading') : t('smartfixes.dryRunCta') }}
         </button>
@@ -127,14 +110,12 @@ async function execute() {
     <DryRunModal
       v-if="dry"
       :dry="dry"
-      :included-ids="includedIds"
       :stale="stale"
       :busy="busy"
       :error="modalError"
       @close="dry = null"
       @execute="execute"
       @rerun="runDryRun"
-      @toggle-include="toggleInclude"
     />
   </div>
 </template>

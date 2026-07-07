@@ -11,7 +11,7 @@ export const fr: typeof en = {
     library: 'Bibliothèque',
     events: 'Events',
     health: 'Santé de collection',
-    missing: 'Missing tracks',
+    missing: 'Titres manquants',
     settings: 'Réglages',
   },
   chrome: {
@@ -114,7 +114,7 @@ export const fr: typeof en = {
       status: 'Statut',
     },
     actions: {
-      resolve: 'Résoudre dans le centre Missing',
+      resolve: 'Résoudre dans les Titres manquants',
       restore: 'Restaurer',
       rematch: 'Re-matcher',
       ignore: 'Ignorer',
@@ -310,7 +310,7 @@ export const fr: typeof en = {
   missing: {
     collectionIntro:
       'Lignes de la collection dont le fichier audio a disparu du disque. Les liens d’achat s’ouvrent dans ton navigateur — l’app ne contacte jamais les boutiques.',
-    openCenter: 'Ouvrir le centre Missing tracks',
+    openCenter: 'Ouvrir le centre Titres manquants',
     loadErrorTitle: 'Fichiers manquants indisponibles',
     ignored: '« {title} » ignoré.',
     removed: '« {title} » retiré de la collection (soft-delete, réversible).',
@@ -331,7 +331,7 @@ export const fr: typeof en = {
     legalBody:
       'La voie par défaut : soutiens les artistes et obtiens la meilleure qualité. Syncbox ouvre une recherche profonde dans ton navigateur — aucune donnée ne transite par l’app. Tu possèdes déjà le fichier légalement ? Relie-le manuellement.',
     allScopes: 'Tous les scopes',
-    loadErrorTitle: 'Missing tracks indisponible',
+    loadErrorTitle: 'Titres manquants indisponibles',
   },
   relink: {
     title: 'Relier à un fichier local',
@@ -379,8 +379,7 @@ export const fr: typeof en = {
       junkchars: 'Retirer caractères / URL parasites',
       encoding: 'Corriger l’encodage (mojibake)',
     },
-    protectedNote: '🔒 Les tracks protégées sont {excluded} — l’inclusion exige un opt-in explicite dans l’aperçu.',
-    protectedExcluded: 'exclues par défaut',
+    backupNote: 'Métadonnées uniquement — aucun fichier touché. Un backup horodaté de la base est créé avant toute écriture.',
     dryRunCta: 'Lancer l’aperçu (dry-run)',
     executed: '{fields} champs écrits sur {tracks} tracks. Backup horodaté créé.',
     dryrun: {
@@ -391,9 +390,6 @@ export const fr: typeof en = {
       wsLegend: 'les points rouges marquent les espaces invisibles (début/fin, doublés, insécables) — le changement est réel même quand les deux côtés semblent identiques',
       stale: 'La collection a changé depuis cet aperçu — relance le dry-run pour voir l’effet exact avant d’écrire.',
       rerun: 'Relancer l’aperçu',
-      includeProtected: 'Inclure la track protégée « {name} »',
-      optInHelp: 'Les tracks protégées sont exclues par défaut. Cet opt-in n’est pas mémorisé — il faudra le réarmer au prochain run.',
-      protectedIncluded: '{n} track protégée incluse dans ce run | {n} tracks protégées incluses dans ce run',
       summary: '{n} changement(s) de champ',
       confirm: 'Écrire {n} changement | Écrire {n} changements',
     },
@@ -425,31 +421,53 @@ export const fr: typeof en = {
       clientIdLabel: 'Spotify Client ID',
       clientIdPlaceholder: 'id hexadécimal de 32 caractères de ton app Spotify',
       clientIdSaved: 'Client ID Spotify enregistré.',
-      clientIdHelpTitle: 'Où trouver mon Client ID ?',
-      helpStep1: 'Ouvre le Spotify Developer Dashboard',
-      helpStep2: '« Create app » — nom et description au choix.',
-      helpStep3: 'Redirect URI :',
-      helpStep3b: '— doit correspondre exactement (port fixe).',
-      helpStep4: 'Copie le Client ID (pas le secret — aucun n’est requis, PKCE) et colle-le ici.',
+      clientIdHelpTitle: 'Créer mon app Spotify, pas à pas',
+      helpIntro:
+        'Syncbox se connecte via ta propre app Spotify (gratuite, à créer une seule fois). Compte 5 minutes :',
+      helpStep1: 'Ouvre le Spotify Developer Dashboard et connecte-toi avec ton compte Spotify habituel.',
+      helpStep2:
+        '« Create app » — donne un nom (ex. Syncbox) et une description au choix.',
+      helpStep3:
+        'Dans le champ « Redirect URIs », colle EXACTEMENT cette adresse (c’est elle que Spotify vérifie, au caractère près), puis « Add » :',
+      helpStep3warn:
+        '« localhost » ne fonctionne pas : Spotify exige l’adresse en 127.0.0.1, telle quelle ci-dessus.',
+      helpStep4:
+        'À la question « Which API/SDKs are you planning to use? », coche « Web API », accepte les conditions et enregistre (« Save »).',
+      helpStep5:
+        'Sur la page de ton app, « Settings » → copie le « Client ID » (PAS le secret — aucun n’est requis) et colle-le dans le champ ci-dessus, puis Valider et Connecter.',
+      redirectErrorHint:
+        'Si Spotify affiche « redirect_uri: Not matching configuration », l’adresse enregistrée dans ton app Spotify ne correspond pas : retourne dans ses Settings et recolle l’adresse ci-dessus, sans espace ni / final en plus.',
+      copy: 'Copier',
+      copied: 'Copié ✓',
     },
     paths: {
       title: 'Dossiers',
       validate: 'Valider',
+      browse: 'Parcourir…',
       dbLabel: 'Base Rekordbox (master.db)',
       dbHelp: 'La base chiffrée où Rekordbox garde ta collection (morceaux, playlists, cues, MyTags). Syncbox la lit et y écrit les MyTags / smart playlists — avec un backup horodaté avant chaque écriture.',
       useMacDefault: 'Utiliser le défaut macOS',
       dbFindTitle: 'Comment le trouver ?',
       dbFindBody: 'Rekordbox → Préférences → Avancé → Base de données affiche le dossier. Sur macOS c’est presque toujours ~/Library/Pioneer/rekordbox/master.db.',
       rootLabel: 'Racine de stockage',
-      rootHelp: 'Le dossier qui contient ta musique et la zone de travail Syncbox. Tout ce qui vit sous <racine>/rekordbox/ est la zone PROTÉGÉE : Syncbox n’y supprime ni n’y déplace jamais rien, et tu organises ses sous-dossiers comme tu veux — aucun nom de dossier n’est imposé. Syncbox ne gère activement que son dossier de travail <racine>/_rekordbox_sync/.',
+      rootHelp: 'Le dossier qui contient ta musique et la zone de travail Syncbox. Tout ce qui vit sous <racine>/rekordbox/ est la zone PROTÉGÉE : Syncbox n’y supprime ni n’y déplace jamais rien, et tu organises ses sous-dossiers comme tu veux — aucun nom de dossier n’y est imposé. Syncbox ne gère activement que son dossier de travail <racine>/_syncbox/.',
       derivedTitle: 'Arborescence dérivée (lecture seule)',
       derived: {
         protected: 'Zone protégée (ton audio)',
+        protectedDesc:
+          'Ta musique gérée avec Syncbox : collection synchronisée ET collection manuelle, dans les sous-dossiers de ton choix. Le nom « rekordbox » est fixe car il fait partie des chemins que Rekordbox stocke dans master.db — le changer casserait tous les titres existants.',
         inbox: 'Inbox (imports en attente)',
+        inboxDesc:
+          'Dépose ici les fichiers audio récupérés à la main : le centre Titres manquants les propose automatiquement au relink.',
         events: 'Staging des events',
+        eventsDesc:
+          'Les fichiers préparés pour chaque event, un sous-dossier par event, avant leur bascule vers ta collection.',
         backups: 'Backups de la base',
+        backupsDesc:
+          'Une copie horodatée de master.db avant CHAQUE écriture, avec rotation selon la rétention ci-dessous.',
       },
-      derivedNote: 'Les dossiers _rekordbox_sync sont créés automatiquement au premier usage. Tes dossiers audio sous rekordbox/ t’appartiennent — Syncbox ne fait que les lire.',
+      derivedNote:
+        'Les dossiers _syncbox sont créés automatiquement au premier usage ; leurs noms sont fixes car des chemins déjà écrits dans master.db pointent dessus. Tes dossiers audio sous rekordbox/ t’appartiennent — Syncbox ne fait que les lire.',
     },
     retention: {
       title: 'Rétention des backups',
@@ -542,8 +560,8 @@ export const fr: typeof en = {
         cta: 'Suivant',
       },
       missing: {
-        rail: 'Missing tracks',
-        tag: 'Prise en main · Missing tracks',
+        rail: 'Titres manquants',
+        tag: 'Prise en main · Titres manquants',
         title: 'Récupère uniquement ce qui manque',
         sub: 'Les titres manquants d’une playlist ou d’un event se regroupent au même endroit. La voie d’achat légale (Beatport, Bandcamp) est mise en avant ; un fichier que tu possèdes déjà légalement se relie manuellement.',
         cta: 'Suivant',

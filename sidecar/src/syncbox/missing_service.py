@@ -10,7 +10,7 @@ Scopes:
 Every entry carries purchase links (B2 gate: 'missing' and
 'purchase_link_unavailable' only - removed_from_source never reaches this
 module because it is not a missing-family status) and LOCAL relink
-candidates discovered under <storage_root>/_rekordbox_sync/inbox plus any
+candidates discovered under <storage_root>/<SYNC_DIR_NAME>/inbox plus any
 user-chosen directories. Status cycle (5.5):
 missing -> purchase_linked | relinked | ignored, failures
 purchase_link_unavailable / manual_relink_needed; 'ignored' stores
@@ -30,7 +30,7 @@ from syncbox.rb import open_readonly
 from syncbox.rb_write import open_rekordbox, relink_content_path
 from syncbox.relink import find_candidates
 from syncbox.safety.mutate import mutate
-from syncbox.safety.paths import stored_form, tcc_exists
+from syncbox.safety.paths import SYNC_DIR_NAME, stored_form, tcc_exists
 
 MISSING_STATUSES = frozenset(
     {"missing", "purchase_link_unavailable", "manual_relink_needed"}
@@ -60,7 +60,7 @@ def relink_roots(storage_root, user_roots=()) -> list[Path]:
     """Search roots for relink discovery: the storage inbox + user dirs."""
     roots: list[Path] = []
     if storage_root:
-        roots.append(Path(storage_root) / "_rekordbox_sync" / "inbox")
+        roots.append(Path(storage_root) / SYNC_DIR_NAME / "inbox")
     roots.extend(Path(r) for r in user_roots)
     return roots
 

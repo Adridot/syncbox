@@ -87,7 +87,7 @@ def test_create_event_modes_and_slug_collision(conn, tmp_path):
     for event in (e1, e2, e3):
         staging = Path(event["staging_dir"])
         assert staging.is_dir()
-        assert staging == storage / "_rekordbox_sync" / "events" / event["slug"]
+        assert staging == storage / "_syncbox" / "events" / event["slug"]
         assert event["default_tag"] == event["name"]  # Situation tag = name (5.7)
         assert event["status"] == "pending"
     # empty/manual events get the manual:<slug> identity; playlist mode keeps it
@@ -100,7 +100,7 @@ def test_create_event_modes_and_slug_collision(conn, tmp_path):
 
 def test_create_event_skips_orphan_dir_and_orphan_db_slug(conn, tmp_path):
     storage = tmp_path / "storage"
-    events_root = storage / "_rekordbox_sync" / "events"
+    events_root = storage / "_syncbox" / "events"
 
     # a stray dir without a DB row blocks the slug (atomic mkdir claim)
     events_root.mkdir(parents=True)

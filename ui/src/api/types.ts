@@ -158,7 +158,6 @@ export interface SmartFixChange {
 
 export interface SmartFixesDryRun {
   payload: SmartFixChange[]
-  skipped_protected: Array<{ content_id: string; name: string }>
   fingerprint: Fingerprint
 }
 

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+
 import AppSidebar from './components/AppSidebar.vue'
 import BackendDownOverlay from './components/BackendDownOverlay.vue'
 import ConsentHost from './components/ConsentHost.vue'
@@ -8,6 +11,17 @@ import { onboardingVisible } from './lib/onboarding'
 import { useStatusStore } from './stores/status'
 
 const status = useStatusStore()
+const router = useRouter()
+
+// ⌘, (macOS convention) opens Settings
+function onKeydown(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+    event.preventDefault()
+    void router.push('/settings')
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>

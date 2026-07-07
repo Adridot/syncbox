@@ -15,12 +15,18 @@ import os
 from pathlib import Path, PurePosixPath
 
 __all__ = [
+    "SYNC_DIR_NAME",
     "canonical_key",
     "path_lookup_keys",
     "paths_equal",
     "stored_form",
     "tcc_exists",
 ]
+
+# The tool-managed working dir under the storage root (inbox / events /
+# backups). Renamed from '_rekordbox_sync' on owner decision 2026-07-07; a
+# pre-rename dir is left untouched (nothing migrates, new writes land here).
+SYNC_DIR_NAME = "_syncbox"
 
 # ponytail: volume-relative rows are handled POSIX-style only (macOS-first,
 # Phase 0 decision). Windows drive-letter storage roots land with the

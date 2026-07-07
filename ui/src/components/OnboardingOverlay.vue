@@ -13,10 +13,10 @@ import { i18n } from '../i18n'
 import { completeOnboarding } from '../lib/onboarding'
 import { MACOS_DB_DEFAULT, usePathFields } from '../lib/usePathFields'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
-import { openExternal } from '../shell'
 import { useSettingsStore } from '../stores/settings'
 import { useStatusStore } from '../stores/status'
 import PathField from './PathField.vue'
+import SpotifyClientIdHelp from './SpotifyClientIdHelp.vue'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
@@ -193,9 +193,7 @@ const primaryLabel = computed(() => {
               :placeholder="t('settings.spotify.clientIdPlaceholder')"
               @blur="saveClientId"
             />
-            <button class="link help-link" @click="openExternal('https://developer.spotify.com/dashboard')">
-              {{ t('settings.spotify.clientIdHelpTitle') }} ↗
-            </button>
+            <SpotifyClientIdHelp />
           </template>
         </div>
 
@@ -206,6 +204,7 @@ const primaryLabel = computed(() => {
             :state="paths.state.rekordbox_db_path"
             :message="paths.message.rekordbox_db_path"
             :placeholder="MACOS_DB_DEFAULT"
+            pick="file"
             @save="paths.save('rekordbox_db_path')"
           />
           <PathField
@@ -214,6 +213,7 @@ const primaryLabel = computed(() => {
             :state="paths.state.storage_root"
             :message="paths.message.storage_root"
             placeholder="/Volumes/DJ-SSD/Musique"
+            pick="directory"
             @save="paths.save('storage_root')"
           />
         </div>

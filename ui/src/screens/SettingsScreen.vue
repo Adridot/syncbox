@@ -11,10 +11,10 @@ import { useI18n } from 'vue-i18n'
 
 import { ApiError } from '../api/client'
 import PathField from '../components/PathField.vue'
+import SpotifyClientIdHelp from '../components/SpotifyClientIdHelp.vue'
 import { replayOnboarding } from '../lib/onboarding'
 import { MACOS_DB_DEFAULT, usePathFields } from '../lib/usePathFields'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
-import { openExternal } from '../shell'
 import { type MatchWeights, useSettingsStore } from '../stores/settings'
 import { useStatusStore } from '../stores/status'
 
@@ -125,12 +125,12 @@ const setLanguage = (lang: 'fr' | 'en') => {
 const derivedRows = computed(() => {
   const root = settings.values?.storage_root
   if (!root) return []
-  return [
-    { key: 'protected', path: `${root}/rekordbox/`, label: t('settings.paths.derived.protected') },
-    { key: 'inbox', path: `${root}/_rekordbox_sync/inbox`, label: t('settings.paths.derived.inbox') },
-    { key: 'events', path: `${root}/_rekordbox_sync/events`, label: t('settings.paths.derived.events') },
-    { key: 'backups', path: `${root}/_rekordbox_sync/backups`, label: t('settings.paths.derived.backups') },
-  ]
+  return ['protected', 'inbox', 'events', 'backups'].map((key) => ({
+    key,
+    path: key === 'protected' ? `${root}/rekordbox/` : `${root}/_syncbox/${key}`,
+    label: t(`settings.paths.derived.${key}`),
+    desc: t(`settings.paths.derived.${key}Desc`),
+  }))
 })
 </script>
 
@@ -200,26 +200,7 @@ const derivedRows = computed(() => {
             {{ t('settings.paths.validate') }}
           </button>
         </div>
-        <details class="help-details">
-          <summary>{{ t('settings.spotify.clientIdHelpTitle') }}</summary>
-          <ol class="help-steps">
-            <li>
-              <button
-                class="link"
-                @click="openExternal('https://developer.spotify.com/dashboard')"
-              >
-                {{ t('settings.spotify.helpStep1') }} ↗
-              </button>
-            </li>
-            <li>{{ t('settings.spotify.helpStep2') }}</li>
-            <li>
-              {{ t('settings.spotify.helpStep3') }}
-              <span class="mono redirect">http://127.0.0.1:8765/callback</span>
-              {{ t('settings.spotify.helpStep3b') }}
-            </li>
-            <li>{{ t('settings.spotify.helpStep4') }}</li>
-          </ol>
-        </details>
+        <SpotifyClientIdHelp />
       </div>
     </section>
 
@@ -233,6 +214,7 @@ const derivedRows = computed(() => {
           :state="paths.state.rekordbox_db_path"
           :message="paths.message.rekordbox_db_path"
           :placeholder="MACOS_DB_DEFAULT"
+          pick="file"
           @save="paths.save('rekordbox_db_path')"
         >
           {{ t('settings.paths.dbHelp') }}
@@ -250,6 +232,7 @@ const derivedRows = computed(() => {
           :state="paths.state.storage_root"
           :message="paths.message.storage_root"
           placeholder="/Volumes/DJ-SSD/Musique"
+          pick="directory"
           @save="paths.save('storage_root')"
         >
           {{ t('settings.paths.rootHelp') }}
@@ -259,8 +242,11 @@ const derivedRows = computed(() => {
       <div v-if="derivedRows.length" class="derived">
         <div class="derived-title">{{ t('settings.paths.derivedTitle') }}</div>
         <div v-for="row in derivedRows" :key="row.key" class="derived-row">
-          <span class="derived-label">{{ row.label }}</span>
-          <span class="derived-path mono">{{ row.path }}</span>
+          <div class="derived-head">
+            <span class="derived-label">{{ row.label }}</span>
+            <span class="derived-path mono">{{ row.path }}</span>
+          </div>
+          <div class="derived-desc">{{ row.desc }}</div>
         </div>
         <div class="derived-note">{{ t('settings.paths.derivedNote') }}</div>
       </div>
@@ -580,24 +566,37 @@ h1 {
   margin-bottom: 9px;
 }
 .derived-row {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.derived-row:last-of-type {
+  border-bottom: none;
+}
+.derived-head {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  padding: 5px 0;
+  flex-wrap: wrap;
 }
 .derived-label {
   flex: none;
-  width: 160px;
+  min-width: 160px;
   font-size: 12px;
   color: var(--text-secondary);
+  font-weight: 600;
 }
 .derived-path {
   font-size: 11.5px;
   color: var(--text-muted-bright);
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-all; /* the full path always reads, however narrow */
+  user-select: text;
+}
+.derived-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.5;
 }
 .derived-note {
   font-size: 11.5px;

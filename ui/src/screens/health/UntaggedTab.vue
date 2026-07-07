@@ -370,13 +370,11 @@ async function removePattern(id: number) {
   cursor: pointer;
 }
 .cell-check {
-  width: 16px;
+  width: 26px;
   display: flex;
+  align-items: center;
   flex: none;
-}
-.cell-check input {
-  accent-color: var(--accent);
-  cursor: pointer;
+  align-self: stretch; /* the whole cell height stays clickable */
 }
 .row {
   display: flex;

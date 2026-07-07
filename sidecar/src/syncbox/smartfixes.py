@@ -72,26 +72,24 @@ def compose(field: str, value: str | None) -> str | None:
     return result
 
 
-def plan(rows: list[dict], *, include_protected_ids=frozenset()):
+def plan(rows: list[dict]) -> list[dict]:
     """Build the exact dry-run payload.
 
-    rows: {content_id, title, artist, protected, display_name?}.
-    Returns (payload, skipped_protected):
-    - payload: [{content_id, field, before, after}] - no no-op entries;
-    - skipped_protected: protected tracks WITH pending diffs, enumerated by
-      name for the dry-run listing (5.11). Protected rows are mutated only
-      when their id is in include_protected_ids - the per-call, never
-      persisted opt-in.
+    rows: {content_id, title, artist}.
+    Returns [{content_id, field, before, after}] - no no-op entries.
+
+    Protected tracks are NOT skipped here (owner amendment to 5.11,
+    2026-07-07): Smart Fixes only edit metadata in master.db behind an
+    automatic backup. The protected guard stays on the file-destructive
+    operations (untagged delete D15, duplicate resolution).
     """
     payload = []
-    skipped_protected = []
     for row in rows:
-        diffs = []
         for field in CATALOG:
             before = row.get(field)
             after = compose(field, before)
             if after is not None and after != before:
-                diffs.append(
+                payload.append(
                     {
                         "content_id": row["content_id"],
                         "field": field,
@@ -99,16 +97,4 @@ def plan(rows: list[dict], *, include_protected_ids=frozenset()):
                         "after": after,
                     }
                 )
-        if not diffs:
-            continue
-        if row.get("protected") and row["content_id"] not in include_protected_ids:
-            skipped_protected.append(
-                {
-                    "content_id": row["content_id"],
-                    "name": row.get("display_name")
-                    or f"{row.get('artist') or '?'} - {row.get('title') or '?'}",
-                }
-            )
-            continue
-        payload.extend(diffs)
-    return payload, skipped_protected
+    return payload

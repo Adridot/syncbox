@@ -2,10 +2,9 @@
 // Smart Fixes dry-run preview (§5.11): exact field-by-field before → after,
 // composed final result, no no-op rows server-side — so an identical-looking
 // row ALWAYS hides an invisible change: suspect whitespace is highlighted
-// git-diff style with a legend (B4). The protected opt-in is NAMED, per-run,
-// NEVER remembered (re-running the dry-run with the ids re-plans server-side).
-// The CTA carries the exact payload count (B10) and the RB guard; a 409
-// stale_snapshot flips the stale banner ("Relancer l'aperçu").
+// git-diff style with a legend (B4). The CTA carries the exact payload count
+// (B10) and the RB guard; a 409 stale_snapshot flips the stale banner
+// ("Relancer l'aperçu").
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -17,7 +16,6 @@ import ModalShell from './ModalShell.vue'
 
 const props = defineProps<{
   dry: SmartFixesDryRun
-  includedIds: string[]
   stale: boolean
   busy: boolean
   error: string | null
@@ -25,8 +23,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   execute: []
-  rerun: [includeIds: string[]]
-  toggleInclude: [contentId: string]
+  rerun: []
 }>()
 const { t } = useI18n()
 const status = useStatusStore()
@@ -84,33 +81,9 @@ const hasInvisible = computed(() =>
       <div v-if="stale" class="stale">
         <span class="stale-glyph">⚠</span>
         <div class="stale-text">{{ t('smartfixes.dryrun.stale') }}</div>
-        <button class="btn-secondary small" @click="emit('rerun', includedIds)">
+        <button class="btn-secondary small" @click="emit('rerun')">
           {{ t('smartfixes.dryrun.rerun') }}
         </button>
-      </div>
-
-      <!-- protected opt-in: named, unchecked by default, never remembered -->
-      <div v-if="dry.skipped_protected.length || includedIds.length" class="protected">
-        <label
-          v-for="entry in dry.skipped_protected"
-          :key="entry.content_id"
-          class="protected-row"
-        >
-          <input
-            type="checkbox"
-            :checked="includedIds.includes(entry.content_id)"
-            @change="emit('toggleInclude', entry.content_id)"
-          />
-          <span>
-            <span class="protected-name">{{
-              t('smartfixes.dryrun.includeProtected', { name: entry.name })
-            }}</span>
-            <span class="protected-help">{{ t('smartfixes.dryrun.optInHelp') }}</span>
-          </span>
-        </label>
-        <div v-if="!dry.skipped_protected.length" class="protected-included">
-          {{ t('smartfixes.dryrun.protectedIncluded', includedIds.length) }}
-        </div>
       </div>
 
       <div v-if="error" class="error-row">{{ error }}</div>
@@ -256,43 +229,6 @@ h3 {
 .btn-secondary.small {
   padding: 5px 10px;
   font-size: 12px;
-}
-.protected {
-  background: rgba(245, 181, 68, 0.06);
-  border: 1px solid rgba(245, 181, 68, 0.22);
-  border-radius: var(--radius-inner);
-  padding: 13px 14px;
-  margin-top: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.protected-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  cursor: pointer;
-}
-.protected-row input {
-  accent-color: var(--warning);
-  margin-top: 2px;
-}
-.protected-name {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--warning-text);
-}
-.protected-help {
-  display: block;
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 3px;
-  line-height: 1.45;
-}
-.protected-included {
-  font-size: 12px;
-  color: var(--warning-text);
 }
 .error-row {
   margin-top: 12px;

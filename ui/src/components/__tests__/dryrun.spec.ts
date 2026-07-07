@@ -13,7 +13,6 @@ const DRY = {
     { content_id: 'c1', field: 'artist', before: 'Carole Fredericks ', after: 'Carole Fredericks' },
     { content_id: 'c2', field: 'title', after: 'Sandstorm', before: 'SANDSTORM' },
   ],
-  skipped_protected: [{ content_id: 'c9', name: 'Energy 52 - Café Del Mar' }],
   fingerprint: [['db', 1]],
 }
 
@@ -21,7 +20,6 @@ function mountModal(overrides: Record<string, unknown> = {}) {
   return mount(DryRunModal, {
     props: {
       dry: DRY,
-      includedIds: [],
       stale: false,
       busy: false,
       error: null,
@@ -43,12 +41,8 @@ test('B4: an identical-looking row shows its invisible whitespace as marked dots
   expect(wrapper.text()).toContain('Écrire 2 changements')
 })
 
-test('protected opt-in is named and NEVER pre-checked; stale disables the write CTA', async () => {
+test('stale shows the banner + rerun CTA and disables the write CTA', () => {
   const wrapper = mountModal({ stale: true })
-  const optIn = wrapper.get('.protected-row input')
-  expect((optIn.element as HTMLInputElement).checked).toBe(false)
-  expect(wrapper.text()).toContain('Café Del Mar')
-  // stale: banner + rerun CTA, write disabled
   expect(wrapper.text()).toContain('relance le dry-run')
   expect(wrapper.get('.confirm').attributes('disabled')).toBeDefined()
 })

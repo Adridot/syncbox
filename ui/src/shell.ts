@@ -34,6 +34,33 @@ export async function revealInFolder(path: string): Promise<void> {
   }
 }
 
+/** Native file/folder pickers (Réglages + onboarding paths). Return null
+    when cancelled — and in browser dev, where there is no dialog plugin. */
+export async function pickFile(): Promise<string | null> {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const picked = await open({ multiple: false, directory: false })
+    return typeof picked === 'string' ? picked : null
+  } catch {
+    return null // browser dev: keyboard entry stays available
+  }
+}
+
+export async function pickDirectory(): Promise<string | null> {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const picked = await open({ multiple: false, directory: true })
+    return typeof picked === 'string' ? picked : null
+  } catch {
+    return null
+  }
+}
+
+/** True inside the Tauri shell — gates shell-only affordances (Parcourir…). */
+export function hasShell(): boolean {
+  return '__TAURI_INTERNALS__' in window
+}
+
 /** The shell emits `backend-down` when bounded restarts are exhausted. */
 export function onBackendDown(handler: () => void): void {
   import('@tauri-apps/api/event')

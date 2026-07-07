@@ -35,7 +35,7 @@ const isActive = (name: string) => route.name === name
 <template>
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">S</div>
+      <img class="brand-mark" src="../assets/logo.png" alt="" />
       <div>
         <div class="brand-name">{{ t('app.title') }}</div>
         <div class="brand-meta">v0.1 · macOS</div>
@@ -94,12 +94,9 @@ const isActive = (name: string) => route.name === name
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--accent-tint);
   border: 1px solid var(--accent-border);
-  color: var(--accent);
-  font-weight: 700;
-  display: grid;
-  place-content: center;
+  object-fit: cover;
+  flex: none;
 }
 .brand-name {
   font-weight: 600;

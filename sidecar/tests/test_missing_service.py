@@ -131,7 +131,7 @@ def test_collection_scope_reads_snapshot_file_missing_rows(conn, tmp_path):
 def test_relink_candidates_come_from_inbox_and_user_roots(conn, tmp_path):
     tracks = seed_library(conn, ["missing"])
     storage = tmp_path / "storage"
-    inbox = storage / "_rekordbox_sync" / "inbox"
+    inbox = storage / "_syncbox" / "inbox"
     inbox.mkdir(parents=True)
     (inbox / "deadmau5 - Song 0.mp3").write_bytes(b"\x00")
     user_dir = tmp_path / "downloads"
