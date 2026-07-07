@@ -295,7 +295,7 @@ export const en = {
     attrCues: 'Cues',
     fileMissing: 'missing',
     filePresent: 'present',
-    protected: 'Protected — never deleted',
+    protected: 'Protected zone — deletion goes to the Trash (reversible)',
     qualityReason: {
       sharp_cutoff_in_lossless_container: 'sharp spectral cutoff in a lossless container (fake-FLAC probable)',
       cutoff_indicates_le192_source: 'spectral cutoff indicates a ≤192 kbps source',

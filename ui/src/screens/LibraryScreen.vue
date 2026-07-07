@@ -265,9 +265,12 @@ function onTagsApplied(tracks: LibraryTrack[]) {
   modal.value = null
 }
 
-function onSourceAdded() {
+async function onSourceAdded(source: Source) {
+  // a fresh source starts empty — sync it right away so it never sits at
+  // "0 tracks" (owner feedback 07/07); syncOne banners its own failure (B1)
   modal.value = null
-  void load()
+  await load()
+  void syncOne(source)
 }
 </script>
 
@@ -335,7 +338,14 @@ function onSourceAdded() {
             :data-disabled="!source.enabled"
             @click="selectedSource = source.id"
           >
-            <span class="cover" :data-pending="source.status === 'pending'">{{
+            <img
+              v-if="source.cover_url"
+              class="cover art"
+              :src="source.cover_url"
+              alt=""
+              loading="lazy"
+            />
+            <span v-else class="cover" :data-pending="source.status === 'pending'">{{
               (source.name || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 1).toUpperCase() || '?'
             }}</span>
             <span class="source-text">
@@ -517,7 +527,12 @@ function onSourceAdded() {
       </section>
     </div>
 
-    <AddSourceModal v-if="modal === 'add'" @close="modal = null" @added="onSourceAdded" />
+    <AddSourceModal
+      v-if="modal === 'add'"
+      :followed-ids="(sources ?? []).map((s) => s.spotify_playlist_id)"
+      @close="modal = null"
+      @added="onSourceAdded"
+    />
     <BulkTagModal
       v-if="modal === 'tags'"
       :track-ids="[...selection]"
@@ -689,6 +704,10 @@ h1 {
 }
 .cover[data-pending='true'] {
   background: linear-gradient(135deg, var(--warning), var(--danger));
+}
+.cover.art {
+  object-fit: cover;
+  background: var(--surface-raised);
 }
 .cover.neutral {
   background: #171c27;

@@ -299,7 +299,7 @@ export const fr: typeof en = {
     attrCues: 'Cues',
     fileMissing: 'manquant',
     filePresent: 'présent',
-    protected: 'Protégée — jamais supprimée',
+    protected: 'Zone protégée — suppression = corbeille (réversible)',
     qualityReason: {
       sharp_cutoff_in_lossless_container: 'coupure spectrale nette dans un conteneur lossless (faux-FLAC probable)',
       cutoff_indicates_le192_source: 'la coupure spectrale indique une source ≤192 kbps',

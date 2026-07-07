@@ -15,12 +15,15 @@ import { useStatusStore } from '../stores/status'
 import ModalShell from './ModalShell.vue'
 import TagSearchInput from './TagSearchInput.vue'
 
+const props = defineProps<{ followedIds?: string[] }>()
 const emit = defineEmits<{ close: []; added: [source: Source] }>()
 const { t } = useI18n()
 const status = useStatusStore()
 const spotify = useSpotifyConnect()
 
-const mode = ref<'link' | 'picker'>('link')
+// "Ma bibliothèque Spotify" is the default entry point (owner feedback
+// 07/07); link-paste stays one click away and covers the not-connected case.
+const mode = ref<'link' | 'picker'>('picker')
 const link = ref('')
 const preview = ref<PlaylistPreview | null>(null)
 const previewLoading = ref(false)
@@ -97,11 +100,14 @@ watch(mode, () => {
 
 const filteredPlaylists = computed(() => {
   const q = pickerQuery.value.trim().toLowerCase()
-  const list = playlists.value ?? []
+  const followed = new Set(props.followedIds ?? [])
+  // already-followed playlists are hidden — they cannot be re-added anyway
+  const list = (playlists.value ?? []).filter((p) => !followed.has(p.spotify_playlist_id))
   return q ? list.filter((p) => p.name.toLowerCase().includes(q)) : list
 })
 
 onMounted(async () => {
+  if (mode.value === 'picker') void loadPlaylists()
   try {
     catalog.value = (await api.get<{ tags: MyTag[] }>('/api/mytags')).tags
   } catch {
@@ -122,6 +128,7 @@ async function follow() {
       spotify_playlist_id: playlistId.value,
       name: resolved.value?.name ?? '',
       tags: tags.value,
+      cover_url: resolved.value?.image_url ?? null,
     })
     emit('added', source)
   } catch (cause) {
@@ -147,11 +154,11 @@ async function connect() {
       <p class="sub">{{ t('library.add.sub') }}</p>
 
       <div class="modes">
-        <button class="mode" :data-active="mode === 'link'" @click="mode = 'link'">
-          {{ t('library.add.modeLink') }}
-        </button>
         <button class="mode" :data-active="mode === 'picker'" @click="mode = 'picker'">
           {{ t('library.add.modePicker') }}
+        </button>
+        <button class="mode" :data-active="mode === 'link'" @click="mode = 'link'">
+          {{ t('library.add.modeLink') }}
         </button>
       </div>
 
@@ -182,7 +189,14 @@ async function connect() {
             :data-active="picked?.spotify_playlist_id === playlist.spotify_playlist_id"
             @click="picked = playlist"
           >
-            <span class="cover">{{ (playlist.name || '?').slice(0, 1).toUpperCase() }}</span>
+            <img
+              v-if="playlist.image_url"
+              class="cover art"
+              :src="playlist.image_url"
+              alt=""
+              loading="lazy"
+            />
+            <span v-else class="cover">{{ (playlist.name || '?').slice(0, 1).toUpperCase() }}</span>
             <span class="picker-text">
               <span class="picker-name">{{ playlist.name }}</span>
               <span class="picker-meta mono"
@@ -366,6 +380,10 @@ h3 {
   font-size: 13px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.92);
+}
+.cover.art {
+  object-fit: cover;
+  background: var(--surface-raised);
 }
 .picker-text {
   min-width: 0;

@@ -798,10 +798,9 @@ def test_duplicates_resolve_keeper_guard_equates_32_spellings(tmp_path, monkeypa
     assert [f["result"] for f in response.json()["files"]] == ["kept_keeper_file"]
 
 
-def test_duplicates_resolve_validation_and_protection(tmp_path, monkeypatch):
+def test_duplicates_resolve_validation(tmp_path, monkeypatch):
     env = make_env(tmp_path)
-    protected_path = str(env.storage / "rekordbox" / "Collection" / "x.mp3")
-    states = {"1": ("/music/1.mp3", 0), "2": (protected_path, 0)}
+    states = {"1": ("/music/1.mp3", 0)}
 
     class FakeRO:
         def execute(self, sql, params):
@@ -824,11 +823,46 @@ def test_duplicates_resolve_validation_and_protection(tmp_path, monkeypatch):
     )
     assert unknown.status_code == 404
 
-    protected = env.client.post(
+
+def test_duplicates_resolve_trashes_a_protected_loser_file(tmp_path, monkeypatch):
+    """Owner amendment to 5.4 (2026-07-07): a loser file inside the protected
+    zone resolves like any other — soft-delete + trash-first file delete —
+    the per-group confirmation being the consent. Keeper rules unchanged."""
+    env = make_env(tmp_path, rows=_isrc_pair_rows())
+    protected_path = str(env.storage / "rekordbox" / "Collection" / "x.mp3")
+    states = {"1": ("/music/1.mp3", 0), "2": (protected_path, 0)}
+    deleted = []
+
+    class FakeRO:
+        def execute(self, sql, params):
+            return [(cid, *states[cid]) for cid in params if cid in states]
+
+        def close(self):
+            pass
+
+    @contextmanager
+    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+        yield "db"
+
+    monkeypatch.setattr(api, "open_readonly", lambda path: FakeRO())
+    monkeypatch.setattr(api, "mutate", fake_mutate)
+    monkeypatch.setattr(api, "reassign_memberships", lambda db, a, b: None)
+    monkeypatch.setattr(api, "soft_delete_content", lambda db, cid: None)
+    monkeypatch.setattr(api, "tcc_exists", lambda path: True)
+    monkeypatch.setattr(
+        api,
+        "delete_file",
+        lambda path, *, consent_to_permanent_delete: deleted.append(str(path))
+        or "trashed",
+    )
+
+    response = env.client.post(
         "/api/duplicates/resolve",
         json={"keeper_content_id": "1", "loser_content_ids": ["2"]},
     )
-    assert protected.status_code == 409  # protected is NEVER deleted (5.4)
+    assert response.status_code == 200
+    assert response.json()["files"][0]["result"] == "trashed"
+    assert deleted == [protected_path]
 
 
 def test_duplicates_resolve_permanent_delete_consent_428(tmp_path, monkeypatch):

@@ -165,9 +165,9 @@ def test_sync_skips_when_snapshot_unchanged_but_records_a_run(conn, source, tmp_
     before = repos.list_source_tracks(conn, source["id"])
 
     source = repos.get_source(conn, source["id"])  # snapshot_id now snap-1
-    client2, transport2 = make_client(
-        api_ok(playlist_payload([], snapshot="snap-1"))
-    )
+    payload = playlist_payload([], snapshot="snap-1")
+    payload["images"] = [{"url": "https://i.scdn.co/cover.jpg"}]
+    client2, transport2 = make_client(api_ok(payload))
     result = sync_one_source(conn, client2, FakeCache(CANDIDATES), tmp_path, source)
     assert result["skipped"] is True
     assert len(transport2.calls) == 1  # meta fetch only, no pagination
@@ -175,6 +175,8 @@ def test_sync_skips_when_snapshot_unchanged_but_records_a_run(conn, source, tmp_
     runs = repos.list_sync_runs(conn, source["id"])
     assert len(runs) == 2
     assert runs[0]["stats"] == {"skipped": True}
+    # cover backfill: a pre-0003 source gets its cover even on the skip path
+    assert repos.get_source(conn, source["id"])["cover_url"] == "https://i.scdn.co/cover.jpg"
 
 
 def test_playlist_duplicate_is_ignored_and_absent_becomes_removed(conn, source, tmp_path):

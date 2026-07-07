@@ -104,6 +104,11 @@ def sync_one_source(conn, spotify_client, cache, storage_root, source, **thresho
     snapshot_id = payload.get("snapshot_id")
 
     if snapshot_id and snapshot_id == source.get("snapshot_id"):
+        # cover backfill: sources followed before covers existed (0003) would
+        # otherwise never get one — the skip path never reaches update_source
+        images = payload.get("images") or []
+        if images and not source.get("cover_url"):
+            repos.update_source(conn, source["id"], cover_url=images[0].get("url"))
         stats = {"skipped": True}
         repos.record_sync_run(conn, source["id"], started, _now(), snapshot_id, stats)
         return {"skipped": True, "snapshot_id": snapshot_id, "stats": stats}
@@ -128,12 +133,15 @@ def sync_one_source(conn, spotify_client, cache, storage_root, source, **thresho
         seen.add(row["spotify_track_id"])
         db_rows.append(_to_db_row(row))
     repos.replace_source_tracks(conn, source["id"], db_rows)
+    images = payload.get("images") or []
     repos.update_source(
         conn,
         source["id"],
         name=payload.get("name") or source["name"],
         snapshot_id=snapshot_id,
         status="synced",
+        cover_url=(images[0].get("url") if images else None)
+        or source.get("cover_url"),
     )
     stats = {"total": len(rows)}
     for row in rows:

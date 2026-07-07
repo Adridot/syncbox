@@ -10,6 +10,7 @@ export interface Source {
   enabled: number
   status: string
   created_at: string
+  cover_url: string | null
 }
 
 export interface LibraryTrack {

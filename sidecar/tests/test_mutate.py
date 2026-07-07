@@ -86,6 +86,17 @@ def backup_dirs(backups_root):
 
 
 class TestFingerprint:
+    def test_fingerprint_survives_a_json_round_trip_verbatim(self, db):
+        # The fingerprint crosses the UI as JSON and st_mtime_ns (~19 digits)
+        # exceeds JavaScript's 2^53 Number precision — as ints, JSON.parse
+        # rounds them and every execute aborts stale (live bug 2026-07-07).
+        # Every leaf must be a string that round-trips verbatim.
+        import json
+
+        fp = fingerprint(db)
+        assert all(isinstance(leaf, str) for part in fp for leaf in part)
+        assert tuple(tuple(part) for part in json.loads(json.dumps(fp))) == fp
+
     def test_wal_absent_equals_wal_empty(self, db):
         # poc/09: a bare mode=ro open recreates a 0-byte wal; the fingerprint
         # must not change for it, or every mutate spuriously aborts.

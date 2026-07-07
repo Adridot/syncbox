@@ -394,6 +394,7 @@ def sources_add(deps, request, body):
         _require(body, "spotify_playlist_id"),
         name=body.get("name", ""),
         tags=body.get("tags") or (),
+        cover_url=body.get("cover_url") or None,
     )
     return 201, source
 
@@ -1037,15 +1038,11 @@ def duplicates_resolve(deps, request, body):
     unknown = [c for c in losers if c not in states]
     if unknown:
         raise KeyError(f"unknown content ids: {unknown}")
-    protected = [
-        c
-        for c in losers
-        if states[c]["path"] and is_protected_path(states[c]["path"], deps.storage_root)
-    ]
-    if protected:
-        raise ConflictError(
-            f"protected tracks are never deleted (5.4): {protected}"
-        )
+    # Owner amendment to 5.4 (2026-07-07): loser files in the protected zone
+    # are resolvable like any other — the per-group confirmation is the
+    # consent, and the file goes through the same trash-first contract below
+    # (permanent delete still requires the 428 consent). The keeper's file
+    # remains untouchable either way.
 
     active = [c for c in losers if not states[c]["deleted"]]
     cache = deps.cache()

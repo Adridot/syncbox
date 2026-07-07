@@ -21,7 +21,9 @@ _PLAYLIST_ID = re.compile(r"^[0-9A-Za-z]{22}$")
 
 # Columns update_source may touch; a typo must fail loudly, not create a
 # parallel spelling (same rationale as settings' unknown-key rejection).
-_SOURCE_COLUMNS = frozenset({"name", "snapshot_id", "tags", "enabled", "status"})
+_SOURCE_COLUMNS = frozenset(
+    {"name", "snapshot_id", "tags", "enabled", "status", "cover_url"}
+)
 
 _TRACK_COLUMNS = (
     "spotify_track_id",
@@ -50,7 +52,9 @@ def _row_to_dict(row: sqlite3.Row, json_fields=("tags",)) -> dict:
 # --- sources -------------------------------------------------------------------
 
 
-def add_source(conn, spotify_playlist_id: str, name: str = "", tags=()) -> dict:
+def add_source(
+    conn, spotify_playlist_id: str, name: str = "", tags=(), cover_url=None
+) -> dict:
     """Follow a playlist. Validates the id shape; duplicate follow -> ValueError."""
     if not _PLAYLIST_ID.match(spotify_playlist_id or ""):
         raise ValueError(
@@ -59,8 +63,9 @@ def add_source(conn, spotify_playlist_id: str, name: str = "", tags=()) -> dict:
         )
     try:
         cursor = conn.execute(
-            "INSERT INTO sources (spotify_playlist_id, name, tags) VALUES (?, ?, ?)",
-            (spotify_playlist_id, name, json.dumps(list(tags))),
+            "INSERT INTO sources (spotify_playlist_id, name, tags, cover_url) "
+            "VALUES (?, ?, ?, ?)",
+            (spotify_playlist_id, name, json.dumps(list(tags)), cover_url),
         )
     except sqlite3.IntegrityError as exc:
         raise ValueError(f"playlist {spotify_playlist_id} is already followed") from exc

@@ -30,10 +30,17 @@ def _assert_mutation_ready(db_path: Path) -> None:
 
 
 def fingerprint(db_path) -> tuple:
-    """Freshness fingerprint of master.db(+wal): hashable, cache-key safe."""
+    """Freshness fingerprint of master.db(+wal): hashable, cache-key safe.
+
+    Components are STRINGS, not ints: the fingerprint round-trips through
+    the UI as JSON, and st_mtime_ns (~19 digits) exceeds JavaScript's
+    Number precision (2^53) — JSON.parse silently rounds it, the UI echoes
+    the rounded value back, and every execute aborts StaleSnapshotError.
+    Found live 2026-07-07; strings survive the round-trip verbatim.
+    """
     db_path = Path(db_path)
     stat = db_path.stat()
-    parts = ((stat.st_mtime_ns, stat.st_size),)
+    parts = ((str(stat.st_mtime_ns), str(stat.st_size)),)
     # ponytail: the wal component is included ONLY when the wal exists AND is
     # non-empty - "wal absent" == "wal empty". Measured in poc/09 (APFS +
     # sqlcipher): closing the last rw connection checkpoints and DELETES
@@ -51,7 +58,7 @@ def fingerprint(db_path) -> tuple:
     except FileNotFoundError:
         wal_stat = None
     if wal_stat is not None and wal_stat.st_size > 0:
-        parts += ((wal_stat.st_mtime_ns, wal_stat.st_size),)
+        parts += ((str(wal_stat.st_mtime_ns), str(wal_stat.st_size)),)
     return parts
 
 

@@ -13,7 +13,7 @@ const health = useHealthStore()
 const items = computed(() => [
   { name: 'dashboard', to: '/', icon: '◎', label: t('nav.dashboard'), badge: null as number | null, warn: false },
   { name: 'library', to: '/library', icon: '≡', label: t('nav.library'), badge: health.badges.library, warn: false },
-  { name: 'events', to: '/events', icon: '◆', label: t('nav.events'), badge: health.badges.events, warn: false },
+  { name: 'events', to: '/events', icon: '♪', label: t('nav.events'), badge: health.badges.events, warn: false },
   {
     name: 'health',
     to: '/health/duplicates',
