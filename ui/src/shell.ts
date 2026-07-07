@@ -23,6 +23,17 @@ export async function openExternal(url: string): Promise<void> {
   }
 }
 
+/** Reveal a local file's folder ("Ouvrir le dossier de logs") — same opener
+    plugin; browser dev has no equivalent, so it degrades to a no-op. */
+export async function revealInFolder(path: string): Promise<void> {
+  try {
+    const { revealItemInDir } = await import('@tauri-apps/plugin-opener')
+    await revealItemInDir(path)
+  } catch {
+    /* browser dev: nothing sensible to open */
+  }
+}
+
 /** The shell emits `backend-down` when bounded restarts are exhausted. */
 export function onBackendDown(handler: () => void): void {
   import('@tauri-apps/api/event')

@@ -2,7 +2,7 @@
 // Full-screen overlay after the supervisor exhausted its bounded restarts
 // (SPEC-DESIGN §5). "Relancer" invokes the shell's restart_sidecar command,
 // then polls /api/status until the sidecar answers again.
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { restartSidecar } from '../shell'
@@ -11,11 +11,15 @@ import { useStatusStore } from '../stores/status'
 const { t } = useI18n()
 const status = useStatusStore()
 const restarting = ref(false)
+let cancelled = false
+onBeforeUnmount(() => {
+  cancelled = true // bounded poll cancels on unmount (REMARKS rule)
+})
 
 async function relaunch() {
   restarting.value = true
   await restartSidecar()
-  for (let attempt = 0; attempt < 20 && status.backendDown; attempt++) {
+  for (let attempt = 0; attempt < 20 && !cancelled && status.backendDown; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 500))
     await status.refresh()
   }

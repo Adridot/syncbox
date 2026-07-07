@@ -8,10 +8,10 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
-import { NetworkError, api } from '../api/client'
+import { api } from '../api/client'
 import JobRow from '../components/JobRow.vue'
 import LoadingState from '../components/LoadingState.vue'
-import { openExternal } from '../shell'
+import { useSpotifyConnect } from '../lib/useSpotifyConnect'
 import { useHealthStore } from '../stores/health'
 import { useJobsStore } from '../stores/jobs'
 import { useSettingsStore } from '../stores/settings'
@@ -43,18 +43,19 @@ onMounted(async () => {
   try {
     if (!settings.loaded) await settings.load()
     if (settings.configured) {
-      const [reads, backups, sources] = await Promise.all([
+      // allSettled: one failing readout (e.g. a TCC-blocked backups folder)
+      // must not blank the whole dashboard — each card degrades alone
+      const [reads, backups, sources] = await Promise.allSettled([
         api.get<Readouts>('/api/readouts'),
         api.get<{ backups: Array<{ name: string }> }>('/api/doctor/backups'),
         api.get<{ sources: unknown[] }>('/api/sources'),
       ])
-      readouts.value = reads
-      lastBackup.value = backups.backups[0]?.name ?? null
-      sourcesCount.value = sources.sources.length
+      if (reads.status === 'fulfilled') readouts.value = reads.value
+      if (backups.status === 'fulfilled')
+        lastBackup.value = backups.value.backups[0]?.name ?? null
+      if (sources.status === 'fulfilled') sourcesCount.value = sources.value.sources.length
       void health.loadCounts().catch(() => {})
     }
-  } catch (error) {
-    if (!(error instanceof NetworkError)) console.error(error)
   } finally {
     loading.value = false
   }
@@ -132,15 +133,9 @@ async function syncSources() {
   }
 }
 
-async function connectSpotify() {
-  const { url } = await api.get<{ url: string }>('/api/spotify/authorize')
-  await openExternal(url)
-  // the callback lands on the sidecar; poll status until it flips
-  for (let attempt = 0; attempt < 60 && !status.spotifyConnected; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    await status.refresh()
-  }
-}
+// bounded poll that CANCELS ON UNMOUNT (REMARKS) — one shared definition
+const spotify = useSpotifyConnect()
+const connectSpotify = () => spotify.connect()
 </script>
 
 <template>

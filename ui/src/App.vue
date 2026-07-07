@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import AppSidebar from './components/AppSidebar.vue'
 import BackendDownOverlay from './components/BackendDownOverlay.vue'
+import ConsentHost from './components/ConsentHost.vue'
+import OnboardingOverlay from './components/OnboardingOverlay.vue'
 import RbGuardBanner from './components/RbGuardBanner.vue'
+import { onboardingVisible } from './lib/onboarding'
 import { useStatusStore } from './stores/status'
 
 const status = useStatusStore()
@@ -17,6 +20,8 @@ const status = useStatusStore()
       </div>
       <BackendDownOverlay v-if="status.backendDown" />
     </div>
+    <ConsentHost />
+    <OnboardingOverlay v-if="onboardingVisible" />
   </div>
 </template>
 

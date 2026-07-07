@@ -1437,3 +1437,211 @@ def test_spotify_playlist_preview_errors_map(tmp_path):
     body = response.json()
     assert body["error"] == "spotify_api_error"
     assert body["status_code"] == 404
+
+
+def test_spotify_playlists_walks_pages_and_maps(tmp_path):
+    """R5: the picker list flattens the paginated /me/playlists walk."""
+    page2 = {
+        "items": [
+            {
+                "id": "PL2",
+                "name": "Warmup",
+                "owner": {"display_name": "Adrien"},
+                "tracks": {"total": 7},
+                "images": [],
+            }
+        ],
+        "next": None,
+    }
+    page1 = {
+        "items": [
+            {
+                "id": "PL1",
+                "name": "Peak Time",
+                "owner": {"display_name": "Adrien"},
+                "tracks": {"total": 42},
+                "images": [{"url": "https://i.scdn.co/image/x"}],
+            },
+            None,  # Spotify pads deleted playlists with nulls
+        ],
+        "next": "https://api.spotify.com/v1/me/playlists?offset=50&limit=50",
+    }
+    calls = []
+
+    def fake_get(path):
+        calls.append(path)
+        return page1 if len(calls) == 1 else page2
+
+    env = make_env(tmp_path, spotify_client=SimpleNamespace(get=fake_get))
+    body = env.client.get("/api/spotify/playlists").json()
+    assert [p["spotify_playlist_id"] for p in body["playlists"]] == ["PL1", "PL2"]
+    assert body["playlists"][0]["image_url"] == "https://i.scdn.co/image/x"
+    assert body["playlists"][1]["image_url"] is None
+    assert body["playlists"][1]["tracks_total"] == 7
+    # the second call follows the absolute `next` URL verbatim
+    assert calls == ["/me/playlists?limit=50", page1["next"]]
+
+    not_connected = make_env(tmp_path / "nc")
+    response = not_connected.client.get("/api/spotify/playlists")
+    assert response.status_code == 409
+    assert response.json()["error"] == "spotify_not_connected"
+
+
+def test_mytags_catalog(tmp_path, monkeypatch):
+    """Owner-approved TagPicker catalog: names + parent category, sorted,
+    category rows themselves excluded, nameless rows skipped."""
+
+    class FakeRO:
+        def execute(self, sql):
+            class Cursor:
+                def fetchall(_self):
+                    return self._rows
+
+            return Cursor()
+
+        _rows = [
+                (1, "Genre", "root"),
+                (2, "Mainroom", 1),
+                (3, "Situation", "root"),
+                (4, "Wedding", 3),
+                (5, "Melodic", 1),
+                (6, None, 1),  # nameless -> skipped
+                (7, "Orphan", 99),  # unknown parent -> category None
+            ]
+
+        def close(self):
+            pass
+
+    env = make_env(tmp_path)
+    monkeypatch.setattr(api, "open_readonly", lambda path: FakeRO())
+    body = env.client.get("/api/mytags").json()
+    assert body["tags"] == [
+        {"name": "Orphan", "category": None},
+        {"name": "Mainroom", "category": "Genre"},
+        {"name": "Melodic", "category": "Genre"},
+        {"name": "Wedding", "category": "Situation"},
+    ]
+
+    env.deps.settings.update({"rekordbox_db_path": ""})
+    assert env.client.get("/api/mytags").status_code == 400
+
+
+def test_source_tracks_carry_snapshot_bit_rate(tmp_path):
+    """TrackReviewTable chip: matched rows join the snapshot's declared
+    bitrate; unmatched rows carry None; a snapshot failure never breaks
+    the fetch."""
+    env = make_env(tmp_path, rows=[rb_row("c1", bit_rate=256)])
+    source, _ = seed_source(
+        env.conn,
+        [
+            {
+                "spotify_track_id": "t1",
+                "title": "Alpha",
+                "artist": "A",
+                "status": "matched",
+                "content_id": "c1",
+            },
+            {"spotify_track_id": "t2", "title": "Beta", "artist": "B", "status": "new"},
+        ],
+    )
+    tracks = env.client.get(f"/api/sources/{source['id']}/tracks").json()["tracks"]
+    by_title = {t["title"]: t for t in tracks}
+    assert by_title["Alpha"]["bit_rate"] == 256
+    assert by_title["Beta"]["bit_rate"] is None
+
+    def boom(storage_root):
+        raise RuntimeError("snapshot unavailable")
+
+    env.cache.get = boom
+    tracks = env.client.get(f"/api/sources/{source['id']}/tracks").json()["tracks"]
+    assert all(t["bit_rate"] is None for t in tracks)
+
+
+def test_track_mark_missing_guard_and_transition(tmp_path):
+    """ReMatchModal escape: conflict -> missing (match fields cleared);
+    resolved rows are refused like re-match."""
+    env = make_env(tmp_path)
+    source, tracks = seed_source(
+        env.conn,
+        [
+            {
+                "spotify_track_id": "t1",
+                "title": "Alpha",
+                "artist": "A",
+                "status": "conflict",
+                "content_id": "c9",
+                "confidence": 80,
+            },
+            {"spotify_track_id": "t2", "title": "Beta", "artist": "B", "status": "ready"},
+        ],
+    )
+    conflict, ready = tracks
+    updated = env.client.post(f"/api/library/tracks/{conflict['id']}/missing").json()
+    assert updated["status"] == "missing"
+    assert updated["content_id"] is None
+    assert updated["confidence"] is None
+
+    refused = env.client.post(f"/api/library/tracks/{ready['id']}/missing")
+    assert refused.status_code == 409
+
+
+def test_events_create_playlist_mode_imports_tracks(tmp_path):
+    """Owner-approved: 'from playlist' mode fetches the playlist's tracks at
+    creation through the D20 mapper; a Spotify failure creates NO event."""
+    payload = {
+        "tracks": {
+            "items": [
+                {
+                    "track": {
+                        "id": "trk1",
+                        "name": "Innerbloom",
+                        "artists": [{"name": "RÜFÜS DU SOL"}],
+                        "duration_ms": 574_000,
+                        "external_ids": {"isrc": "AUUM71500123"},
+                    }
+                },
+                {"track": {"id": None, "name": "unplayable"}},
+            ],
+            "next": None,
+        }
+    }
+    env = make_env(tmp_path, spotify_client=SimpleNamespace(get=lambda path: payload))
+    created = env.client.post(
+        "/api/events", json={"name": "Wedding", "spotify_playlist_id": PLAYLIST_ID}
+    )
+    assert created.status_code == 201
+    body = created.json()
+    assert body["imported_tracks"] == 1
+    detail = env.client.get(f"/api/events/{body['id']}").json()
+    assert [t["title"] for t in detail["tracks"]] == ["Innerbloom"]
+    assert detail["tracks"][0]["isrc"] == "AUUM71500123"
+
+    # not connected -> 409 and no event row created
+    bare = make_env(tmp_path / "nc")
+    refused = bare.client.post(
+        "/api/events", json={"name": "X", "spotify_playlist_id": PLAYLIST_ID}
+    )
+    assert refused.status_code == 409
+    assert bare.client.get("/api/events").json()["events"] == []
+
+
+def test_event_track_remove_guards_imported(tmp_path):
+    env = make_env(tmp_path)
+    event = env.client.post("/api/events", json={"name": "Party", "manual": True}).json()
+    track = env.client.post(
+        f"/api/events/{event['id']}/tracks", json={"title": "Oops", "artist": "Bad"}
+    ).json()
+
+    removed = env.client.delete(f"/api/events/{event['id']}/tracks/{track['id']}")
+    assert removed.status_code == 200
+    assert env.client.get(f"/api/events/{event['id']}").json()["tracks"] == []
+
+    kept = env.client.post(
+        f"/api/events/{event['id']}/tracks", json={"title": "Keep"}
+    ).json()
+    env.conn.execute(
+        "UPDATE event_tracks SET status = 'imported' WHERE id = ?", (kept["id"],)
+    )
+    refused = env.client.delete(f"/api/events/{event['id']}/tracks/{kept['id']}")
+    assert refused.status_code == 409
+    assert env.client.delete(f"/api/events/{event['id']}/tracks/9999").status_code == 404

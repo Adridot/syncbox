@@ -26,6 +26,55 @@ button {
   font: inherit;
 }
 
+/* Shared control vocabulary (SPEC-DESIGN §7.3) — one definition per tone,
+   consumed by every screen instead of per-component copies. */
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+  padding: 9px 15px;
+  border-radius: 9px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.btn-primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #06131f;
+  font-weight: 600;
+}
+.btn-secondary {
+  background: #14171f;
+  border: 1px solid #2a3140;
+  color: var(--text-secondary-bright);
+  font-weight: 500;
+}
+.btn-danger {
+  background: var(--danger);
+  border: 1px solid var(--danger);
+  color: #1f0606;
+  font-weight: 600;
+}
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* R2: the ↻ glyph renders thinner/smaller in Geist than in the mockup's
+   system font — size/weight compensation, no glyph/asset swap. */
+.btn-icon {
+  color: var(--accent);
+  font-size: 1.15em;
+  font-weight: 700;
+}
+
 @keyframes slideup {
   from {
     transform: translateY(14px);

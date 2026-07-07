@@ -1,23 +1,66 @@
 <script setup lang="ts">
 // Shared dialog container (SPEC-DESIGN §6): overlay backdrop + slide-up,
-// closes on esc and backdrop click. Focus trap basics land in M4.13 a11y.
-import { onBeforeUnmount, onMounted } from 'vue'
+// closes on esc and backdrop click, minimal focus trap (M4.13 a11y): focus
+// moves into the dialog on open, Tab cycles inside it, and returns to the
+// opener on close.
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 defineProps<{ width?: string }>()
 const emit = defineEmits<{ close: [] }>()
 
-function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') emit('close')
+const modal = ref<HTMLElement | null>(null)
+let opener: HTMLElement | null = null
+
+function focusables(): HTMLElement[] {
+  return [
+    ...(modal.value?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ) ?? []),
+  ].filter((el) => !el.hasAttribute('disabled'))
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    emit('close')
+    return
+  }
+  if (event.key !== 'Tab') return
+  const items = focusables()
+  if (!items.length) return
+  const first = items[0]
+  const last = items[items.length - 1]
+  const active = document.activeElement as HTMLElement | null
+  if (event.shiftKey && (active === first || !modal.value?.contains(active))) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (active === last || !modal.value?.contains(active))) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+onMounted(() => {
+  opener = document.activeElement as HTMLElement | null
+  document.addEventListener('keydown', onKeydown)
+  ;(focusables()[0] ?? modal.value)?.focus()
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  opener?.focus()
+})
 </script>
 
 <template>
   <Teleport to="body">
     <div class="backdrop" @click.self="emit('close')">
-      <div class="modal" role="dialog" aria-modal="true" :style="{ maxWidth: width ?? '560px' }">
+      <div
+        ref="modal"
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
+        :style="{ maxWidth: width ?? '560px' }"
+      >
         <slot />
       </div>
     </div>

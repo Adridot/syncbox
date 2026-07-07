@@ -8,6 +8,7 @@
 import { defineStore } from 'pinia'
 
 import { api } from '../api/client'
+import type { DuplicateScan } from '../api/types'
 import { useJobsStore } from './jobs'
 import { useStatusStore } from './status'
 
@@ -17,6 +18,8 @@ export const useHealthStore = defineStore('health', {
   state: () => ({
     /** last duplicates scan result — never auto-scanned on mount */
     duplicateGroups: null as number | null,
+    /** full last-scan payload so the Duplicates tab survives navigation */
+    duplicateScan: null as DuplicateScan | null,
     missingCounts: null as { library: number; event: number; collection: number } | null,
     untaggedCount: null as number | null,
     /** library rows needing review (new/conflict/missing), per source total */
@@ -84,6 +87,10 @@ export const useHealthStore = defineStore('health', {
     },
     setDuplicateGroups(count: number) {
       this.duplicateGroups = count
+    },
+    setDuplicateScan(scan: DuplicateScan) {
+      this.duplicateScan = scan
+      this.duplicateGroups = scan.groups.length
     },
     setMissingCounts(counts: { library: number; event: number; collection: number }) {
       this.missingCounts = counts

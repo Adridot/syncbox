@@ -478,6 +478,22 @@ def source_tracks(deps, request, body):
             for t in tracks
             if query in (t["title"] or "").lower() or query in (t["artist"] or "").lower()
         ]
+    # Bit-rate chip data (SPEC-DESIGN TrackReviewTable): the matched RB row's
+    # declared bitrate, joined from the read-only snapshot. Decoration only -
+    # a snapshot load failure must never break the review-table fetch.
+    bit_rates = {}
+    if deps.db_path and deps.storage_root:
+        try:
+            bit_rates = {
+                row["content_id"]: row["bit_rate"]
+                for row in deps.cache().get(deps.storage_root)
+            }
+        except Exception:  # ponytail: optional enrichment, never load-bearing
+            bit_rates = {}
+    for track in tracks:
+        track["bit_rate"] = (
+            bit_rates.get(track["content_id"]) if track["content_id"] else None
+        )
     return {"source_id": source["id"], "tracks": tracks}
 
 
@@ -613,6 +629,25 @@ def track_rematch(deps, request, body):
     return repos.get_track(deps.conn, track["id"])
 
 
+def track_mark_missing(deps, request, body):
+    """ReMatchModal escape (M4-PLAN M4.7): none of the candidates matches ->
+    the track is not in the collection. Same status guard as re-match; the
+    row joins the Missing center (scope=library, 5.5) with purchase links."""
+    track = _get_track(deps, request.path_params["track_id"])
+    if track["status"] in _REMATCH_REFUSED:
+        raise ConflictError(
+            f"track {track['id']} is {track['status']!r}; mark-missing applies "
+            "only to unresolved rows (restore/unignore first when applicable)"
+        )
+    deps.conn.execute(
+        "UPDATE library_tracks SET status = 'missing', content_id = NULL, "
+        "match_method = NULL, confidence = NULL, updated_at = datetime('now') "
+        "WHERE id = ?",
+        (track["id"],),
+    )
+    return repos.get_track(deps.conn, track["id"])
+
+
 def track_ignore(deps, request, body):
     track = _get_track(deps, request.path_params["track_id"])
     # D22 bookkeeping (prior_status stored exactly once) lives in repos.
@@ -680,15 +715,32 @@ def events_list(deps, request, body):
 
 
 def events_create(deps, request, body):
+    """5.7 modes: from a Spotify playlist / empty-manual. Playlist mode
+    (owner-approved 2026-07-07) imports the playlist's tracks at creation —
+    fetched BEFORE the event row is created so a Spotify failure (409/502)
+    leaves no dead event behind. Same D20 mapper as the library sync."""
     _require_storage(deps)
+    playlist_id = body.get("spotify_playlist_id")
+    imported = []
+    if playlist_id:
+        client = _sync_client(deps)
+        payload = client.get(f"/playlists/{playlist_id}")
+        imported = library_service._collect_tracks(client, payload)
     event = events_service.create_event(
         deps.conn,
         deps.storage_root,
         _require(body, "name"),
-        spotify_playlist_id=body.get("spotify_playlist_id"),
+        spotify_playlist_id=playlist_id,
         manual=bool(body.get("manual")),
     )
-    return 201, event
+    for meta in imported:
+        events_service.add_track(
+            deps.conn,
+            event,
+            spotify_track_id=meta["spotify_track_id"],
+            resolver=lambda tid, meta=meta: meta,
+        )
+    return 201, {**event, "imported_tracks": len(imported)}
 
 
 def events_get(deps, request, body):
@@ -725,6 +777,31 @@ def events_add_track(deps, request, body):
         artist=body.get("artist"),
     )
     return 201, track
+
+
+def events_track_remove(deps, request, body):
+    """Owner-approved 2026-07-07: remove a NOT-YET-IMPORTED track row from an
+    event (a mispasted link must not stay 'missing' forever). App-DB only —
+    an 'imported' row lives in Rekordbox and belongs to delete/reapply."""
+    event = _get_event(deps, request.path_params["event_id"])
+    track_id = request.path_params["track_id"]
+    row = next(
+        (
+            track
+            for track in events_service.list_event_tracks(deps.conn, event["id"])
+            if track["id"] == track_id
+        ),
+        None,
+    )
+    if row is None:
+        raise KeyError(f"event track {track_id} not found")
+    if row["status"] == "imported":
+        raise ConflictError(
+            "an imported track is in Rekordbox; the event delete/reapply "
+            "flows own that transition"
+        )
+    deps.conn.execute("DELETE FROM event_tracks WHERE id = ?", (track_id,))
+    return {"removed": track_id}
 
 
 def events_match(deps, request, body):
@@ -1208,7 +1285,69 @@ def doctor_logs(deps, request, body):
     return {"configured": True, "path": str(path), "lines": list(tail)}
 
 
+# --- mytags ----------------------------------------------------------------------
+
+
+def mytags_get(deps, request, body):
+    """MyTag catalog for the TagPicker (SPEC-DESIGN 6; owner-approved route,
+    2026-07-07): read-only djmdMyTag names with their parent category
+    (categories are the ParentID='root' rows). The write side is unchanged -
+    apply still requires library MyTags to pre-exist (5.6)."""
+    _require_rekordbox(deps)
+    ro = open_readonly(deps.db_path)
+    try:
+        rows = ro.execute(
+            "SELECT ID, Name, ParentID FROM djmdMyTag WHERE rb_local_deleted = 0"
+        ).fetchall()
+    finally:
+        ro.close()
+    categories = {
+        str(row_id): name for row_id, name, parent in rows if str(parent) == "root"
+    }
+    tags = sorted(
+        (
+            {"name": name, "category": categories.get(str(parent))}
+            for row_id, name, parent in rows
+            if str(parent) != "root" and name
+        ),
+        key=lambda tag: (tag["category"] or "", tag["name"]),
+    )
+    return {"tags": tags}
+
+
 # --- spotify ----------------------------------------------------------------------
+
+
+_PLAYLISTS_MAX_PAGES = 20  # ponytail: 50/page = 1000 playlists; raise if a real DJ overflows
+
+
+def spotify_playlists(deps, request, body):
+    """R5 (owner-approved 2026-07-07): the connected account's playlists for
+    the AddSourceModal picker - read-only /me/playlists walk (the existing
+    read scopes cover it, 5.9 D3). Link-paste stays the other add path.
+    409 spotify_not_connected / 502 spotify_api_error map automatically."""
+    client = _sync_client(deps)
+    playlists = []
+    url = "/me/playlists?limit=50"
+    for _ in range(_PLAYLISTS_MAX_PAGES):
+        payload = client.get(url)
+        for item in payload.get("items") or []:
+            if not item or not item.get("id"):
+                continue  # Spotify pads deleted playlists with nulls
+            images = item.get("images") or []
+            playlists.append(
+                {
+                    "spotify_playlist_id": item["id"],
+                    "name": item.get("name") or "",
+                    "owner": (item.get("owner") or {}).get("display_name"),
+                    "tracks_total": (item.get("tracks") or {}).get("total") or 0,
+                    "image_url": images[0]["url"] if images else None,
+                }
+            )
+        url = payload.get("next")  # absolute URL; SpotifyClient.get accepts it
+        if not url:
+            break
+    return {"playlists": playlists}
 
 
 def spotify_authorize(deps, request, body):
@@ -1257,6 +1396,7 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/library/tracks/{track_id:int}/candidates", track_candidates, ["GET"]),
         r("/api/library/tracks/{track_id:int}/match", track_match_manual, ["POST"]),
         r("/api/library/tracks/{track_id:int}/rematch", track_rematch, ["POST"]),
+        r("/api/library/tracks/{track_id:int}/missing", track_mark_missing, ["POST"]),
         r("/api/library/tracks/{track_id:int}/ignore", track_ignore, ["POST"]),
         r("/api/library/tracks/{track_id:int}/restore", track_restore, ["POST"]),
         r("/api/events", events_list, ["GET"]),
@@ -1264,6 +1404,11 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/events/{event_id:int}", events_get, ["GET"]),
         r("/api/events/{event_id:int}", events_rename, ["PATCH"]),
         r("/api/events/{event_id:int}/tracks", events_add_track, ["POST"]),
+        r(
+            "/api/events/{event_id:int}/tracks/{track_id:int}",
+            events_track_remove,
+            ["DELETE"],
+        ),
         r("/api/events/{event_id:int}/match", events_match, ["POST"]),
         r("/api/events/{event_id:int}/claim", events_claim, ["POST"]),
         r("/api/events/{event_id:int}/apply", events_apply, ["POST"]),
@@ -1288,6 +1433,7 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/untagged/delete", untagged_delete, ["POST"]),
         r("/api/smartfixes/dry-run", smartfixes_dry_run, ["POST"]),
         r("/api/smartfixes/execute", smartfixes_execute, ["POST"]),
+        r("/api/mytags", mytags_get, ["GET"]),
         r("/api/settings", settings_get, ["GET"]),
         r("/api/settings", settings_update, ["PUT"]),
         r("/api/readouts", readouts_get, ["GET"]),
@@ -1296,6 +1442,7 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/doctor/retention", doctor_retention, ["POST"]),
         r("/api/doctor/logs", doctor_logs, ["GET"]),
         r("/api/spotify/authorize", spotify_authorize, ["GET"]),
+        r("/api/spotify/playlists", spotify_playlists, ["GET"]),
         r(
             "/api/spotify/playlists/{playlist_id}/preview",
             spotify_playlist_preview,
