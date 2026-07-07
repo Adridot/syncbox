@@ -829,12 +829,13 @@ def events_match(deps, request, body):
 
 
 def _try_match_event(deps, event):
-    """Auto-match (owner request 2026-07-07): freshly added tracks are
-    matched right away instead of waiting for the Matcher button (which
-    stays for post-purchase re-runs). Best-effort BY DESIGN: the add/create
-    already succeeded — a matcher failure (Rekordbox not configured yet,
-    snapshot error) leaves rows 'missing' and the explicit Matcher button
-    surfaces the error (B1 is honored there, not here)."""
+    """Matching is 100% automatic (owner decision 2026-07-07, no button):
+    run on every event mutation that can leave a 'missing'/'ambiguous' row —
+    add, playlist import, claim — and (client-side) when the event opens or
+    Rekordbox closes. Reads the cached snapshot only, so it runs with
+    Rekordbox open too. Best-effort BY DESIGN: the mutation already
+    succeeded; a matcher failure (Rekordbox not configured yet, snapshot
+    error) leaves rows 'missing', re-attempted on the next trigger."""
     try:
         return events_service.match_event_tracks(
             deps.conn, event, deps.cache(), deps.storage_root,
@@ -846,7 +847,9 @@ def _try_match_event(deps, event):
 
 def events_claim(deps, request, body):
     event = _get_event(deps, request.path_params["event_id"])
-    return {"claimed": events_service.claim_staged_files(deps.conn, event)}
+    claimed = events_service.claim_staged_files(deps.conn, event)
+    _try_match_event(deps, event)  # any still-missing row re-matches too
+    return {"claimed": claimed}
 
 
 def _events_apply(deps, request, *, only_delta: bool):

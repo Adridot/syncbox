@@ -981,9 +981,12 @@ h1 {
   flex: none;
 }
 .cell-actions {
-  width: 64px;
+  /* room for the 3 action buttons (28px each + 4px gaps) so they never get
+     squeezed narrower than tall — owner feedback 07/07 */
+  width: 96px;
   flex: none;
   display: flex;
+  align-items: center;
   gap: 4px;
   justify-content: flex-end;
 }

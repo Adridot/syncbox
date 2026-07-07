@@ -472,15 +472,22 @@ def test_event_rename_only_while_pending(tmp_path):
     assert blocked.status_code == 409
 
 
-def test_event_match_uses_event_vocabulary(tmp_path):
+def test_event_add_track_auto_matches_without_a_button(tmp_path):
+    """Matching is 100% automatic (owner decision 07/07, no button): a track
+    added against a matching rb_row comes back already 'matched' — no /match
+    call needed. /match stays idempotent for the RB-collection-changed net."""
     env = make_env(tmp_path, rows=[rb_row("7", title="Song", artist="A")])
     event = env.client.post("/api/events", json={"name": "Gig"}).json()
-    env.client.post(
+    added = env.client.post(
         f"/api/events/{event['id']}/tracks", json={"title": "Song", "artist": "A"}
-    )
-    matched = env.client.post(f"/api/events/{event['id']}/match").json()["tracks"]
-    assert matched[0]["status"] == "matched"
-    assert matched[0]["content_id"] == "7"
+    ).json()
+    # auto-matched ON ADD, in the response, before any /match
+    assert added["status"] == "matched"
+    assert added["content_id"] == "7"
+    # persisted (autocommit): a fresh GET sees it too
+    tracks = env.client.get(f"/api/events/{event['id']}").json()["tracks"]
+    assert tracks[0]["status"] == "matched"
+    # claim also re-matches any still-missing row (no button anywhere)
     assert env.client.post(f"/api/events/{event['id']}/claim").json() == {"claimed": []}
 
 
