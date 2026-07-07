@@ -20,7 +20,8 @@ test('event counts drive the segmented bar and the reapply CTA (§11.2)', () => 
   const counts = eventCounts(TRACKS, true)
   expect(counts).toEqual({
     total: 7,
-    ready: 4, // matched + ready + applied + delta-ready
+    ready: 3, // matched + ready + delta-ready — NOT applied (owner feedback 07/07)
+    applied: 1, // already in Rekordbox, counted separately
     missing: 2,
     ambiguous: 1,
     // owner amendment 07/07: EVERY reappliable row is a pending change —

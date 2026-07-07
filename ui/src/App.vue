@@ -42,7 +42,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <style scoped>
 .app {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 .main {
   flex: 1;

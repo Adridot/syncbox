@@ -13,13 +13,13 @@ import { createApp } from 'vue'
 
 import App from './App.vue'
 import { i18n } from './i18n'
-import { restoreLastRoute, router } from './router'
+import { router } from './router'
 import { useJobsStore } from './stores/jobs'
 import { useStatusStore } from './stores/status'
 
 const app = createApp(App).use(createPinia()).use(router).use(i18n)
 
-restoreLastRoute(router)
+// Always open on the Dashboard (owner feedback 07/07) — no last-route restore.
 useStatusStore().start()
 useJobsStore().start()
 

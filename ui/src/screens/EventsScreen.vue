@@ -4,7 +4,7 @@
 // bar, add-by-link (Spotify-only §11.1) or manual entry, match/claim, and
 // the apply / re-apply / delete modals (all RB-guarded). Every click
 // surfaces its backend outcome (B1).
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, NetworkError, api } from '../api/client'
@@ -44,10 +44,7 @@ const loadError = ref<string | null>(null)
 const banner = ref<{ tone: 'error' | 'success'; text: string } | null>(null)
 const modal = ref<null | 'new' | 'apply' | 'reapply' | 'delete'>(null)
 
-const addMode = ref<'link' | 'manual'>('link')
 const link = ref('')
-const manualTitle = ref('')
-const manualArtist = ref('')
 const adding = ref(false)
 const addError = ref<string | null>(null)
 
@@ -117,17 +114,33 @@ function srcLine(event: EventSummary): string {
 }
 
 // --- workspace actions (B1 on every one) -----------------------------------
-async function runMatch() {
-  if (!selected.value) return
-  banner.value = null
+
+/** Matching is automatic (owner request 07/07 — no button): the sidecar
+    matches on add, and this re-matches missing/ambiguous rows when the event
+    opens or when Rekordbox closes (matching needs it closed) — best-effort,
+    silent, updating the tracks in place so it never loops through load(). */
+async function autoMatch(eventId: number) {
+  const tracks = tracksByEvent[eventId] ?? []
+  if (!tracks.some((t) => t.status === 'missing' || t.status === 'ambiguous')) return
+  if (status.rbOpen) return // matcher needs Rekordbox closed; retried on close
   try {
-    await api.post(`/api/events/${selected.value.id}/match`)
-    await load()
-    banner.value = { tone: 'success', text: t('events.matchDone') }
-  } catch (cause) {
-    banner.value = { tone: 'error', text: describe(cause) }
+    const { tracks: matched } = await api.post<{ tracks: EventTrack[] }>(
+      `/api/events/${eventId}/match`,
+    )
+    tracksByEvent[eventId] = matched
+  } catch {
+    /* B1 does not apply to a silent background match: statuses stay put */
   }
 }
+watch(selectedId, (id) => {
+  if (id != null) void autoMatch(id)
+})
+watch(
+  () => status.rbOpen,
+  (open) => {
+    if (!open && selectedId.value != null) void autoMatch(selectedId.value)
+  },
+)
 
 async function runClaim() {
   if (!selected.value) return
@@ -146,28 +159,16 @@ async function runClaim() {
 async function addTrack() {
   if (!selected.value) return
   addError.value = null
-  const body: Record<string, string> = {}
-  if (addMode.value === 'link') {
-    const id = extractTrackId(link.value)
-    if (!id) {
-      addError.value = t('events.addTrack.invalidLink')
-      return
-    }
-    body.spotify_track_id = id
-  } else {
-    if (!manualTitle.value.trim()) {
-      addError.value = t('events.addTrack.titleRequired')
-      return
-    }
-    body.title = manualTitle.value.trim()
-    if (manualArtist.value.trim()) body.artist = manualArtist.value.trim()
+  const id = extractTrackId(link.value)
+  if (!id) {
+    addError.value = t('events.addTrack.invalidLink')
+    return
   }
   adding.value = true
   try {
-    await api.post(`/api/events/${selected.value.id}/tracks`, body)
+    // the sidecar resolves the Spotify metadata AND auto-matches on add
+    await api.post(`/api/events/${selected.value.id}/tracks`, { spotify_track_id: id })
     link.value = ''
-    manualTitle.value = ''
-    manualArtist.value = ''
     await load()
   } catch (cause) {
     addError.value = describe(cause)
@@ -345,6 +346,10 @@ async function onWriteDone() {
         <div class="progress">
           <div class="bar">
             <div
+              class="seg applied"
+              :style="{ width: `${(100 * counts.applied) / Math.max(1, counts.total)}%` }"
+            />
+            <div
               class="seg ready"
               :style="{ width: `${(100 * counts.ready) / Math.max(1, counts.total)}%` }"
             />
@@ -352,12 +357,12 @@ async function onWriteDone() {
               class="seg missing"
               :style="{ width: `${(100 * counts.missing) / Math.max(1, counts.total)}%` }"
             />
-            <div
-              class="seg pending"
-              :style="{ width: `${(100 * counts.pending) / Math.max(1, counts.total)}%` }"
-            />
           </div>
           <div class="legend">
+            <span v-if="counts.applied" class="leg"
+              ><span class="sw applied" /><span class="mono ok">{{ counts.applied }}</span>
+              {{ t('events.appliedUnit') }}</span
+            >
             <span class="leg"
               ><span class="sw ready" /><span class="mono bright">{{ counts.ready }}</span>
               {{ t('events.readyUnit') }}</span
@@ -393,38 +398,18 @@ async function onWriteDone() {
         </div>
 
         <div class="add-row">
-          <template v-if="addMode === 'link'">
-            <div class="link-box">
-              <span class="glyph">🔗</span>
-              <input
-                v-model="link"
-                type="text"
-                class="mono"
-                :placeholder="t('events.addTrack.placeholder')"
-                @keydown.enter.prevent="addTrack"
-              />
-            </div>
-          </template>
-          <template v-else>
+          <div class="link-box">
+            <span class="glyph">🔗</span>
             <input
-              v-model="manualTitle"
-              class="manual-input"
+              v-model="link"
               type="text"
-              :placeholder="t('events.addTrack.titlePlaceholder')"
-            />
-            <input
-              v-model="manualArtist"
-              class="manual-input"
-              type="text"
-              :placeholder="t('events.addTrack.artistPlaceholder')"
+              class="mono"
+              :placeholder="t('events.addTrack.placeholder')"
               @keydown.enter.prevent="addTrack"
             />
-          </template>
+          </div>
           <button class="btn-primary add-btn" :disabled="adding" @click="addTrack">
             {{ adding ? t('events.addTrack.resolving') : t('events.addTrack.add') }}
-          </button>
-          <button class="ghost" @click="addMode = addMode === 'link' ? 'manual' : 'link'">
-            {{ addMode === 'link' ? t('events.addTrack.manualMode') : t('events.addTrack.linkMode') }}
           </button>
         </div>
         <div v-if="addError" class="banner" data-tone="error">
@@ -461,9 +446,6 @@ async function onWriteDone() {
             @click="revealInFolder(selected!.staging_dir!)"
           >
             {{ t('events.openStaging') }}
-          </button>
-          <button class="btn-secondary tool" :disabled="jobs.jobRunning" @click="runMatch">
-            {{ t('events.match') }}
           </button>
           <button class="btn-secondary tool" :disabled="jobs.jobRunning" @click="runClaim">
             {{ t('events.claim') }}
@@ -645,6 +627,9 @@ h1 {
 .warn {
   color: var(--warning-text);
 }
+.ok {
+  color: var(--success);
+}
 .workspace {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -773,6 +758,9 @@ h1 {
 .seg {
   height: 100%;
 }
+.seg.applied {
+  background: var(--success);
+}
 .seg.ready {
   background: var(--teal);
 }
@@ -799,6 +787,9 @@ h1 {
   width: 8px;
   height: 8px;
   border-radius: 2px;
+}
+.sw.applied {
+  background: var(--success);
 }
 .sw.ready {
   background: var(--teal);
@@ -894,18 +885,6 @@ h1 {
 }
 .link-box input.mono {
   font-family: var(--font-mono);
-}
-.manual-input {
-  flex: 1;
-  min-width: 0;
-  background: var(--surface-raised);
-  border: 1px solid #2a3140;
-  border-radius: 8px;
-  padding: 8px 12px;
-  color: var(--text-secondary-bright);
-  font: inherit;
-  font-size: 12.5px;
-  outline: none;
 }
 .add-btn {
   padding: 8px 15px;

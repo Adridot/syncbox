@@ -116,7 +116,9 @@ const totalReview = computed(() => allTracks.value.filter(isReview).length)
 
 const visibleSources = computed(() => {
   const q = search.value.trim().toLowerCase()
-  const list = sources.value ?? []
+  const list = [...(sources.value ?? [])].sort((a, b) =>
+    (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }),
+  ) // alphabetical (owner feedback 07/07)
   return q ? list.filter((source) => source.name.toLowerCase().includes(q)) : list
 })
 
@@ -502,8 +504,24 @@ async function onSourceAdded(source: Source) {
                   class="action"
                   to="/missing/library"
                   :title="t('library.actions.resolve')"
-                  >⤓</router-link
                 >
+                  <!-- inline SVG (not a glyph): renders pixel-identical to the
+                       other action buttons, immune to font fallback -->
+                  <svg
+                    class="ic"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 3v12" />
+                    <path d="m7 11 5 5 5-5" />
+                    <path d="M5 21h14" />
+                  </svg>
+                </router-link>
                 <button
                   v-if="track.status === 'ignored'"
                   class="action"
@@ -1041,8 +1059,14 @@ h1 {
   color: var(--text-secondary);
   border-radius: 7px;
   font-size: 15px;
+  line-height: 1;
+  padding: 0;
   cursor: pointer;
   text-decoration: none;
+}
+.action .ic {
+  width: 15px;
+  height: 15px;
 }
 .action:hover {
   color: var(--accent-hover);

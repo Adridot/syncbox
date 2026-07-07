@@ -3,12 +3,12 @@
 
 import type { EventTrack } from '../api/types'
 
-/** Track statuses that read as "prêt" (mockup family). 'applied' is what the
-    apply pipeline writes — the events vocabulary has no 'imported'. */
-export const READY_FAMILY = new Set(['matched', 'ready', 'applied'])
-
-/** Statuses the (re)apply pipeline will actually write next run. */
+/** Statuses the (re)apply pipeline will actually write next run — i.e. what
+    reads as "prêt (à appliquer)". 'applied' is NOT here: a row already in
+    Rekordbox is done, counted separately (owner feedback 07/07: applied
+    tracks must not inflate the "prêts" count). */
 export const APPLIABLE = new Set(['matched', 'ready'])
+export const READY_FAMILY = APPLIABLE
 
 /** Event lifecycle: applied/partially_applied stay open to additions (§11.2). */
 export function isBaseApplied(status: string): boolean {
@@ -17,7 +17,10 @@ export function isBaseApplied(status: string): boolean {
 
 export interface EventCounts {
   total: number
+  /** matched/ready — to apply next run */
   ready: number
+  /** already in Rekordbox */
+  applied: number
   missing: number
   ambiguous: number
   /** changes since the last apply: reappliable rows + new still-missing rows */
@@ -40,7 +43,8 @@ export function eventCounts(tracks: EventTrack[], baseApplied = false): EventCou
     : 0
   return {
     total: tracks.length,
-    ready: tracks.filter((track) => READY_FAMILY.has(track.status)).length,
+    ready: tracks.filter((track) => APPLIABLE.has(track.status)).length,
+    applied: tracks.filter((track) => track.status === 'applied').length,
     missing: tracks.filter((track) => track.status === 'missing').length,
     ambiguous: tracks.filter((track) => track.status === 'ambiguous').length,
     pending: pendReady + pendMissing,

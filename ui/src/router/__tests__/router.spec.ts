@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
 
-import { LAST_ROUTE_KEY, createAppRouter, restoreLastRoute } from '../index'
+import { createAppRouter } from '../index'
 
 beforeEach(() => localStorage.clear())
 
@@ -35,25 +35,4 @@ test('missing center scope param validates', async () => {
   expect(router.currentRoute.value.params.scope).toBe('collection')
   await router.push('/missing/nope')
   expect(router.currentRoute.value.fullPath).toBe('/missing')
-})
-
-test('current route persists and restores across launches', async () => {
-  const router = await makeRouter()
-  await router.push('/health/backups')
-  expect(localStorage.getItem(LAST_ROUTE_KEY)).toBe('/health/backups')
-
-  // next launch: restore runs BEFORE any navigation, like main.ts boot
-  const nextLaunch = createAppRouter(createMemoryHistory())
-  restoreLastRoute(nextLaunch)
-  await nextLaunch.isReady()
-  await new Promise((resolve) => setTimeout(resolve))
-  expect(nextLaunch.currentRoute.value.fullPath).toBe('/health/backups')
-})
-
-test('a persisted route that no longer exists lands on Dashboard', async () => {
-  localStorage.setItem(LAST_ROUTE_KEY, '/acquisition')
-  const router = await makeRouter()
-  restoreLastRoute(router)
-  await new Promise((resolve) => setTimeout(resolve))
-  expect(router.currentRoute.value.name).toBe('dashboard')
 })

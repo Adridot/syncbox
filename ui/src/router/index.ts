@@ -1,7 +1,8 @@
 /* Real router (SPEC-DESIGN §3.1/§5): 6 destinations, deep-linkable health
-   tabs (#/health/smartfixes) and missing-center scope, current route
-   persisted across launches, unknown route -> Dashboard (explicit default,
-   NEVER Settings), native back/forward. */
+   tabs (#/health/smartfixes) and missing-center scope, unknown route ->
+   Dashboard (explicit default, NEVER Settings), native back/forward. The
+   app always opens on the Dashboard — no last-route restore (owner feedback
+   07/07: launch = overview, not wherever you were). */
 
 import {
   createRouter,
@@ -28,8 +29,6 @@ export type HealthTab = (typeof HEALTH_TABS)[number]
 
 export const MISSING_SCOPES = ['library', 'event', 'collection'] as const
 export type MissingScope = (typeof MISSING_SCOPES)[number]
-
-export const LAST_ROUTE_KEY = 'syncbox.last-route'
 
 export function createAppRouter(history: RouterHistory = createWebHashHistory()): Router {
   const router = createRouter({
@@ -65,24 +64,7 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
     }
     return true
   })
-  router.afterEach((to) => {
-    try {
-      localStorage.setItem(LAST_ROUTE_KEY, to.fullPath)
-    } catch {
-      /* storage unavailable: persistence is best-effort */
-    }
-  })
   return router
-}
-
-/** Reopen where the user left off (called once at boot, before mount). */
-export function restoreLastRoute(router: Router): void {
-  try {
-    const saved = localStorage.getItem(LAST_ROUTE_KEY)
-    if (saved && saved !== '/') void router.replace(saved)
-  } catch {
-    /* fall through to the dashboard */
-  }
 }
 
 export const router = createAppRouter()

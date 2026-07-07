@@ -8,6 +8,9 @@ html,
 body {
   margin: 0;
   height: 100%;
+  /* desktop app, not a web page: the window itself never scrolls — only the
+     inner content region does (owner feedback 07/07) */
+  overflow: hidden;
 }
 
 body {
