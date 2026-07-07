@@ -90,6 +90,7 @@ export const en = {
     tableEmptyTitle: 'Nothing to review here',
     tableEmptyBody: 'No track matches this filter in this source.',
     filters: {
+      review: 'To review',
       all: 'All',
       matched: 'Matched',
       conflict: 'Conflict',
@@ -173,6 +174,8 @@ export const en = {
     changesPending: '{n} change pending | {n} changes pending',
     match: 'Match titles',
     claim: 'Claim staged files',
+    openStaging: 'Open the drop folder',
+    openStagingHelp: 'Drop purchased or hand-retrieved files here, then “Claim staged files”.',
     filters: {
       all: 'All',
       ready: 'Ready',

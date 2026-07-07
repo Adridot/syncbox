@@ -12,6 +12,7 @@ export function isReview(track: LibraryTrack): boolean {
 }
 
 export const FILTER_CHIPS = [
+  'review',
   'all',
   'matched',
   'conflict',
@@ -22,9 +23,12 @@ export const FILTER_CHIPS = [
 ] as const
 export type FilterChip = (typeof FILTER_CHIPS)[number]
 
-/** "Tous" hides ignored/removed_from_source (M4-PLAN M4.7); a specific chip
-    shows exactly its status. */
+/** "À traiter" groups the review statuses and is the DEFAULT view whenever
+    review work exists (owner feedback 07/07: to-review first, everything
+    only when there is nothing to do); "Tous" hides ignored/
+    removed_from_source (M4-PLAN M4.7); a specific chip shows its status. */
 export function filterByChip(tracks: LibraryTrack[], chip: FilterChip): LibraryTrack[] {
+  if (chip === 'review') return tracks.filter(isReview)
   if (chip === 'all')
     return tracks.filter((t) => t.status !== 'ignored' && t.status !== 'removed_from_source')
   return tracks.filter((t) => t.status === chip)

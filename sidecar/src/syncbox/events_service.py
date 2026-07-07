@@ -331,19 +331,20 @@ def apply_event(
     from the staged file (rb_write.add_content) then tag it - unless an
     active row for that staged path already exists (a retry after a
     post-commit crash reuses it, never duplicates); applied tracks reset
-    their 11.2 delta flag. ``only_delta`` restricts to added_after_apply
-    rows; reapply with no delta is a strict no-op checked BEFORE mutate()
-    so no backup is wasted.
+    their 11.2 delta flag.
+
+    The 11.2 delta IS the matched/ready set: an applied row leaves it
+    (status 'applied'), so a reapply naturally picks up BOTH rows added
+    after the apply and rows that became matched/ready after it (owner bug
+    report 2026-07-07: a track matched post-apply must be reappliable).
+    ``only_delta`` only tightens the no-op check; reapply with nothing
+    applicable is a strict no-op checked BEFORE mutate() so no backup is
+    wasted.
     """
     event = get_event(conn, event["id"])
     db_path = Path(db_path)
     tracks = list_event_tracks(conn, event["id"])
-    applicable = [
-        t
-        for t in tracks
-        if t["status"] in ("matched", "ready")
-        and (not only_delta or t["added_after_apply"])
-    ]
+    applicable = [t for t in tracks if t["status"] in ("matched", "ready")]
     if not applicable and (only_delta or event["status"] in APPLIED_EVENT_STATUSES):
         return {"noop": True, "applied": 0, "event_status": event["status"]}
 

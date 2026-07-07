@@ -694,23 +694,28 @@ def tracks_tag_delta(deps, request, body):
 
 
 def events_list(deps, request, body):
+    # 11.2 delta (owner amendment 2026-07-07): what a reapply would write —
+    # every matched/ready row (incl. matched AFTER the apply) plus additions
+    # still missing. Only meaningful once the event was applied.
     counts = {
         row["event_id"]: row
         for row in deps.conn.execute(
             "SELECT event_id, COUNT(*) AS n_tracks, "
-            "SUM(added_after_apply) AS pending_delta "
+            "SUM(CASE WHEN status IN ('matched', 'ready') THEN 1 "
+            "         WHEN added_after_apply = 1 AND status = 'missing' THEN 1 "
+            "         ELSE 0 END) AS pending_delta "
             "FROM event_tracks GROUP BY event_id"
         )
     }
     out = []
     for event in events_service.list_events(deps.conn):
         row = counts.get(event["id"])
+        applied = event["status"] in events_service.APPLIED_EVENT_STATUSES
         out.append(
             {
                 **event,
                 "n_tracks": row["n_tracks"] if row else 0,
-                # 11.2 badge: N additions waiting for a re-apply.
-                "pending_delta": (row["pending_delta"] or 0) if row else 0,
+                "pending_delta": (row["pending_delta"] or 0) if (row and applied) else 0,
             }
         )
     return {"events": out}
@@ -742,6 +747,8 @@ def events_create(deps, request, body):
             spotify_track_id=meta["spotify_track_id"],
             resolver=lambda tid, meta=meta: meta,
         )
+    if imported:
+        _try_match_event(deps, event)  # tracks land matched, not 'missing'
     return 201, {**event, "imported_tracks": len(imported)}
 
 
@@ -778,13 +785,16 @@ def events_add_track(deps, request, body):
         title=body.get("title"),
         artist=body.get("artist"),
     )
+    matched = _try_match_event(deps, event)
+    if matched is not None:
+        track = next((t for t in matched if t["id"] == track["id"]), track)
     return 201, track
 
 
 def events_track_remove(deps, request, body):
-    """Owner-approved 2026-07-07: remove a NOT-YET-IMPORTED track row from an
+    """Owner-approved 2026-07-07: remove a NOT-YET-APPLIED track row from an
     event (a mispasted link must not stay 'missing' forever). App-DB only —
-    an 'imported' row lives in Rekordbox and belongs to delete/reapply."""
+    an 'applied' row lives in Rekordbox and belongs to delete/reapply."""
     event = _get_event(deps, request.path_params["event_id"])
     track_id = request.path_params["track_id"]
     row = next(
@@ -797,9 +807,11 @@ def events_track_remove(deps, request, body):
     )
     if row is None:
         raise KeyError(f"event track {track_id} not found")
-    if row["status"] == "imported":
+    if row["status"] == "applied":
+        # (was 'imported' — a status the events vocabulary never produces,
+        # so the guard was dead; found in owner testing 2026-07-07)
         raise ConflictError(
-            "an imported track is in Rekordbox; the event delete/reapply "
+            "an applied track is in Rekordbox; the event delete/reapply "
             "flows own that transition"
         )
     deps.conn.execute("DELETE FROM event_tracks WHERE id = ?", (track_id,))
@@ -814,6 +826,22 @@ def events_match(deps, request, body):
         **_matching_thresholds(deps),
     )
     return {"tracks": tracks}
+
+
+def _try_match_event(deps, event):
+    """Auto-match (owner request 2026-07-07): freshly added tracks are
+    matched right away instead of waiting for the Matcher button (which
+    stays for post-purchase re-runs). Best-effort BY DESIGN: the add/create
+    already succeeded — a matcher failure (Rekordbox not configured yet,
+    snapshot error) leaves rows 'missing' and the explicit Matcher button
+    surfaces the error (B1 is honored there, not here)."""
+    try:
+        return events_service.match_event_tracks(
+            deps.conn, event, deps.cache(), deps.storage_root,
+            **_matching_thresholds(deps),
+        )
+    except Exception:
+        return None
 
 
 def events_claim(deps, request, body):

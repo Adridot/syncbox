@@ -14,3 +14,10 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
+
+# Dock icon in `tauri dev` (macOS ignores bundle icons for a bare binary);
+# already in tauri's own tree, so this adds no new compilation unit.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = { version = "0.3", features = ["NSData"] }

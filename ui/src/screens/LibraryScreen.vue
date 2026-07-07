@@ -82,12 +82,17 @@ async function load() {
       tracksBySource[source.id] = results[index].tracks
     })
     health.setLibraryReviewCount(allTracks.value.filter(isReview).length)
+    if (firstLoad) {
+      firstLoad = false
+      defaultFilter()
+    }
   } catch (cause) {
     loadError.value = describe(cause).text
   } finally {
     loading.value = false
   }
 }
+let firstLoad = true
 onMounted(() => {
   if (!settings.loaded) void settings.load().catch(() => {})
   void load()
@@ -131,6 +136,14 @@ watch([selectedSource, filter], () => {
   selection.value = new Set()
   unfollowArmed.value = false
 })
+
+/** To-review first (owner feedback 07/07): entering a source — or the app —
+    lands on « À traiter » when there is review work, on « Tous » otherwise.
+    Manual chip picks are respected until the selection changes again. */
+function defaultFilter() {
+  filter.value = scopedTracks.value.some(isReview) ? 'review' : 'all'
+}
+watch(selectedSource, defaultFilter)
 
 // --- selection (select-all over FILTERED rows only, M4-PLAN M4.7) ---------
 const allVisibleSelected = computed(
@@ -489,7 +502,7 @@ async function onSourceAdded(source: Source) {
                   class="action"
                   to="/missing/library"
                   :title="t('library.actions.resolve')"
-                  >$</router-link
+                  >⤓</router-link
                 >
                 <button
                   v-if="track.status === 'ignored'"
@@ -1027,7 +1040,7 @@ h1 {
   border: 1px solid #2a3140;
   color: var(--text-secondary);
   border-radius: 7px;
-  font-size: 13px;
+  font-size: 15px;
   cursor: pointer;
   text-decoration: none;
 }

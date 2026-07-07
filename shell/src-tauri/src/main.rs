@@ -202,6 +202,26 @@ fn reap_stale_sidecar() {
     }
 }
 
+/// `tauri dev` runs a bare binary, so macOS shows the generic icon in the
+/// Dock (bundle icons only apply to a packaged .app). Set it at runtime —
+/// harmless in the bundle too, it just re-applies the same artwork.
+#[cfg(target_os = "macos")]
+fn set_dock_icon() {
+    use objc2::{AllocAnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return; // not the main thread: skip rather than crash
+    };
+    let data = NSData::with_bytes(include_bytes!("../icons/128x128@2x.png"));
+    if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+        unsafe {
+            NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
+        }
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         // Single-instance FIRST: a second launch self-exits before setup and
@@ -217,6 +237,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![restart_sidecar])
         .setup(|app| {
             eprintln!("PRIMARY_INSTANCE_STARTED shell_pid={}", std::process::id());
+            #[cfg(target_os = "macos")]
+            set_dock_icon();
             reap_stale_sidecar();
             app.manage(Sidecar(Mutex::new(None)));
             start_supervisor(app.handle().clone());

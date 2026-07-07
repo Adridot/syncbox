@@ -1651,8 +1651,10 @@ def test_event_track_remove_guards_imported(tmp_path):
     kept = env.client.post(
         f"/api/events/{event['id']}/tracks", json={"title": "Keep"}
     ).json()
+    # 'applied' is the status the apply pipeline actually writes — the guard
+    # used to check 'imported' (library vocabulary) and never fired
     env.conn.execute(
-        "UPDATE event_tracks SET status = 'imported' WHERE id = ?", (kept["id"],)
+        "UPDATE event_tracks SET status = 'applied' WHERE id = ?", (kept["id"],)
     )
     refused = env.client.delete(f"/api/events/{event['id']}/tracks/{kept['id']}")
     assert refused.status_code == 409

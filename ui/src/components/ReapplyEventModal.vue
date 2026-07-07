@@ -73,7 +73,7 @@ async function confirm() {
           {{
             status.rbOpen
               ? t('rbGuard.blocked')
-              : t('events.reapply.confirm', counts.pending)
+              : t('events.reapply.confirm', counts.pendReady)
           }}
         </button>
       </div>

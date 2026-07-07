@@ -94,6 +94,7 @@ export const fr: typeof en = {
     tableEmptyTitle: 'Rien à revoir ici',
     tableEmptyBody: 'Aucun titre ne correspond à ce filtre dans cette source.',
     filters: {
+      review: 'À traiter',
       all: 'Tous',
       matched: 'Matché',
       conflict: 'Conflit',
@@ -177,6 +178,8 @@ export const fr: typeof en = {
     changesPending: '{n} changement en attente | {n} changements en attente',
     match: 'Matcher les titres',
     claim: 'Récupérer les fichiers stagés',
+    openStaging: 'Ouvrir le dossier de dépôt',
+    openStagingHelp: 'Dépose ici les fichiers achetés ou récupérés à la main, puis « Récupérer les fichiers stagés ».',
     filters: {
       all: 'Tous',
       ready: 'Prêts',

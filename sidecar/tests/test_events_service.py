@@ -318,17 +318,46 @@ def test_reapply_without_delta_is_noop_before_mutate(conn, tmp_path):
     assert not backups.exists()
 
 
-def test_reapply_delta_ignores_non_delta_matched_rows(conn, tmp_path):
-    """11.2 killing test: reapply is the apply pipeline restricted to
-    added_after_apply rows ONLY - a pre-apply row that merely became
-    'matched' since the first apply must NOT be silently imported."""
-    event = create_event(conn, tmp_path / "storage", "Delta Strict")
+def test_reapply_picks_up_rows_matched_after_the_apply(conn, tmp_path, monkeypatch):
+    """Owner amendment to 11.2 (2026-07-07): the delta IS the matched/ready
+    set — a pre-apply row that became 'matched' only AFTER the first apply
+    must be picked up by the reapply (it was reported stuck: shown ready,
+    never reappliable)."""
+    event = create_event(conn, tmp_path / "storage", "Delta Réel")
     track = add_track(conn, event, title="Matched Later")
-    # matched but NOT a delta row (added_after_apply = 0)
+    # matched AFTER the apply: not an added_after_apply row
     conn.execute(
         "UPDATE event_tracks SET status = 'matched', content_id = 'C1' WHERE id = ?",
         (track["id"],),
     )
+    conn.execute("UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],))
+
+    @contextmanager
+    def fake_mutate(db_path, backups_root, *, retention=15, expected_fingerprint=None, open_db, invalidate_cache=None):
+        yield "db"
+
+    _fake_apply_helpers(monkeypatch, fake_mutate)
+    monkeypatch.setattr(events_service, "_xml_snapshot", lambda db, s: (None, None))
+
+    result = apply_event(
+        conn,
+        tmp_path / "master.db",
+        tmp_path / "backups",
+        FakeCache([]),
+        tmp_path / "storage",
+        event,
+        only_delta=True,
+    )
+    assert result["noop"] is False and result["applied"] == 1
+    row = list_event_tracks(conn, event["id"])[0]
+    assert row["status"] == "applied"
+
+
+def test_reapply_with_nothing_applicable_is_a_noop_before_mutate(conn, tmp_path):
+    """A reapply with no matched/ready row stays a strict no-op checked
+    BEFORE mutate() — no backup is wasted."""
+    event = create_event(conn, tmp_path / "storage", "Rien à faire")
+    add_track(conn, event, title="Toujours manquant")  # stays 'missing'
     conn.execute("UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],))
 
     backups = tmp_path / "backups"
@@ -343,8 +372,6 @@ def test_reapply_delta_ignores_non_delta_matched_rows(conn, tmp_path):
     )
     assert result["noop"] is True and result["applied"] == 0
     assert not backups.exists()
-    row = list_event_tracks(conn, event["id"])[0]
-    assert row["status"] == "matched"  # untouched: waiting for a FULL apply
 
 
 # --- apply harness fakes (no master.db) --------------------------------------------

@@ -25,6 +25,7 @@ import {
   isBaseApplied,
 } from '../lib/events'
 import { extractTrackId } from '../lib/spotify'
+import { revealInFolder } from '../shell'
 import { useHealthStore } from '../stores/health'
 import { useJobsStore } from '../stores/jobs'
 import { useStatusStore } from '../stores/status'
@@ -91,9 +92,9 @@ const selected = computed(
 const selectedTracks = computed(() =>
   selected.value ? (tracksByEvent[selected.value.id] ?? []) : [],
 )
-const counts = computed(() => eventCounts(selectedTracks.value))
-const visibleTracks = computed(() => filterEventTracks(selectedTracks.value, filter.value))
 const baseApplied = computed(() => (selected.value ? isBaseApplied(selected.value.status) : false))
+const counts = computed(() => eventCounts(selectedTracks.value, baseApplied.value))
+const visibleTracks = computed(() => filterEventTracks(selectedTracks.value, filter.value))
 const showApply = computed(() => selected.value && (!baseApplied.value || counts.value.pending > 0))
 
 const cardMeta = computed(() => {
@@ -334,7 +335,7 @@ async function onWriteDone() {
               status.rbOpen
                 ? t('rbGuard.blocked')
                 : baseApplied
-                  ? t('events.reapplyCta', { n: counts.pending })
+                  ? t('events.reapplyCta', { n: counts.pendReady })
                   : t('events.applyCta')
             }}
           </button>
@@ -453,6 +454,14 @@ async function onWriteDone() {
             }}</span>
           </button>
           <span class="spacer" />
+          <button
+            v-if="selected?.staging_dir"
+            class="btn-secondary tool"
+            :title="t('events.openStagingHelp')"
+            @click="revealInFolder(selected!.staging_dir!)"
+          >
+            {{ t('events.openStaging') }}
+          </button>
           <button class="btn-secondary tool" :disabled="jobs.jobRunning" @click="runMatch">
             {{ t('events.match') }}
           </button>
@@ -495,7 +504,7 @@ async function onWriteDone() {
                 >{{ t('events.resolveMissing') }}</router-link
               >
               <button
-                v-if="track.status !== 'imported'"
+                v-if="track.status !== 'applied'"
                 class="row-remove"
                 :title="t('events.removeTrack')"
                 @click="removeTrack(track)"

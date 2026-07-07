@@ -63,11 +63,18 @@ function mountLibrary() {
   return mount(LibraryScreen, { global: { plugins: [i18n, pinia, router] } })
 }
 
-test('"Tous" hides ignored/removed rows; select-all covers FILTERED rows only', async () => {
+test('default lands on « À traiter »; "Tous" hides ignored/removed; select-all covers FILTERED rows', async () => {
   stubApi()
   const wrapper = mountLibrary()
   await flushPromises()
 
+  // review work exists (Alpha is 'new') -> the DEFAULT chip is « À traiter »
+  // and only the to-review row is rendered (owner feedback 07/07)
+  expect(wrapper.text()).toContain('Alpha')
+  expect(wrapper.text()).not.toContain('Beta')
+
+  const chips = wrapper.findAll('.chip')
+  await chips[1].trigger('click') // 'Tous'
   // "Tous" -> only new + matched are rendered
   expect(wrapper.text()).toContain('Alpha')
   expect(wrapper.text()).toContain('Beta')
@@ -78,8 +85,7 @@ test('"Tous" hides ignored/removed rows; select-all covers FILTERED rows only', 
   expect(wrapper.text()).toContain('2 sélectionné(s)')
 
   // the ignored chip shows the hidden row
-  const chips = wrapper.findAll('.chip')
-  await chips[5].trigger('click') // 'Ignoré'
+  await chips[6].trigger('click') // 'Ignoré'
   expect(wrapper.text()).toContain('Gamma')
   expect(wrapper.text()).not.toContain('Alpha')
 })
@@ -103,6 +109,8 @@ test('apply CTA reflects the RB guard and the exact applicable count', async () 
   const wrapper = mountLibrary()
   await flushPromises()
 
+  // move off the « À traiter » default so the matched row is selectable
+  await wrapper.findAll('.chip')[1].trigger('click') // 'Tous'
   await wrapper.get('.table-head input[type="checkbox"]').setValue(true)
   const apply = wrapper.get('.sel-action.apply')
   expect(apply.attributes('disabled')).toBeDefined()
