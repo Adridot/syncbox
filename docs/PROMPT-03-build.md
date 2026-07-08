@@ -1,8 +1,6 @@
 # PROMPT-03 — Construction de Syncbox (from scratch)
 
-> **Comment l'utiliser.** Coller ce prompt dans une session Claude Code (**Fable**) **à la racine d'un dépôt neuf** contenant uniquement le kit de specs (`docs/` + `syncbox-ui-ux-design/`). Le mot **`ultracode`** active l'orchestration multi-agents. Le module **ponytail** reste actif (`/ponytail full`) — contrainte de réalisation, pas une option.
->
-> **Ce prompt ne paraphrase pas les specs.** Il fixe la mission, la hiérarchie d'autorité, les portes et les libertés. Tout le détail — invariants, constantes, écrans, recherches — vit dans le kit : **il fait foi, pas ce prompt**. Si une phrase de ce prompt semble contredire une spec, la spec gagne.
+> **Comment l'utiliser.** Coller ce prompt dans une session Claude Code **à la racine d'un dépôt neuf** (ou du dépôt actuel si tu repars de zéro dedans). Le mot **`ultracode`** active l'orchestration multi-agents si tu la veux. Le module **ponytail** doit rester actif (`/ponytail full`) — il est une **contrainte de réalisation**, pas une option. La spec qui fait foi est [SPEC-UNIFIED.md](SPEC-UNIFIED.md) : **ne pas la re-débattre**, l'**exécuter**.
 
 ---
 
@@ -10,61 +8,84 @@ ultracode — `/ponytail full`
 
 ## Mission
 
-Build **Syncbox** — an open-source **macOS + Windows** desktop app that syncs Spotify playlists in read-only mode to a DJ's **Rekordbox** collection, maintains the collection (duplicates, missing files, tags, Smart Fixes, fake-320/FLAC diagnostics), and promotes a **legal purchase + manual relink path** for missing tracks. Build it **from scratch**, with clean code that implements the spec without legacy debt. No download/acquisition module is in v1.
+Construire **Syncbox** — app desktop **macOS + Windows**, open-source, qui synchronise des playlists Spotify vers la collection **Rekordbox** d'un DJ, **entretient la collection** (doublons, fichiers manquants, tags, **Smart Fixes**, **détection faux-320/FLAC**), propose un **chemin d'achat légal** (liens Beatport/Bandcamp) et un **module de téléchargement optionnel OFF par défaut** (Deezer via streamrip) — **à partir de zéro**, en suivant [SPEC-UNIFIED.md](SPEC-UNIFIED.md).
 
-## Step zero - read the entire kit
+**Le but** : le code **le plus propre, fonctionnel et épuré** qui réalise la spec, sans la dette héritée. Cette réécriture est volontairement *from scratch* : le code de test existant (`service/tests/`) n'est **pas** une contrainte d'architecture — seuls comptent les **invariants de comportement** ([SPEC-UNIFIED §5](SPEC-UNIFIED.md)). Tu écris **tes propres tests**.
 
-Before writing any code, read **all of** SPEC-UNIFIED.md, including **section 11 post-design amendments**, SPEC-DESIGN.md, SPEC-AI-WORKFLOWS.md, the `syncbox-ui-ux-design/project/Syncbox.dc.html` mockup, and the active research notes listed in SPEC-UNIFIED §10.
+## Build à blanc (clean-room) — règle d'isolation
 
-Do **not** read or implement deprecated download research during v1: `docs/_research/04_Acquisition.md`, `docs/_research/10_Acquisition-2026.md`, and `docs/_research/14_streamrip-embedding-Deezer-SoundCloud.md` are historical only after the legal scope update. Read `docs/_research/16_Legal-download-removal.md` instead. The full active corpus is authoritative; excerpts are not enough.
+Tu construis dans un dépôt **NEUF et VIDE**. L'ancienne implémentation de Syncbox **n'existe pas ici, volontairement**. Tu ne dois **JAMAIS** la chercher, la cloner, l'importer, ni porter son code — ni `service/`, ni `electron/`, ni `src/` d'origine, ni `docs/_analysis/`. Les références `fichier:ligne` et les identifiants de bugs (`Bx`/`Fx`/`Tx`/`Dx`) que tu croises dans les specs sont de **simples étiquettes de traçabilité** : le comportement correct est **décrit en toutes lettres** dans [SPEC-UNIFIED §5](SPEC-UNIFIED.md) — tu **reproduis l'invariant, tu n'ouvres pas l'ancien code**. Si une information manque, tu la **demandes** (`AskUserQuestion`) ; tu ne la devines **jamais** depuis un dépôt existant.
 
-## Authority hierarchy
+## Intrants (hiérarchie d'autorité)
 
-1. **[SPEC-UNIFIED.md](SPEC-UNIFIED.md)** — authoritative for **all product and architecture requirements**: non-negotiables (§3), domain model (§4), behavior invariants (§5), architecture and decided forks (§6/§7), de-risking order (§8), legal download removal (§6.5), and **Gate 3 amendments (§11)** as superseded by the legal scope update.
-2. **[SPEC-AI-WORKFLOWS.md](SPEC-AI-WORKFLOWS.md)** — controls any model-backed workflow, prompt, refusal handling, fallback, sensitive-domain boundary, and human review gate. Syncbox v1 has **no approved AI workflow**. Do not add AI or cybersecurity automation unless a split spec under `docs/ai-workflows/` is approved first.
-3. **[SPEC-DESIGN.md](SPEC-DESIGN.md) + mockup [`Syncbox.dc.html`](../syncbox-ui-ux-design/project/Syncbox.dc.html)** — authoritative for **UI implementation details** after applying the legal scope update: six destinations plus onboarding, real router with deep links (`#health/<tab>`, unknown route -> Dashboard), component inventory, and visual tokens. Reproduce the mockup's behavior and visual hierarchy, not its literal inline CSS. Ignore deprecated mockup controls for Deezer/SoundCloud download, ARL, download toggles, and download jobs. The build uses a real router and `en.ts`/`fr.ts` i18n. If mockup and spec conflict, the spec wins.
-4. **Active research notes in SPEC-UNIFIED §10** — sourced state of the art behind each infrastructure choice. Re-read the relevant note **before** implementing the corresponding block: signature, transport, secrets, multi-OS, migrations, supervision, v1 additions, AI workflow safety, and legal download removal.
-5. **[SPEC-01-syncbox.md](SPEC-01-syncbox.md)** — **constants appendix only**: weights, thresholds, and buckets. Use it only when §5 is not precise enough.
+1. **[SPEC-UNIFIED.md](SPEC-UNIFIED.md)** — **fait foi** pour toute décision d'archi/produit : forks tranchés (§7.1), réponses §10 (§7.2), D1–D25 (§7.3), non-négociables (§3), modèle de domaine (§4), invariants de comportement (§5), architecture (§6), ordre de dé-risquage (§8).
+2. **`docs/_research/00–14`** — l'**état de l'art sourcé et daté** derrière chaque choix. À relire avant d'implémenter une brique d'infra (signature, transport, secrets, multi-OS, migrations, supervision, acquisition) ou un ajout v1 (Chromaprint/11, faux-320/12, achat légal/13, streamrip/14). Recherche externe — ne référence aucun code existant.
+3. **[SPEC-01-syncbox.md](SPEC-01-syncbox.md)** — **annexe de constantes UNIQUEMENT** (pondérations, seuils, buckets). À consulter seulement pour **départager une constante** quand §5 ne suffit pas. ⚠️ Les `fichier:ligne` qu'elle cite **ne sont PAS dans ce dépôt** : **ne les cherche pas**, ne tente pas de lire le code cité.
 
-## Build à blanc (clean-room)
+En cas de conflit : SPEC-UNIFIED > SPEC-01 (constantes) > research. (`docs/_analysis/` est **hors du kit** — voir la règle d'isolation.)
 
-L'ancienne implémentation **n'existe pas ici, volontairement**. Ne jamais la chercher, la cloner ni en porter du code. Les références `fichier:ligne` et identifiants (`Bx`/`Fx`/`Tx`/`Dx`) dans les specs sont des étiquettes de traçabilité : le comportement correct est décrit **en toutes lettres** dans SPEC-UNIFIED §5/§11 — tu reproduis l'invariant, tu n'ouvres pas l'ancien code. Information manquante → tu la **demandes** (`AskUserQuestion`), tu ne la devines jamais.
+## Principes de réalisation (non négociables)
 
-## Principes de réalisation
+1. **Ponytail à chaque brique.** Remonter l'échelle : (1) doit-elle exister ? (2) stdlib ? (3) feature native OS/plateforme ? (4) dépendance déjà installée ? (5) une ligne ? (6) le minimum qui marche. Le diff le plus court qui passe les tests gagne. Marquer chaque simplification délibérée d'un `# ponytail:` (ce qui est écarté + quand le rajouter).
+2. **Altitude : exhaustif sur le QUOI, libre sur le COMMENT.** La spec fixe les invariants, les forks et les non-négociables ; **le reste est ta liberté** — choisis la meilleure implémentation dans ces bornes. Les recommandations `reco` de la spec sont des défauts sourcés, pas des mandats : tu peux faire mieux, en le justifiant.
+3. **Sûreté d'abord.** Les non-négociables [§3](SPEC-UNIFIED.md) sont des **gardes dures**, jamais simplifiables : garde « RB/rekordboxAgent fermé » avant toute mutation, `_mutate` (assert → backup → muter → commit → invalider cache ; rollback sur exception), soft-delete réversible, **entiers de statut load-bearing** (256/258, `rb_data_status`) à reproduire à l'identique, résolution de chemins volume-relatif/absolu, **ne jamais déplacer les fichiers** + quirk TCC, secrets jamais en clair.
+4. **Aucune simplification sans son test.** Toute logique non triviale (branche, boucle, parser, chemin sûreté/argent) laisse **un** check runnable qui casse si la logique casse. Pas de framework lourd, pas de fixtures inutiles.
+5. **Faithful reporting.** Si un POC échoue ou révèle qu'un choix de la spec ne tient pas, **le dire** et remonter la décision — ne pas masquer un blocage.
 
-1. **Exhaustif sur le QUOI, libre sur le COMMENT.** Les invariants, forks et non-négociables sont des bornes dures ; **tout le reste est ta liberté** — les `reco` de la spec sont des défauts sourcés, pas des mandats. Tu peux faire mieux, en le justifiant.
-2. **Ponytail à chaque brique** : (1) doit-elle exister ? (2) stdlib ? (3) natif OS ? (4) dépendance déjà là ? (5) une ligne ? (6) le minimum qui marche. Chaque simplification délibérée porte son `# ponytail:` (écarté + quand rajouter).
-3. **Sûreté d'abord — rappel des gardes dures** (le détail qui fait foi est en §3/§5) : garde « RB/rekordboxAgent fermé » avant toute mutation · unit-of-work `_mutate` (assert → backup horodaté → muter → commit → invalider cache ; rollback sur exception) · soft-delete réversible, **entiers 256/258 à l'identique** · résolution de chemins volume-relatif/absolu · **ne jamais déplacer les fichiers** + quirk TCC (`Path.exists()`) · secrets jamais en clair (Spotify tokens only in v1) · dry-run→confirm→mutate avec garde de fraîcheur · `protected` exclus par défaut · suppression fichier **après** commit, corbeille OS sinon consentement préalable · progression réelle SSE, jamais factice.
-4. **Aucune logique non triviale sans son check runnable** — le plus petit test qui casse si la logique casse. Pas de framework lourd.
-5. **Faithful reporting.** POC qui échoue, choix de spec qui ne tient pas, garde qui rend un parcours lourd → le dire et remonter, jamais masquer.
-6. **No unapproved AI workflow.** If a requested feature would call a model, generate prompts, process refusals, or automate cybersecurity analysis, stop and create/approve the split workflow spec first. The prompt must show lawful context and must never request malware, persistence, credential theft, real third-party exploitation, evasion, or safety-system bypass.
-7. **No download/acquisition module.** Do not implement Deezer full-track download, streamrip, deemix, ARL collection/storage/UI, SoundCloud download, ffmpeg-based remote media acquisition, download queues, download progress, or POC #6. Missing tracks use legal purchase links and manual relink only.
+## Stack tranchée (forks A–D — [SPEC-UNIFIED §7.1](SPEC-UNIFIED.md))
 
-## Ordre de travail
+- **A — Écriture Rekordbox** : `master.db` **en place, sans mode XML**, via **pyrekordbox** (Python, MIT). Cœur produit = MyTags + smart playlists.
+- **B — Coque** : **Tauri v2** (webview natif), sidecar Python en `externalBin`. Repli Electron **seulement** si le POC #1 (signature) bloque.
+- **C — Transport** : **HTTP REST + SSE en localhost** (sidecar = **Starlette + `sse-starlette`**, uvicorn 1 worker dans la boucle asyncio principale). **Pas** de JSON-RPC stdio. Serveur bindé `127.0.0.1`, origines restreintes aux loopback.
+- **D — Acquisition** : **module OPTIONNEL, OFF par défaut** ; **chemin légal B2 mis en avant** (liens d'achat Beatport/Bandcamp, **stdlib `urllib`, zéro réseau côté app**). Téléchargement = **streamrip importé comme lib** (pin git **v2.2.0**, SHA figé, **Deezer-only v1**), interface mince `DeezerAcquirer.download(track_id) -> Path`, **jamais sur le chemin critique `master.db`** ; **code GPL-3 non embarqué dans l'artefact de base** (composant séparé). **deemix-fork = fallback documenté** ; SoundCloud → v2 (ffmpeg). full-track = **POC #6**, choix de lib **tranché (streamrip)**.
 
-**Phase 0 = GATE.** Run the active POCs from [SPEC-UNIFIED §8](SPEC-UNIFIED.md): sidecar signature · process lifecycle/tree-kill · size+cold-start · SSE in WKWebView/WebView2 · pyrekordbox RB 7.x fidelity · legal missing-track scope audit · A3 calibration · B2 purchase-link templates · Smart Fixes safety. Each POC is minimal, disposable, and ends with a GO/NO-GO verdict for the owner. POC #6 full-track Deezer/streamrip is removed and must not be run.
+**Ajouts v1 (périmètre OVERHAUL-01, [§7.4](SPEC-UNIFIED.md))** : A1 Smart Fixes, A3 faux-320/FLAC, B2 Track Matcher légal (+ D7 untagged). **Différés v2** : A2 dedup empreinte Chromaprint (binaire LGPL, POC), SoundCloud (B4, ffmpeg), A5 AcoustID.
 
-Ensuite, chaque phase s'appuie sur la précédente :
-1. **Noyau de sûreté** (§3.1/§3.2/§5.1/§5.2) — tests d'abord : c'est le contrat qui protège la collection.
-2. **Modèle de domaine & service** (§4, migrations `user_version`, Starlette HTTP+SSE, secrets, supervision, OAuth PKCE port fixe, multi-OS).
-3. **Logique métier** (§5.3–§5.13 + §11.2/§11.3) — matching, dedup/keeper, Smart Fixes, faux-320, sync bibliothèque, events (dont ré-application), untagged/missing, Track Matcher légal, manual relink.
-4. **Coque & UI** — Tauri v2, Vue 3, **SPEC-DESIGN exécutée** : router réel, 6 destinations, onboarding 11 étapes, composants §6, tokens §7, gardes à surface UI §8, i18n FR/EN réelle, une seule couche de cache + flux SSE canonique, état backend-down.
-5. **Packaging** — PyInstaller onedir, signature/notarisation selon POC #1, version single-source, no download/GPL acquisition component, aucun auto-update.
+**Conditions dures à respecter** (sourcées, [§6](SPEC-UNIFIED.md)) : signature sidecar macOS en **étape POST-bundle** (#11992 ouverte) ; `redirect_uri` OAuth **codé en dur** `http://127.0.0.1:8765/callback` + réponse indépendante du Host ; **tree-kill** du worker PyInstaller (sinon port 8765 orphelin) ; migrations **`PRAGMA user_version` + scripts stdlib** (seed = migration `0001`) ; secrets **`keyring` si signé / store chiffré si non signé** (tokens Spotify **ET** ARL Deezer) ; suppression fichier cloud/exFAT = corbeille OS **sinon suppression définitive avec consentement préalable**. **Ajouts v1** : Smart Fixes (A1) écrit `master.db` **uniquement via `_mutate`** (dry-run→confirm→mutate, garde de fraîcheur du snapshot, `protected` exclus par défaut) ; faux-320 (A3) **read-only** (`miniaudio`+`numpy.fft`, jamais dans `_mutate`) ; Track Matcher (B2) = **zéro réseau côté app** ; lib d'acquisition force le **bundle `certifi`** (TLS jamais désactivé) et **n'écrit jamais l'ARL en clair** (pas de `config.toml`).
+
+## Ordre de travail — POC d'abord (dé-risquage avant tout engagement)
+
+> **Phase 0 = GATE.** Ne pas construire l'app complète avant d'avoir levé les 9 risques de [SPEC-UNIFIED §8](SPEC-UNIFIED.md) (6 infra + 3 ajouts v1). Chaque POC est minimal, jetable, et conclut par un verdict GO/NO-GO remonté au propriétaire.
+
+**Phase 0 — POC de dé-risquage** (dans l'ordre) :
+1. **Signature + notarisation du sidecar PyInstaller sous Tauri macOS** (#11992, étape POST-bundle `codesign`+`notarytool`). NO-GO → repli Electron (Fork B).
+2. **Cycle de vie du process** : spawn + supervision + **tree-kill** (mac process-group **et** Windows `taskkill /T`) + fermeture propre SQLCipher + libération du port 8765 + single-instance.
+3. **Taille bundle + cold-start** mesurés (PyInstaller `--onedir`, venv réel numpy+sqlcipher3+pyrekordbox+**miniaudio/cffi (A3)**+downloader ; `fpcalc`/A2 hors v1).
+4. **`EventSource`/SSE dans WKWebView + WebView2 réels** (Starlette+sse-starlette sur HTTP localhost), pas en Chromium/Electron.
+5. **Fidélité d'écriture pyrekordbox sur RB 7.x** (smart playlists/MyTags, bug #110) — harnais de non-régression sur le schéma `master.db`.
+6. **Acquisition (B1) — porte bloquante** : full-track **Deezer** avec **ARL Premium réel** (vs preview 30 s) via **streamrip lib** (pin git v2.2.0, SHA figé), par **ID numérique résolu de l'ISRC** ; wrapper `DeezerAcquirer` via `PendingSingle.resolve()→track.download_path` (D18, ARL **en mémoire**, `Config`/job, F2/F3) ; packaging `pycryptodomex`(Blowfish)/`mutagen` mac+Win. **Bascule deemix-fork** si coût aiohttp / fragilité d'API bloquante. NO-GO → **B1 différé v1.1, B2 (légal) reste le chemin manquants, le reste livrable**.
+7. **Faux-320/FLAC (A3)** : delta bundle réel `miniaudio`+`cffi`+`pycparser` mac+Win (`hiddenimport _cffi_backend`, **`optimize=0`**, numpy en dép directe) ; calibration rolloff (frontière 320/V0 = zone `incertain`) + faux positifs masters band-limités ; branchement A3→D6 (rétrogradation du critère qualité, jamais dans `_mutate`). NO-GO/non-calibrable → repli **A3-lite** (champs snapshot, 0 dépendance native) ou v2.
+8. **Track Matcher légal (B2)** : URL Beatport/Bandcamp sur 5-10 morceaux réels (taux de bon 1er résultat) ; fallback « boutique disparue » (entrée retirée du catalogue au build → bouton absent). **Zéro réseau côté app.**
+9. **Smart Fixes (A1)** : `dry-run` == payload réellement écrit ; ordre déterministe + **idempotence** (re-run = no-op) ; garde `protected` exclus par défaut (opt-in nommé non mémorisé) ; **garde de fraîcheur** (ré-validation `(mtime,size)` à l'entrée de `_mutate`, ABORT si la DB a changé) ; passage exclusif par `_mutate`.
+
+**Phase 1 — Noyau de sûreté** (le plus précieux) : `pyrekordbox` + la colonne vertébrale §3.1/§5.1 (garde RB fermé, `_mutate`, backup, soft-delete, restore, résolution de chemins §3.2/§5.2). **Tests d'abord** sur ces invariants — c'est le contrat qui protège la collection de l'utilisateur.
+
+**Phase 2 — Modèle de domaine & service** : entités §4, SQLite app + migrations `user_version`, transport Starlette HTTP+SSE, secrets au repos (§6.7), supervision (§6.6), OAuth PKCE port fixe (§6.10), abstraction multi-OS (§6.9).
+
+**Phase 3 — Logique métier** : matching ISRC/fuzzy (§5.3, normalisation unique D19), dedup + keeper explicite (§5.4, D5/D6 **échelle ordonnée discrète**), **Smart Fixes (A1, §5.11 — dry-run→confirm→mutate via `_mutate`, catalogue FIXE structurel, `protected` exclus, garde de fraîcheur)**, **détection faux-320/FLAC (A3, §5.12 — read-only `miniaudio`+`numpy.fft`, verdict → rétrogradation keeper D6)**, sync bibliothèque (§5.6), événements + smart playlists (§5.7), untagged/missing (§5.8), **Track Matcher légal (B2, §5.13 — URL Beatport/Bandcamp `urllib` stdlib, zéro réseau côté app)**, acquisition (§5.5, **streamrip Deezer-only**, vrai chemin de sortie D18, concurrence sans global F2/F3) — **module optionnel OFF par défaut**.
+
+**Phase 4 — Coque & UI** : Tauri v2, UI Vue 3 (i18n FR/EN), **une seule** couche de cache + un flux SSE de jobs canonique, single-instance, état « backend indisponible ».
+
+**Phase 5 — Packaging** : PyInstaller `--onedir`, signature/notarisation (selon POC #1), version single-source ; **`miniaudio`/`cffi`/`pycparser` bundlés (A3, `optimize=0`, numpy en dépendance directe)** ; module acquisition GPL-3 **livré séparément** (hors artefact de base) ; **aucun auto-update** (cohérent mémoire `no-auto-build-release`).
+
+> L'UI/UX détaillée (§10.9) et le matching configurable (§10.10) sont **délégués à la phase design** (SPEC-UNIFIED §9) — ne pas les figer ici ; concevoir les parcours quand le reste tient.
 
 ## Contrat de tests
 
-Le contrat = les **invariants de SPEC-UNIFIED §5 + §11** (la suite pytest héritée n'existe pas ici). Écris tes propres tests, en priorité sur : garde RB + `_mutate` + backup · entiers 256/258 · chemins volume-relatif/absolu + TCC · collision ISRC · transitions de statut (sync/event/missing-track relink, **dont ré-application idempotente**) · keeper D6 + rétrogradation A3 · Smart Fixes (dry-run == mutate, idempotence, protected, fraîcheur) · B2 zéro réseau · clauses testables §3.6/§6.5 (no ARL, no streamrip/deemix, no download route/job/UI).
+Le contrat est l'ensemble des **invariants de comportement** ([SPEC-UNIFIED §5](SPEC-UNIFIED.md)), pas la suite pytest héritée. **Écris tes propres tests**, couvrant en priorité : la garde RB + `_mutate` + backup (sûreté), les entiers de statut 256/258, la résolution de chemins volume-relatif/absolu, le quirk TCC (`Path.exists()`), la garde de collision ISRC, les transitions de statut (sync/event/acquisition), le keeper explicite (échelle ordonnée D6 + rétrogradation A3 primant sur le bitRate déclaré), la suppression réversible. **Ajouts v1** : Smart Fixes (dry-run == mutate, idempotence, ordre déterministe, `protected` exclus, garde de fraîcheur, passage `_mutate`) ; faux-320 (verdict, jamais dans `_mutate`, `ok`/neutre par défaut si non analysé) ; Track Matcher (URL construites correctement, **zéro appel réseau côté app**). Pas de fixtures lourdes ; un check runnable par invariant non trivial.
 
 ## Définition du « terminé »
 
-- Active Phase 0 POCs GO (ou NO-GO remonté + repli appliqué). Non-négociables §3 tenus **et testés**. Invariants §5 + amendements §11 reproduits et couverts par des tests neufs.
-- UI conforme à SPEC-DESIGN (navigation, composants, gardes §8, états) — correctifs §11.1/§11.2 inclus.
-- App fonctionnelle macOS **et** Windows ; sidecar démarre/s'arrête proprement (tree-kill, port libéré).
-- Zéro secret en clair, zéro chemin codé en dur, une seule source de vérité, no download/acquisition dependency or UI.
-- No model-backed feature exists unless its split workflow spec is approved under `docs/ai-workflows/`; refusal/fallback behavior is tested if any such workflow is later approved.
-- Chaque simplification ponytail porte son `# ponytail:`.
+- Les 9 POC de Phase 0 sont GO (ou leur NO-GO est remonté avec le repli appliqué : B1→v1.1, A3→A3-lite/v2).
+- Tous les non-négociables §3 sont tenus et **testés**.
+- Les invariants §5 (dont §5.11–§5.13) sont reproduits et couverts par des tests neufs.
+- **Les 4 ajouts v1 sont livrés et testés** : A1 Smart Fixes (via `_mutate`), A3 faux-320/FLAC (read-only), B2 Track Matcher légal (zéro réseau côté app), B1 streamrip Deezer-only **si POC #6 GO** (sinon différé v1.1 sans bloquer la release — B2 couvre les manquants). **A2 dedup empreinte et SoundCloud sont hors v1** (différés v2).
+- L'app tourne sur macOS **et** Windows ; le sidecar démarre/s'arrête proprement (tree-kill, pas d'orphelin, port libéré).
+- Zéro secret en clair (tokens Spotify + ARL Deezer chiffrés, aucun `config.toml` streamrip) ; zéro chemin codé en dur ; une seule source de vérité (données + réglages) ; code GPL-3 d'acquisition **non embarqué dans l'artefact de base**.
+- Chaque simplification ponytail porte son `# ponytail:` (ce qui est écarté + quand le rajouter).
 
 ## Règles d'interaction
 
-- Tout choix structurant non couvert par le kit → **demander** (`AskUserQuestion`), reco ponytail en tête. Ne jamais re-débattre ce qui est tranché.
-- Livrable d'abord, explication courte ensuite. Langue : **français**.
+- **Tout choix structurant non couvert par la spec → demander** (`AskUserQuestion`), reco ponytail en tête.
+- Ponytail actif : livrable d'abord, explication courte ensuite ; la simplification se justifie par sa brièveté.
+- Langue : **français**.
