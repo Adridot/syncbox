@@ -7,6 +7,7 @@ import { router } from '../../router'
 import { useHealthStore } from '../../stores/health'
 import { useStatusStore } from '../../stores/status'
 import DuplicatesTab from '../health/DuplicatesTab.vue'
+import SmartFixesTab from '../health/SmartFixesTab.vue'
 import UntaggedTab from '../health/UntaggedTab.vue'
 
 let pinia: ReturnType<typeof createPinia>
@@ -133,6 +134,19 @@ test('resolve CTA reflects the RB guard', async () => {
   const resolve = wrapper.get('.resolve')
   expect(resolve.attributes('disabled')).toBeDefined()
   expect(resolve.text()).toContain('Rekordbox ouvert — bloqué')
+})
+
+test('smart fixes only advertises fixes the server actually runs', () => {
+  // Honesty invariant (§5.11): the ✓ catalog must match smartfixes.py CATALOG
+  // (strip junk/URL + mojibake). 'extract' and 'case' are deferred, not shipped
+  // — a ✓ next to a fix that never fires misleads the DJ.
+  const wrapper = mount(SmartFixesTab, { global: { plugins: [i18n, pinia, router] } })
+  const families = wrapper.findAll('.family').map((f) => f.text())
+  expect(families).toHaveLength(2)
+  expect(families.join(' | ')).toContain('URL')
+  expect(families.join(' | ')).toContain('mojibake')
+  expect(wrapper.text()).not.toContain('casse')
+  expect(wrapper.text()).not.toContain('remixer')
 })
 
 test('untagged selection binds to the visible filter (§9 regression)', async () => {

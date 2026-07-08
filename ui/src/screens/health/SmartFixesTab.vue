@@ -16,7 +16,12 @@ import { useJobsStore } from '../../stores/jobs'
 const { t } = useI18n()
 const jobs = useJobsStore()
 
-const FAMILIES = ['extract', 'case', 'junkchars', 'encoding'] as const
+// Only the fixes the server actually runs (smartfixes.py CATALOG). 'extract'
+// (artist/remixer from title) and 'case' (casing) are DEFERRED, not shipped:
+// POC #9 excluded casing (13 legit all-caps titles clobbered) and extraction
+// needs RemixerID write support + its own calibration. The ✓ list must match
+// behavior — advertising a fix that never fires is worse than omitting it.
+const FAMILIES = ['junkchars', 'encoding'] as const
 
 const dry = ref<SmartFixesDryRun | null>(null)
 const stale = ref(false)

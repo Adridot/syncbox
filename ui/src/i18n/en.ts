@@ -367,8 +367,6 @@ export const en = {
     lead: 'Universal structural fixes — the catalog is fixed. The cycle is always {cycle}: nothing is written without your confirmation, and the write creates a timestamped backup.',
     cycle: 'preview → confirm → write',
     families: {
-      extract: 'Extract artist / remixer from the title',
-      case: 'Normalize casing',
       junkchars: 'Strip junk characters / URLs',
       encoding: 'Fix encoding (mojibake)',
     },

@@ -371,8 +371,6 @@ export const fr: typeof en = {
     lead: 'Correctifs structurels universels — le catalogue est fixe. Le cycle est toujours {cycle} : rien n’est modifié sans ton accord, et l’écriture crée un backup horodaté.',
     cycle: 'aperçu → confirmation → écriture',
     families: {
-      extract: 'Extraire artiste / remixer du titre',
-      case: 'Normaliser la casse',
       junkchars: 'Retirer caractères / URL parasites',
       encoding: 'Corriger l’encodage (mojibake)',
     },
