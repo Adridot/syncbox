@@ -152,3 +152,10 @@ Current release: **0.1.0** — macOS (Apple Silicon), unsigned.
   validation harnesses.
 - **Later** — in-app audio preview, fingerprint-based duplicate detection
   (Chromaprint), ISRC enrichment.
+
+## License
+
+[MIT](LICENSE). The packaged app bundles third-party components under their
+own licenses — among them [mutagen](https://github.com/quodlibet/mutagen)
+(GPL-2.0-or-later), whose source-availability terms this public repository
+satisfies.

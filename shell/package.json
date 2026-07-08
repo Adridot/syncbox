@@ -10,5 +10,6 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0"
-  }
+  },
+  "license": "MIT"
 }

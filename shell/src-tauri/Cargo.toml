@@ -1,6 +1,7 @@
 [package]
 name = "syncbox-shell"
 version = "0.2.0"
+license = "MIT"
 edition = "2021"
 
 [build-dependencies]
