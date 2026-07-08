@@ -20,7 +20,10 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-SHELL_BIN = os.path.join(REPO, "shell/src-tauri/target/debug/syncbox-shell")
+# M5.5: SYNCBOX_SHELL_BIN retargets the harness at the packaged app binary.
+SHELL_BIN = os.environ.get("SYNCBOX_SHELL_BIN") or os.path.join(
+    REPO, "shell/src-tauri/target/debug/syncbox-shell"
+)
 LOG = os.path.join(HERE, "build/supervisor-restart.log")
 PORT = 8765
 

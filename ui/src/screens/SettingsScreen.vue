@@ -23,6 +23,8 @@ const settings = useSettingsStore()
 const status = useStatusStore()
 const spotify = useSpotifyConnect()
 
+const appVersion = __APP_VERSION__
+
 const DEFAULTS = {
   match_confidence_threshold: 82,
   match_ambiguity_margin: 6,
@@ -364,7 +366,7 @@ const derivedRows = computed(() => {
       <button class="link foot-link" @click="replayOnboarding">
         {{ t('settings.replayOnboarding') }}
       </button>
-      <span class="version mono">Syncbox v0.1</span>
+      <span class="version mono">Syncbox v{{ appVersion }}</span>
     </footer>
   </main>
 </template>

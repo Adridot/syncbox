@@ -32,17 +32,29 @@ static SUPERVISING: AtomicBool = AtomicBool::new(false);
 
 struct Sidecar(Mutex<Option<Child>>);
 
-fn sidecar_command() -> Command {
-    // Dev seam: the repo venv. M5 packaging replaces this with the bundled
-    // PyInstaller binary resolved from the app resources.
-    let repo_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let mut cmd = Command::new(format!("{repo_root}/sidecar/.venv/bin/python"));
-    cmd.args(["-u", "-m", "syncbox"])
-        .current_dir(format!("{repo_root}/sidecar"))
-        // No build backend in the venv by design (pyproject ponytail note,
-        // packaging is M5): the package imports via PYTHONPATH, like pytest.
-        .env("PYTHONPATH", format!("{repo_root}/sidecar/src"))
-        .stdout(Stdio::piped())
+fn sidecar_command(app: &tauri::AppHandle) -> Command {
+    let mut cmd = if cfg!(debug_assertions) {
+        // Dev seam: the repo venv, exactly the M4 recipe (pytest-style
+        // PYTHONPATH import; no build backend in the venv by design).
+        let repo_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+        let mut cmd = Command::new(format!("{repo_root}/sidecar/.venv/bin/python"));
+        cmd.args(["-u", "-m", "syncbox"])
+            .current_dir(format!("{repo_root}/sidecar"))
+            .env("PYTHONPATH", format!("{repo_root}/sidecar/src"));
+        cmd
+    } else {
+        // Release: the PyInstaller onedir bundled under Resources/sidecar
+        // (6.11). The whole onedir ships as a bundle resource - exe and its
+        // _internal/ must stay adjacent, which externalBin (one file per
+        // target triple) cannot carry alone.
+        let bin = app
+            .path()
+            .resource_dir()
+            .expect("app bundle has a resource dir")
+            .join("sidecar/syncbox-sidecar");
+        Command::new(bin)
+    };
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         // Own process group at spawn: killpg is only safe when pgid == pid.
         // Inheriting the parent's pgid means killpg kills the shell itself
@@ -51,8 +63,8 @@ fn sidecar_command() -> Command {
     cmd
 }
 
-fn spawn_sidecar() -> std::io::Result<Child> {
-    let mut child = sidecar_command().spawn()?;
+fn spawn_sidecar(app: &tauri::AppHandle) -> std::io::Result<Child> {
+    let mut child = sidecar_command(app).spawn()?;
     // 6.6: ALWAYS consume child output (an unread pipe eventually blocks and
     // crashes the sidecar). Forward to the shell's stderr for dev visibility.
     for (name, stream) in [
@@ -84,7 +96,7 @@ fn start_supervisor(app: tauri::AppHandle) {
         // fresh supervisor). Add uptime-based reset only if it bites.
         let mut attempts: u32 = 0;
         loop {
-            match spawn_sidecar() {
+            match spawn_sidecar(&app) {
                 Ok(child) => {
                     let state = app.state::<Sidecar>();
                     *state.0.lock().unwrap() = Some(child);

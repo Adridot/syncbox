@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "pnpm --dir ../ui dev",
     "build": "pnpm --dir ../ui build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "freeze": "cd ../sidecar && .venv/bin/pyinstaller --noconfirm sidecar.spec"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0"

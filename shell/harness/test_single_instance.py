@@ -23,12 +23,19 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-SHELL_BIN = os.path.join(REPO, "shell/src-tauri/target/debug/syncbox-shell")
+# M5.5: SYNCBOX_SHELL_BIN retargets the harness at the packaged app binary
+# (Syncbox.app/Contents/MacOS/syncbox-shell), which spawns the frozen sidecar.
+SHELL_BIN = os.environ.get("SYNCBOX_SHELL_BIN") or os.path.join(
+    REPO, "shell/src-tauri/target/debug/syncbox-shell"
+)
 LOG = os.path.join(HERE, "build/single-instance.log")
 PORT = 8765
-# The venv python execs the framework binary, so match on the args; the
-# leading [-] keeps pgrep from parsing the pattern as its own options.
-SIDECAR_PATTERN = "[-]u -m syncbox"
+# Dev: the venv python execs the framework binary, so match on the args (the
+# leading [-] keeps pgrep from parsing the pattern as its own options).
+# Packaged: the frozen binary carries its own name.
+SIDECAR_PATTERN = (
+    "[s]yncbox-sidecar" if os.environ.get("SYNCBOX_SHELL_BIN") else "[-]u -m syncbox"
+)
 
 
 def log_lines():

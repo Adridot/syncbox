@@ -4,7 +4,9 @@
 Assert-based script. Run with the project venv python:
     sidecar/.venv/bin/python shell/harness/driver_lifecycle.py
 
-Covers SPEC-UNIFIED 6.6 on the production sidecar (python -m syncbox, :8765):
+Covers SPEC-UNIFIED 6.6 on the production sidecar on :8765 - the dev venv
+(python -m syncbox, default) or the frozen binary (SYNCBOX_SIDECAR_BIN=
+sidecar/dist/syncbox-sidecar/syncbox-sidecar, M5.5):
   T1  process topology (psutil): single process, listener == spawned pid
   T2  naive child-only kill -> no orphaned :8765 listener
   T3  tree-kill done right: own process group, killpg, port released, re-spawn
@@ -28,6 +30,10 @@ import psutil
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 VENV_PY = os.path.join(REPO, "sidecar/.venv/bin/python")
 SIDECAR_CWD = os.path.join(REPO, "sidecar")
+# M5.5: point the whole harness at the frozen sidecar instead of the venv:
+#   SYNCBOX_SIDECAR_BIN=sidecar/dist/syncbox-sidecar/syncbox-sidecar \
+#       sidecar/.venv/bin/python shell/harness/driver_lifecycle.py
+SIDECAR_BIN = os.environ.get("SYNCBOX_SIDECAR_BIN")
 PORT = 8765
 DATA_DIR = tempfile.mkdtemp(prefix="syncbox-harness-")
 RESULTS = []
@@ -90,14 +96,16 @@ def spawn(own_group):
     """Spawn the production sidecar; own_group -> setsid (pgid == pid).
     stderr goes to a per-run file so a boot failure is diagnosable."""
     stderr_path = os.path.join(DATA_DIR, "spawn-stderr.log")
+    env = {**os.environ, "SYNCBOX_DATA_DIR": DATA_DIR}
+    if SIDECAR_BIN:
+        cmd, cwd = [os.path.abspath(SIDECAR_BIN)], None
+    else:
+        cmd, cwd = [VENV_PY, "-u", "-m", "syncbox"], SIDECAR_CWD
+        env["PYTHONPATH"] = os.path.join(SIDECAR_CWD, "src")
     return subprocess.Popen(
-        [VENV_PY, "-u", "-m", "syncbox"],
-        cwd=SIDECAR_CWD,
-        env={
-            **os.environ,
-            "PYTHONPATH": os.path.join(SIDECAR_CWD, "src"),
-            "SYNCBOX_DATA_DIR": DATA_DIR,
-        },
+        cmd,
+        cwd=cwd,
+        env=env,
         stdout=subprocess.DEVNULL,
         stderr=open(stderr_path, "ab"),
         start_new_session=own_group,
@@ -126,7 +134,7 @@ def cleanup(popen):
 
 # ---------------------------------------------------------------- T1 topology
 def t1_topology():
-    section("T1 - process topology of the production sidecar (python -m syncbox)")
+    section(f"T1 - process topology of the production sidecar ({SIDECAR_BIN or 'python -m syncbox'})")
     p = spawn(own_group=False)
     try:
         ready = wait_health()

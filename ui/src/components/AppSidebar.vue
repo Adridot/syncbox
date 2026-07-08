@@ -10,6 +10,8 @@ const { t } = useI18n()
 const route = useRoute()
 const health = useHealthStore()
 
+const appVersion = __APP_VERSION__
+
 const items = computed(() => [
   { name: 'dashboard', to: '/', icon: '◎', label: t('nav.dashboard'), badge: null as number | null, warn: false },
   { name: 'library', to: '/library', icon: '≡', label: t('nav.library'), badge: health.badges.library, warn: false },
@@ -38,7 +40,7 @@ const isActive = (name: string) => route.name === name
       <img class="brand-mark" src="../assets/logo.png" alt="" />
       <div>
         <div class="brand-name">{{ t('app.title') }}</div>
-        <div class="brand-meta">v0.1 · macOS</div>
+        <div class="brand-meta">v{{ appVersion }} · macOS</div>
       </div>
     </div>
 
