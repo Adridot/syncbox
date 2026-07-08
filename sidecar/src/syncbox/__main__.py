@@ -23,6 +23,17 @@ from syncbox.spotify import SpotifyAuth, SpotifyClient
 log = logging.getLogger("syncbox")
 
 
+def _drop_playlist_xml_noise(record) -> bool:
+    """Drop pyrekordbox's per-commit warning about playlists missing from
+    masterPlaylists6.xml. Rekordbox removes the XML node when a playlist is
+    deleted but keeps the DB row soft-deleted, so the warning re-fires forever
+    for every playlist ever deleted (222 on the owner's library, one line each
+    per mutation) and carries no signal - deleting playlists after gigs is
+    normal use. Our own writes DO maintain the XML (rb_write playlist_xml.add),
+    so a genuine miss on our side shows up in tests, not in this log."""
+    return "not found in masterPlaylists6.xml" not in record.getMessage()
+
+
 def compose(data_dir=None):
     """Build the fully wired Starlette app; ``data_dir`` overrides the OS
     app-data location (tests), as does SYNCBOX_DATA_DIR (regression harness)."""
@@ -42,6 +53,7 @@ def compose(data_dir=None):
         ],
         force=True,  # deterministic wiring even if logging was already touched
     )
+    logging.getLogger("pyrekordbox.db6.database").addFilter(_drop_playlist_xml_noise)
     conn = appdb.open_app_db(data_dir / "syncbox.db")
     settings = Settings(conn)
     secrets = SecretsStore(data_dir)

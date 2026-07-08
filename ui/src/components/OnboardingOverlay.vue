@@ -206,7 +206,18 @@ const primaryLabel = computed(() => {
             :placeholder="MACOS_DB_DEFAULT"
             pick="file"
             @save="paths.save('rekordbox_db_path')"
-          />
+          >
+            <!-- ~/Library is hidden in the Finder picker, so most people can't
+                 browse to the default install path - one click fills it in
+                 (owner feedback 2026-07-08; same affordance as Réglages). -->
+            <button
+              v-if="!paths.dbPath.value"
+              class="link"
+              @click="paths.dbPath.value = MACOS_DB_DEFAULT"
+            >
+              {{ t('settings.paths.useMacDefault') }}
+            </button>
+          </PathField>
           <PathField
             v-model="paths.storageRoot.value"
             :label="t('settings.paths.rootLabel')"
