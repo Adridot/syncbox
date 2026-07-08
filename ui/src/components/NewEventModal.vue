@@ -1,31 +1,45 @@
 <script setup lang="ts">
-// New event (§5.7 modes): from a Spotify playlist (tracks imported at
-// creation — owner-approved) or empty/manual. The event name doubles as its
-// 'Situation' MyTag. Spotify-only (§11.1) — no Deezer/SoundCloud parsing.
-import { computed, ref } from 'vue'
+// New event (§5.7, the 3 modes): from a FOLLOWED playlist (picker), from a
+// Spotify link, or empty/manual — followed/link both resolve to the same
+// spotify_playlist_id body (tracks imported at creation — owner-approved).
+// The event name doubles as its 'Situation' MyTag. Spotify-only (§11.1).
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, api } from '../api/client'
-import type { EventSummary } from '../api/types'
+import type { EventSummary, Source } from '../api/types'
 import { extractPlaylistId } from '../lib/spotify'
 import ModalShell from './ModalShell.vue'
 
 const emit = defineEmits<{ close: []; created: [event: EventSummary] }>()
 const { t } = useI18n()
 
-const mode = ref<'playlist' | 'empty'>('playlist')
+const mode = ref<'followed' | 'playlist' | 'empty'>('playlist')
 const name = ref('')
 const link = ref('')
+const sources = ref<Source[]>([])
+const followedId = ref('')
 const creating = ref(false)
 const error = ref<string | null>(null)
 
+onMounted(async () => {
+  try {
+    sources.value = (await api.get<{ sources: Source[] }>('/api/sources')).sources
+  } catch {
+    /* the followed mode just shows its empty state */
+  }
+})
+
 const playlistId = computed(() => extractPlaylistId(link.value))
 const linkInvalid = computed(() => mode.value === 'playlist' && link.value.trim() !== '' && !playlistId.value)
+const chosenPlaylistId = computed(() =>
+  mode.value === 'followed' ? followedId.value || null : playlistId.value,
+)
 const canCreate = computed(
   () =>
     name.value.trim() !== '' &&
     !creating.value &&
-    (mode.value === 'empty' || playlistId.value !== null),
+    (mode.value === 'empty' || chosenPlaylistId.value !== null),
 )
 
 async function create() {
@@ -33,9 +47,9 @@ async function create() {
   error.value = null
   try {
     const body =
-      mode.value === 'playlist'
-        ? { name: name.value.trim(), spotify_playlist_id: playlistId.value }
-        : { name: name.value.trim(), manual: true }
+      mode.value === 'empty'
+        ? { name: name.value.trim(), manual: true }
+        : { name: name.value.trim(), spotify_playlist_id: chosenPlaylistId.value }
     emit('created', await api.post<EventSummary>('/api/events', body))
   } catch (cause) {
     // B1: creation failures (Spotify 409/502, slug issues) are surfaced
@@ -53,6 +67,9 @@ async function create() {
       <p class="sub">{{ t('events.new.sub') }}</p>
 
       <div class="modes">
+        <button class="mode" :data-active="mode === 'followed'" @click="mode = 'followed'">
+          {{ t('events.new.modeFollowed') }}
+        </button>
         <button class="mode" :data-active="mode === 'playlist'" @click="mode = 'playlist'">
           {{ t('events.new.modePlaylist') }}
         </button>
@@ -69,6 +86,17 @@ async function create() {
             <span class="mono">Situation</span>
           </template>
         </i18n-t>
+      </div>
+
+      <div v-if="mode === 'followed'" class="field">
+        <div class="label">{{ t('events.new.followedLabel') }}</div>
+        <select v-model="followedId" class="followed">
+          <option value="" disabled>{{ t('events.new.followedPick') }}</option>
+          <option v-for="s in sources" :key="s.id" :value="s.spotify_playlist_id">
+            {{ s.name }}
+          </option>
+        </select>
+        <div v-if="!sources.length" class="help">{{ t('events.new.followedEmpty') }}</div>
       </div>
 
       <div v-if="mode === 'playlist'" class="field">
@@ -89,9 +117,9 @@ async function create() {
           {{
             creating
               ? t('events.new.creating')
-              : mode === 'playlist'
-                ? t('events.new.createPlaylist')
-                : t('events.new.createEmpty')
+              : mode === 'empty'
+                ? t('events.new.createEmpty')
+                : t('events.new.createPlaylist')
           }}
         </button>
       </div>
@@ -147,7 +175,8 @@ h3 {
   color: var(--text-secondary);
   margin-bottom: 6px;
 }
-.field > input {
+.field > input,
+.field > select {
   width: 100%;
   background: var(--surface-raised);
   border: 1px solid #2a3140;

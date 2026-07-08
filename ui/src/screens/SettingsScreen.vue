@@ -9,12 +9,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { ApiError } from '../api/client'
+import { ApiError, api } from '../api/client'
 import PathField from '../components/PathField.vue'
 import SpotifyClientIdHelp from '../components/SpotifyClientIdHelp.vue'
 import { replayOnboarding } from '../lib/onboarding'
 import { MACOS_DB_DEFAULT, usePathFields } from '../lib/usePathFields'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
+import { confirmDialog, hasShell, pickFile, pickSaveFile } from '../shell'
 import { type MatchWeights, useSettingsStore } from '../stores/settings'
 import { useStatusStore } from '../stores/status'
 
@@ -53,13 +54,7 @@ const paths = usePathFields((text) => {
 })
 const { dbPath, storageRoot } = paths
 
-onMounted(async () => {
-  try {
-    await paths.init()
-  } catch (cause) {
-    banner.value = { tone: 'error', text: describe(cause) }
-    return
-  }
+function syncFromStore() {
   const values = settings.values!
   clientId.value = values.spotify_client_id
   retention.value = values.backup_retention
@@ -68,6 +63,16 @@ onMounted(async () => {
   margin.value = values.match_ambiguity_margin
   Object.assign(weights, values.match_weights)
   isrcPolicy.value = values.isrc_collision_policy
+}
+
+onMounted(async () => {
+  try {
+    await paths.init()
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+    return
+  }
+  syncFromStore()
 })
 
 async function saveSetting(partial: Record<string, unknown>, success?: string) {
@@ -122,6 +127,78 @@ async function resetAdvanced() {
 const setLanguage = (lang: 'fr' | 'en') => {
   language.value = lang
   void saveSetting({ language: lang })
+}
+
+// Export & import (§5.10 transfer) — file paths come from the NATIVE dialogs
+// (the webview has no fs), the sidecar does the file IO. Shell-only.
+const shell = hasShell()
+const transferBusy = ref(false)
+
+async function runTransfer(action: () => Promise<string>) {
+  banner.value = null
+  transferBusy.value = true
+  try {
+    banner.value = { tone: 'success', text: await action() }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    transferBusy.value = false
+  }
+}
+
+/** Re-read everything a successful import may have changed. */
+async function reloadAfterImport() {
+  await settings.load()
+  syncFromStore()
+  await paths.init()
+}
+
+async function exportSettings() {
+  const path = await pickSaveFile('syncbox-settings.json')
+  if (!path) return
+  await runTransfer(async () => {
+    const r = await api.post<{ path: string }>('/api/settings/export', { path })
+    return t('settings.transfer.exportedTo', { path: r.path })
+  })
+}
+
+async function importSettings() {
+  const path = await pickFile()
+  if (!path) return
+  await runTransfer(async () => {
+    const r = await api.post<{ applied: string[]; skipped: Record<string, string> }>(
+      '/api/settings/import',
+      { path },
+    )
+    await reloadAfterImport()
+    const skipped = Object.keys(r.skipped)
+    return skipped.length
+      ? t('settings.transfer.importedPartial', { skipped: skipped.join(', ') })
+      : t('settings.transfer.imported')
+  })
+}
+
+async function exportData() {
+  const path = await pickSaveFile('syncbox-data.db')
+  if (!path) return
+  await runTransfer(async () => {
+    // overwrite: the native save dialog already asked (no silent clobber)
+    const r = await api.post<{ path: string }>('/api/data/export', { path, overwrite: true })
+    return t('settings.transfer.exportedTo', { path: r.path })
+  })
+}
+
+async function importData() {
+  const path = await pickFile()
+  if (!path) return
+  if (!(await confirmDialog(t('settings.transfer.dataImportConfirm')))) return
+  await runTransfer(async () => {
+    const r = await api.post<{ backup: string | null }>('/api/data/import', { path })
+    await reloadAfterImport()
+    return r.backup
+      ? t('settings.transfer.dataImported', { backup: r.backup })
+      : t('settings.transfer.dataImportedNoBackup')
+  })
 }
 
 const derivedRows = computed(() => {
@@ -282,6 +359,41 @@ const derivedRows = computed(() => {
         </div>
       </section>
     </div>
+
+    <!-- Export & import (§5.10 transfer) -->
+    <section class="card">
+      <h3>{{ t('settings.transfer.title') }}</h3>
+      <p class="card-sub">{{ t('settings.transfer.sub') }}</p>
+      <div class="transfer-row">
+        <div class="transfer-text">
+          <div class="transfer-label">{{ t('settings.transfer.settingsLabel') }}</div>
+          <div class="transfer-desc">{{ t('settings.transfer.settingsDesc') }}</div>
+        </div>
+        <div class="transfer-actions">
+          <button class="btn-secondary small" :disabled="transferBusy || !shell" @click="exportSettings">
+            {{ t('settings.transfer.export') }}
+          </button>
+          <button class="btn-secondary small" :disabled="transferBusy || !shell" @click="importSettings">
+            {{ t('settings.transfer.import') }}
+          </button>
+        </div>
+      </div>
+      <div class="transfer-row">
+        <div class="transfer-text">
+          <div class="transfer-label">{{ t('settings.transfer.dataLabel') }}</div>
+          <div class="transfer-desc">{{ t('settings.transfer.dataDesc') }}</div>
+        </div>
+        <div class="transfer-actions">
+          <button class="btn-secondary small" :disabled="transferBusy || !shell" @click="exportData">
+            {{ t('settings.transfer.export') }}
+          </button>
+          <button class="btn-secondary small" :disabled="transferBusy || !shell" @click="importData">
+            {{ t('settings.transfer.import') }}
+          </button>
+        </div>
+      </div>
+      <div v-if="!shell" class="transfer-note">{{ t('settings.transfer.needShell') }}</div>
+    </section>
 
     <!-- Avancé (G4) — collapsed, guard-railed -->
     <section class="card advanced">
@@ -648,6 +760,41 @@ h1 {
   color: var(--accent-hover);
   background: var(--accent-tint);
   border-color: var(--accent-border);
+}
+.transfer-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.transfer-row:last-of-type {
+  border-bottom: none;
+}
+.transfer-text {
+  flex: 1;
+  min-width: 0;
+}
+.transfer-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary-bright);
+}
+.transfer-desc {
+  font-size: 11.5px;
+  color: var(--text-muted-bright);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+.transfer-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+.transfer-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 9px;
 }
 .advanced {
   padding: 0;

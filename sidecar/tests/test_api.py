@@ -86,6 +86,7 @@ def make_env(tmp_path, rows=(), spotify_client=None, spotify_auth=None):
         spotify_client=spotify_client,
         spotify_auth=spotify_auth,
         log_path=tmp_path / "app.log",
+        app_db_path=tmp_path / "app.db",
     )
     deps.settings.update(
         {"rekordbox_db_path": str(db_file), "storage_root": str(storage)}
@@ -1666,3 +1667,122 @@ def test_event_track_remove_guards_imported(tmp_path):
     refused = env.client.delete(f"/api/events/{event['id']}/tracks/{kept['id']}")
     assert refused.status_code == 409
     assert env.client.delete(f"/api/events/{event['id']}/tracks/9999").status_code == 404
+
+
+# --- export/import (5.10 transfer) ---------------------------------------------------
+
+
+def test_settings_export_import_roundtrip(tmp_path):
+    env = make_env(tmp_path)
+    env.deps.settings.update({"language": "fr", "backup_retention": 7})
+    dest = tmp_path / "syncbox-settings.json"
+
+    exported = env.client.post("/api/settings/export", json={"path": str(dest)})
+    assert exported.status_code == 200
+    payload = json.loads(dest.read_text(encoding="utf-8"))
+    assert payload["kind"] == "syncbox-settings"
+    assert payload["settings"]["language"] == "fr"
+    # tokens are NOT settings (3.6): nothing secret-shaped in the file
+    assert set(payload["settings"]) == set(env.deps.settings.all())
+
+    env.deps.settings.update({"language": "en", "backup_retention": 3})
+    imported = env.client.post("/api/settings/import", json={"path": str(dest)})
+    assert imported.status_code == 200
+    assert imported.json()["skipped"] == {}
+    assert env.deps.settings.get("language") == "fr"
+    assert env.deps.settings.get("backup_retention") == 7
+
+
+def test_settings_import_skips_bad_paths_and_unknown_keys(tmp_path):
+    env = make_env(tmp_path)
+    source = tmp_path / "foreign-settings.json"
+    source.write_text(
+        json.dumps(
+            {
+                "kind": "syncbox-settings",
+                "version": 1,
+                "settings": {
+                    "language": "fr",
+                    "storage_root": "/does/not/exist/here",
+                    "bogus_key": 1,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    before_root = env.deps.settings.get("storage_root")
+
+    response = env.client.post("/api/settings/import", json={"path": str(source)})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["applied"] == ["language"]
+    assert set(body["skipped"]) == {"storage_root", "bogus_key"}
+    assert env.deps.settings.get("language") == "fr"
+    assert env.deps.settings.get("storage_root") == before_root  # untouched
+
+
+def test_settings_import_rejects_foreign_file(tmp_path):
+    env = make_env(tmp_path)
+    not_ours = tmp_path / "random.json"
+    not_ours.write_text('{"hello": "world"}', encoding="utf-8")
+    assert (
+        env.client.post("/api/settings/import", json={"path": str(not_ours)}).status_code
+        == 400
+    )
+    assert (
+        env.client.post(
+            "/api/settings/import", json={"path": str(tmp_path / "absent.json")}
+        ).status_code
+        == 404
+    )
+
+
+def test_data_export_import_roundtrip_swaps_live_connection(tmp_path):
+    env = make_env(tmp_path)
+    env.deps.settings.update({"language": "fr"})
+    dest = tmp_path / "syncbox-data.db"
+
+    exported = env.client.post("/api/data/export", json={"path": str(dest)})
+    assert exported.status_code == 200
+    assert dest.is_file()
+
+    # export refuses to clobber without the explicit flag (no silent clobber)
+    refused = env.client.post("/api/data/export", json={"path": str(dest)})
+    assert refused.status_code == 400
+    assert (
+        env.client.post(
+            "/api/data/export", json={"path": str(dest), "overwrite": True}
+        ).status_code
+        == 200
+    )
+
+    env.deps.settings.update({"language": "en"})
+    imported = env.client.post("/api/data/import", json={"path": str(dest)})
+    assert imported.status_code == 200
+    assert imported.json()["backup"]  # pre-import safety backup was taken
+    # the swapped connection serves follow-up requests with the imported data
+    assert env.client.get("/api/settings").json()["language"] == "fr"
+
+
+def test_data_import_rejects_non_syncbox_files(tmp_path):
+    import sqlite3 as sqlite3_mod
+
+    env = make_env(tmp_path)
+    before = env.deps.settings.all()
+
+    garbage = tmp_path / "garbage.db"
+    garbage.write_bytes(b"not a database at all")
+    assert (
+        env.client.post("/api/data/import", json={"path": str(garbage)}).status_code
+        == 400
+    )
+
+    foreign = tmp_path / "foreign.db"
+    with sqlite3_mod.connect(foreign) as conn:
+        conn.execute("CREATE TABLE unrelated (x)")
+    assert (
+        env.client.post("/api/data/import", json={"path": str(foreign)}).status_code
+        == 400
+    )
+    # the live DB survived both refusals untouched
+    assert env.client.get("/api/settings").json() == before

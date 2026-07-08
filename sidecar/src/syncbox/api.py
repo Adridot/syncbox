@@ -28,6 +28,7 @@ rb.open_readonly. File deletion happens strictly AFTER the durable commit
 
 import json
 import re
+import sqlite3
 import threading
 import uuid as uuidlib
 from collections import deque
@@ -40,6 +41,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from syncbox import (
+    appdb,
     dedup,
     events_service,
     library_service,
@@ -68,6 +70,7 @@ from syncbox.safety.paths import (
 from syncbox.safety import process_guard
 from syncbox.safety.process_guard import MutationBlockedError
 from syncbox.server import JobBus, create_app
+from syncbox.settings import DEFAULTS as SETTINGS_DEFAULTS
 from syncbox.settings import Settings, validate_directory
 from syncbox.spotify import NotConnectedError, SpotifyApiError
 
@@ -105,8 +108,13 @@ class Deps:
         spotify_client=None,
         cache=None,
         log_path=None,
+        app_db_path=None,
     ):
         self.conn = conn
+        # File behind ``conn`` - needed by the all-data import (5.10), which
+        # replaces the file and swaps the live connection. None (tests with
+        # a bare conn) disables that route.
+        self.app_db_path = app_db_path
         self.settings = Settings(conn)
         self.bus = bus if bus is not None else JobBus()
         self.spotify_auth = spotify_auth
@@ -1224,26 +1232,138 @@ def settings_get(deps, request, body):
     return deps.settings.all()
 
 
+def _path_setting_error(key: str, value: str) -> str | None:
+    """F15 path checks, shared by PUT /api/settings and the settings import."""
+    if key == "storage_root":
+        ok, why = validate_directory(value)
+        return None if ok else why
+    if key == "rekordbox_db_path":
+        expanded = Path(value).expanduser()
+        ok, why = validate_directory(str(expanded.parent))
+        if not ok:
+            return f"parent folder {why}"
+        if not expanded.is_file():
+            return "not found"
+    return None
+
+
 def settings_update(deps, request, body):
     # F15: validate BOTH configured paths before persisting anything; an
     # empty value stays allowed (it means 'not configured yet').
-    storage_root = body.get("storage_root")
-    if storage_root:
-        ok, why = validate_directory(storage_root)
-        if not ok:
-            raise ValueError(f"storage_root: {why}")
-    db_path = body.get("rekordbox_db_path")
-    if db_path:
-        expanded = Path(db_path).expanduser()
-        ok, why = validate_directory(str(expanded.parent))
-        if not ok:
-            raise ValueError(f"rekordbox_db_path: parent folder {why}")
-        if not expanded.is_file():
-            raise ValueError("rekordbox_db_path: not found")
+    for key in ("storage_root", "rekordbox_db_path"):
+        value = body.get(key)
+        if value:
+            why = _path_setting_error(key, value)
+            if why:
+                raise ValueError(f"{key}: {why}")
     try:
         return deps.settings.update(body)
     except KeyError as exc:
         raise ValueError(str(exc.args[0])) from exc
+
+
+# --- export/import (5.10 transfer) ----------------------------------------------------
+
+
+SETTINGS_EXPORT_KIND = "syncbox-settings"
+
+
+def _body_path(body, *, must_exist=False) -> Path:
+    path = Path(_require(body, "path")).expanduser()
+    if must_exist:
+        if not path.is_file():
+            raise FileNotFoundError(str(path))
+    elif not path.parent.is_dir():
+        raise ValueError("path: parent folder not found")
+    return path
+
+
+def settings_export(deps, request, body):
+    """5.10 settings export: ONE JSON file, written by the sidecar (the
+    webview has no fs access). OAuth tokens are not settings - they live in
+    the encrypted SecretsStore and are never in this file (3.6)."""
+    dest = _body_path(body)
+    payload = {
+        "kind": SETTINGS_EXPORT_KIND,
+        "version": 1,
+        "settings": deps.settings.all(),
+    }
+    dest.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return {"path": str(dest)}
+
+
+def settings_import(deps, request, body):
+    """Apply a settings export. Path values that do not exist on THIS machine
+    are skipped and reported, never a wholesale failure (the file may come
+    from another machine); unknown keys are skipped the same way."""
+    source = _body_path(body, must_exist=True)
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"not a Syncbox settings export: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("kind") != SETTINGS_EXPORT_KIND:
+        raise ValueError("not a Syncbox settings export")
+    values = payload.get("settings")
+    if not isinstance(values, dict):
+        raise ValueError("settings export carries no settings object")
+    skipped = {key: "unknown setting" for key in values if key not in SETTINGS_DEFAULTS}
+    incoming = {key: value for key, value in values.items() if key in SETTINGS_DEFAULTS}
+    for key in ("storage_root", "rekordbox_db_path"):
+        value = incoming.get(key)
+        if value:
+            why = _path_setting_error(key, value)
+            if why:
+                skipped[key] = why
+                del incoming[key]
+    settings = deps.settings.update(incoming)
+    return {"applied": sorted(incoming), "skipped": skipped, "settings": settings}
+
+
+def data_export(deps, request, body):
+    """All-data export (5.10): VACUUM INTO writes one coherent snapshot. An
+    existing destination needs the explicit overwrite flag - the UI's native
+    save dialog already asked; the sidecar never clobbers silently."""
+    dest = _body_path(body)
+    if dest.exists():
+        if not body.get("overwrite"):
+            raise ValueError(f"file already exists: {dest}")
+        dest.unlink()
+    appdb.export_data(deps.conn, dest)
+    return {"path": str(dest)}
+
+
+def data_import(deps, request, body):
+    """All-data import (5.10): the incoming file is checked (Syncbox schema +
+    integrity_check in appdb.import_data), the current DB is safety-backed-up,
+    then the live connection swaps to the new file - open_app_db migrates it,
+    so an export from an older version imports fine."""
+    if deps.app_db_path is None:
+        raise ValueError("all-data import needs a file-backed app DB")
+    source = _body_path(body, must_exist=True)
+    probe = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    try:
+        is_syncbox = probe.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
+        ).fetchone()
+    except sqlite3.DatabaseError:
+        is_syncbox = None
+    finally:
+        probe.close()
+    if not is_syncbox:
+        raise ValueError("not a Syncbox data export")
+    deps.conn.close()
+    try:
+        backup = appdb.import_data(deps.app_db_path, source)
+    finally:
+        # always come back up on a live connection - on the imported DB, or
+        # on the untouched original if import_data refused the file
+        deps.conn = appdb.open_app_db(deps.app_db_path)
+        deps.settings = Settings(deps.conn)
+        deps._cache = None  # imported settings may point at another master.db
+        deps._cache_db = None
+    return {"backup": str(backup) if backup else None}
 
 
 # --- readouts (11.3) -----------------------------------------------------------------
@@ -1459,6 +1579,10 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/mytags", mytags_get, ["GET"]),
         r("/api/settings", settings_get, ["GET"]),
         r("/api/settings", settings_update, ["PUT"]),
+        r("/api/settings/export", settings_export, ["POST"]),
+        r("/api/settings/import", settings_import, ["POST"]),
+        r("/api/data/export", data_export, ["POST"]),
+        r("/api/data/import", data_import, ["POST"]),
         r("/api/readouts", readouts_get, ["GET"]),
         r("/api/doctor/backups", doctor_backups, ["GET"]),
         r("/api/doctor/backups/{name}/restore", doctor_restore, ["POST"]),

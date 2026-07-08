@@ -76,9 +76,13 @@ test('"all" merges the 3 scopes with scope badges; purchase links only when the 
   expect(wrapper.text()).toContain('Obscure Bootleg')
   // scope badges visible in the merged view
   expect(wrapper.findAll('.row').length).toBe(2)
-  // 2 buy buttons on the linked row, ZERO on the purchase_link_unavailable row
+  // 2 buy buttons on the linked row, ZERO on the purchase_link_unavailable
+  // row — labelled through i18n (§5.13), the store name interpolated
   const rows = wrapper.findAll('.row')
-  expect(rows[0].findAll('.buy').map((b) => b.text())).toEqual(['Beatport ↗', 'Bandcamp ↗'])
+  expect(rows[0].findAll('.buy').map((b) => b.text())).toEqual([
+    'Acheter sur Beatport ↗',
+    'Acheter sur Bandcamp ↗',
+  ])
   expect(rows[1].findAll('.buy')).toHaveLength(0)
 })
 

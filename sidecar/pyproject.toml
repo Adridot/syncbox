@@ -21,6 +21,9 @@ dependencies = [
     "starlette",
     "sse-starlette",
     "uvicorn",
+    # Direct, not transitive (3.4/3.5): the CA bundle spotify.py pins its SSL
+    # context to must never vanish on a dependency bump.
+    "certifi",
 ]
 
 [dependency-groups]

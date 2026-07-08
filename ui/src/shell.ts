@@ -56,6 +56,28 @@ export async function pickDirectory(): Promise<string | null> {
   }
 }
 
+/** Native save dialog (settings / all-data export, §5.10). Overwrite is the
+    dialog's own question — the sidecar honors the confirmed path. */
+export async function pickSaveFile(defaultName: string): Promise<string | null> {
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const picked = await save({ defaultPath: defaultName })
+    return typeof picked === 'string' ? picked : null
+  } catch {
+    return null
+  }
+}
+
+/** Native confirm — window.confirm is not guaranteed in a webview. */
+export async function confirmDialog(message: string): Promise<boolean> {
+  try {
+    const { confirm } = await import('@tauri-apps/plugin-dialog')
+    return await confirm(message)
+  } catch {
+    return window.confirm(message) // browser dev fallback
+  }
+}
+
 /** True inside the Tauri shell — gates shell-only affordances (Parcourir…). */
 export function hasShell(): boolean {
   return '__TAURI_INTERNALS__' in window

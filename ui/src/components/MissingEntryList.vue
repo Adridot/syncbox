@@ -131,7 +131,7 @@ async function markNone() {
             class="buy"
             @click="openExternal(link.url)"
           >
-            {{ link.store }} ↗
+            {{ t('missing.buyOn', { store: link.store }) }}
           </button>
           <button class="secondary" @click="relinkEntry = entry">
             {{ t('missing.relinkCta') }}

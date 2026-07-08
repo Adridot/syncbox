@@ -17,7 +17,6 @@ from pathlib import Path
 
 from syncbox import api, appdb, platform_os, server
 from syncbox.secrets import SecretsStore
-from syncbox.settings import Settings
 from syncbox.spotify import SpotifyAuth, SpotifyClient
 
 log = logging.getLogger("syncbox")
@@ -54,17 +53,18 @@ def compose(data_dir=None):
         force=True,  # deterministic wiring even if logging was already touched
     )
     logging.getLogger("pyrekordbox.db6.database").addFilter(_drop_playlist_xml_noise)
-    conn = appdb.open_app_db(data_dir / "syncbox.db")
-    settings = Settings(conn)
+    db_file = data_dir / "syncbox.db"
+    conn = appdb.open_app_db(db_file)
     secrets = SecretsStore(data_dir)
-    auth = SpotifyAuth(lambda: settings.get("spotify_client_id"), secrets)
-    deps = api.Deps(
-        conn,
-        spotify_auth=auth,
-        spotify_client=SpotifyClient(auth),
-        log_path=log_path,
-    )
-    return api.build_app(deps)
+    deps = api.Deps(conn, log_path=log_path, app_db_path=db_file)
+    # The auth reads the client id THROUGH deps.settings, never a captured
+    # Settings: the all-data import (5.10) swaps deps.conn/settings live.
+    auth = SpotifyAuth(lambda: deps.settings.get("spotify_client_id"), secrets)
+    deps.spotify_auth = auth
+    deps.spotify_client = SpotifyClient(auth)
+    app = api.build_app(deps)
+    app.state.secrets = secrets  # closed on exit (6.6 handshake tail)
+    return app
 
 
 def main() -> int:
@@ -75,6 +75,12 @@ def main() -> int:
     except server.PortInUseError as exc:
         log.error("%s", exc)
         return 1
+    finally:
+        # 6.6 handshake tail: SQLCipher secrets store and app DB closed
+        # before the process exits, so a clean stop never needs the shell's
+        # kill of last resort to reclaim them.
+        app.state.secrets.close()
+        app.state.deps.conn.close()
     log.info(
         "syncbox sidecar stopped (intentional=%s)", app.state.shutdown.intentional
     )
