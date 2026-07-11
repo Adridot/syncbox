@@ -24,5 +24,3 @@ python; docstrings give the exact commands):
   crash-vs-intent; retarget at the frozen binary with `SYNCBOX_SIDECAR_BIN`.
 - `test_single_instance.py` / `test_supervisor_restart.py` — full shell
   behavior; retarget at the packaged app with `SYNCBOX_SHELL_BIN`.
-- `test_packaged_sidecar.py` — frozen-bundle checks: legal dependency audit,
-  freeze anchors, boot, clean shutdown.

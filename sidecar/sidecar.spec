@@ -6,7 +6,6 @@
 # from src/ — the sidecar has no build backend by design.
 #
 # Build:  .venv/bin/pyinstaller sidecar.spec
-# Verify: .venv/bin/python ../shell/harness/test_packaged_sidecar.py
 
 a = Analysis(
     ["src/syncbox/__main__.py"],

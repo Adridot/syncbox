@@ -41,15 +41,6 @@ your library**.
   diagnostics, and application logs in one place.
 - **French / English** UI.
 
-## What it deliberately does NOT do
-
-Syncbox contains **no downloading of any kind**. No stream ripping, no
-provider credentials, no DRM circumvention — from Spotify it reads *metadata
-only*. Missing tracks are handled lawfully: search links to stores
-(Beatport, Bandcamp) and manual relinking to audio files you already own.
-The only secret the app ever stores is your own Spotify OAuth token,
-encrypted at rest.
-
 ## The safety model
 
 Rekordbox's `master.db` is the one file a DJ cannot afford to corrupt. Every
