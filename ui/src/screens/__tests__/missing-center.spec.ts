@@ -4,14 +4,20 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { i18n } from '../../i18n'
 import { router } from '../../router'
+import { openExternal } from '../../shell'
 import MissingCenterScreen from '../MissingCenterScreen.vue'
+
+vi.mock('../../shell', () => ({ openExternal: vi.fn() }))
 
 let pinia: ReturnType<typeof createPinia>
 beforeEach(() => {
   pinia = createPinia()
   setActivePinia(pinia)
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+})
 
 const LIB_ENTRY = {
   scope: 'library',
@@ -92,6 +98,16 @@ test('deep-linked scope filters the list', async () => {
   await flushPromises()
   expect(wrapper.text()).toContain('Obscure Bootleg')
   expect(wrapper.text()).not.toContain('Greece 2000')
+})
+
+test('purchase buttons delegate the URL to the external browser bridge', async () => {
+  stubApi()
+  const wrapper = await mountCenter('library')
+  await flushPromises()
+
+  await wrapper.get('.buy').trigger('click')
+
+  expect(openExternal).toHaveBeenCalledWith(LIB_ENTRY.purchase_links[0].url)
 })
 
 test('D22: ignoring a row offers an inline undo that calls restore', async () => {

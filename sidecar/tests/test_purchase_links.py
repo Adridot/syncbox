@@ -1,7 +1,7 @@
 """Tests for B2 purchase links (SPEC-UNIFIED 5.13/6.5, POC #8)."""
 
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import syncbox.purchase_links as module
 from syncbox.purchase_links import CATALOG, links_for_track, purchase_links
@@ -10,8 +10,17 @@ from syncbox.purchase_links import CATALOG, links_for_track, purchase_links
 def test_builds_both_store_urls():
     links = purchase_links("Bicep", "Glue")
     assert [link["store"] for link in links] == ["Beatport", "Bandcamp"]
-    assert links[0]["url"] == "https://www.beatport.com/search?q=bicep%20glue"
-    assert "bandcamp.com/search?q=bicep%20glue" in links[1]["url"]
+    beatport, bandcamp = (urlsplit(link["url"]) for link in links)
+    assert (beatport.netloc, beatport.path, parse_qs(beatport.query)) == (
+        "www.beatport.com",
+        "/search",
+        {"q": ["bicep glue"]},
+    )
+    assert (bandcamp.netloc, bandcamp.path, parse_qs(bandcamp.query)) == (
+        "bandcamp.com",
+        "/search",
+        {"q": ["bicep glue"], "item_type": ["t"]},
+    )
 
 
 def test_normalization_is_the_d19_pipeline():
@@ -50,6 +59,7 @@ def test_store_removal_is_data_driven():
 def test_status_gate_excludes_removed_from_source():
     assert links_for_track("missing", "Bicep", "Glue")
     assert links_for_track("purchase_link_unavailable", "Bicep", "Glue")
+    assert links_for_track("acquisition_failed", "Bicep", "Glue") == []
     assert links_for_track("removed_from_source", "Bicep", "Glue") == []
     assert links_for_track("imported", "Bicep", "Glue") == []
 
