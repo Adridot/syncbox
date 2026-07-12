@@ -41,7 +41,7 @@ def fingerprint(db_path) -> tuple:
     db_path = Path(db_path)
     stat = db_path.stat()
     parts = ((str(stat.st_mtime_ns), str(stat.st_size)),)
-    # ponytail: the wal component is included ONLY when the wal exists AND is
+    # The WAL component is included only when the file exists and is non-empty.
     # non-empty - "wal absent" == "wal empty". Measured in poc/09 (APFS +
     # sqlcipher): closing the last rw connection checkpoints and DELETES
     # master.db-wal, and a bare mode=ro open RECREATES a 0-byte wal, so a
@@ -71,13 +71,16 @@ def mutate(
     expected_fingerprint=None,
     open_db,
     invalidate_cache=None,
+    backup_files=(),
+    backup_observer=None,
 ):
     """Unit-of-work for one master.db mutation. The order is load-bearing:
 
     (a) assert Rekordbox closed and, when ``expected_fingerprint`` is given,
         that the database still matches the dry-run snapshot - both BEFORE
         any backup;
-    (b) timestamped backup (rotation per ``retention``);
+    (b) timestamped backup (rotation per ``retention``), including any
+        explicitly supplied Rekordbox support files;
     (c) ``handle = open_db(db_path)``;
     (d) yield the handle to the mutation body;
     (e) commit, then ``invalidate_cache()`` when provided;
@@ -101,7 +104,17 @@ def mutate(
     # SPEC-UNIFIED 5.11 and poc/09 specify; re-checking after open risks
     # spurious aborts from SQLite's own wal recovery at open. The backup
     # taken below still covers whatever state gets mutated.
-    create_backup(db_path, backups_root, retention=retention)
+    if backup_files:
+        backup_path = create_backup(
+            db_path,
+            backups_root,
+            retention=retention,
+            extra_files=backup_files,
+        )
+    else:
+        backup_path = create_backup(db_path, backups_root, retention=retention)
+    if backup_observer is not None:
+        backup_observer(backup_path)
     handle = open_db(db_path)
     committed = False
     failing = False
@@ -133,8 +146,7 @@ def mutate(
             if failing or committed:
                 # Never let a close failure mask the real error, or make a
                 # durable commit look like a failed mutation.
-                # ponytail: swallowed silently for now — route to the app
-                # logger when M2 wires logging up.
+                # Close is secondary to the durable outcome and must not mask it.
                 pass
             else:
                 raise

@@ -45,13 +45,14 @@ def rb_row(content_id, **over):
         "content_id": str(content_id),
         "title": f"Track {content_id}",
         "artist": "Artist",
+        "remixer": None,
         "duration_ms": 200_000,
         "isrc": None,
         "bit_rate": 320,
         "file_path": f"/music/{content_id}.mp3",
         "resolved_path": None,
         "file_missing": False,
-        "protected": False,
+        "ownership": "external",
         "key_name": None,
         "genre": None,
         "play_count": 0,
@@ -513,11 +514,13 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
     event = env.client.post("/api/events", json={"name": "Gig"}).json()
     seen = []
 
-    def fake_delete(conn, db_path, backups_root, cache, storage_root, ev, *, dry_run=True, consent_to_permanent_delete=False, retention=15):
-        seen.append({"dry_run": dry_run, "consent": consent_to_permanent_delete})
+    preview_plan = {"dry_run": True, "plan_version": 1, "event_id": event["id"]}
+
+    def fake_delete(conn, db_path, backups_root, cache, storage_root, ev, *, dry_run=True, plan=None, consent_to_permanent_delete=False, retention=15):
+        seen.append({"dry_run": dry_run, "plan": plan, "consent": consent_to_permanent_delete})
         if not dry_run and not consent_to_permanent_delete:
             raise PermanentDeleteConsentRequired(Path("/vol/x.mp3"), OSError("no trash"))
-        return {"dry_run": dry_run, "contents": [], "playlists": [], "artifacts": []}
+        return preview_plan if dry_run else {**preview_plan, "dry_run": False}
 
     monkeypatch.setattr(api.events_service, "delete_event", fake_delete)
     preview = env.client.post(f"/api/events/{event['id']}/delete")
@@ -525,7 +528,7 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
     assert preview.json()["dry_run"] is True  # preview is the DEFAULT (D11/D23)
 
     blocked = env.client.post(
-        f"/api/events/{event['id']}/delete", json={"dry_run": False}
+        f"/api/events/{event['id']}/delete", json={"dry_run": False, "plan": preview_plan}
     )
     assert blocked.status_code == 428
     payload = blocked.json()
@@ -535,10 +538,10 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
 
     ok = env.client.post(
         f"/api/events/{event['id']}/delete",
-        json={"dry_run": False, "consent_to_permanent_delete": True},
+        json={"dry_run": False, "plan": preview_plan, "consent_to_permanent_delete": True},
     )
     assert ok.status_code == 200
-    assert seen[-1] == {"dry_run": False, "consent": True}
+    assert seen[-1] == {"dry_run": False, "plan": preview_plan, "consent": True}
 
 
 # --- missing center ----------------------------------------------------------------
@@ -767,7 +770,7 @@ def test_duplicates_resolve_keeper_guard_equates_32_spellings(tmp_path, monkeypa
     equal - a loser stored in the other spelling must not defeat the guard."""
     env = make_env(tmp_path, rows=_isrc_pair_rows())
     # Keeper absolute under the storage root; loser volume-relative spelling
-    # of the SAME file (outside rekordbox/ so the protected guard passes).
+    # of the same physical file.
     absolute = str(env.storage / "inbox" / "song.mp3")
     volume_relative = f"/{env.storage.name}/inbox/song.mp3"
     states = {"1": (absolute, 0), "2": (volume_relative, 0)}
@@ -832,13 +835,11 @@ def test_duplicates_resolve_validation(tmp_path, monkeypatch):
     assert unknown.status_code == 404
 
 
-def test_duplicates_resolve_trashes_a_protected_loser_file(tmp_path, monkeypatch):
-    """Owner amendment to 5.4 (2026-07-07): a loser file inside the protected
-    zone resolves like any other — soft-delete + trash-first file delete —
-    the per-group confirmation being the consent. Keeper rules unchanged."""
+def test_duplicates_resolve_trashes_a_permanent_library_loser(tmp_path, monkeypatch):
+    """Per-group confirmation makes duplicate resolution ownership-neutral."""
     env = make_env(tmp_path, rows=_isrc_pair_rows())
-    protected_path = str(env.storage / "rekordbox" / "Collection" / "x.mp3")
-    states = {"1": ("/music/1.mp3", 0), "2": (protected_path, 0)}
+    permanent_path = str(env.storage / "rekordbox" / "Collection" / "x.mp3")
+    states = {"1": ("/music/1.mp3", 0), "2": (permanent_path, 0)}
     deleted = []
 
     class FakeRO:
@@ -870,7 +871,7 @@ def test_duplicates_resolve_trashes_a_protected_loser_file(tmp_path, monkeypatch
     )
     assert response.status_code == 200
     assert response.json()["files"][0]["result"] == "trashed"
-    assert deleted == [protected_path]
+    assert deleted == [permanent_path]
 
 
 def test_duplicates_resolve_permanent_delete_consent_428(tmp_path, monkeypatch):
@@ -923,10 +924,10 @@ def test_untagged_list_categorizes(tmp_path):
     assert [t["category"] for t in tracks] == ["junk", "review"]
 
 
-def test_untagged_delete_protected_guard_skip_report(tmp_path, monkeypatch):
+def test_untagged_delete_is_ownership_neutral_and_reports_stale_rows(tmp_path, monkeypatch):
     rows = [
         rb_row("1"),
-        rb_row("2", protected=True),
+        rb_row("2", ownership="permanent_library"),
         rb_row("3", tag_count=1),
     ]
     env = make_env(tmp_path, rows=rows)
@@ -945,10 +946,8 @@ def test_untagged_delete_protected_guard_skip_report(tmp_path, monkeypatch):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["soft_deleted"] == ["1"] == deleted
-    # D15: the protected guard applies with a REAL skip report.
+    assert body["soft_deleted"] == ["1", "2"] == deleted
     assert {(s["content_id"], s["reason"]) for s in body["skipped"]} == {
-        ("2", "protected"),
         ("3", "tagged"),
         ("9", "not_found"),
     }
@@ -971,6 +970,35 @@ def test_mutation_blocked_maps_to_423(tmp_path, monkeypatch):
 
 
 # --- smart fixes -------------------------------------------------------------------
+
+
+def test_smartfixes_dry_run_works_while_rekordbox_is_running(tmp_path, monkeypatch):
+    env = make_env(tmp_path, rows=[rb_row("1", title="Song   Twice")])
+
+    def blocked(_db_path):
+        raise MutationBlockedError()
+
+    monkeypatch.setattr(process_guard, "assert_mutation_ready", blocked)
+    response = env.client.post("/api/smartfixes/dry-run", json={})
+
+    assert response.status_code == 200
+    assert response.json()["payload"][0]["after"] == "Song Twice"
+    assert not env.deps.backups_root.exists()
+
+
+def test_smartfixes_execute_is_guarded_before_backup(tmp_path, monkeypatch):
+    env = make_env(tmp_path, rows=[rb_row("1", title="Song   Twice")])
+    dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
+
+    def blocked(_db_path):
+        raise MutationBlockedError()
+
+    monkeypatch.setattr(process_guard, "assert_mutation_ready", blocked)
+    response = env.client.post("/api/smartfixes/execute", json=dry)
+
+    assert response.status_code == 423
+    assert response.json()["error"] == "mutation_blocked"
+    assert not env.deps.backups_root.exists()
 
 
 def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
@@ -1005,12 +1033,9 @@ def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
     assert captured["storage_root"] == str(env.storage)
 
 
-def test_smartfixes_include_protected_tracks(tmp_path, monkeypatch):
-    """Owner amendment to 5.11 (2026-07-07): Smart Fixes are metadata-only
-    (automatic backup before write), so protected tracks are planned and
-    written like any other - no per-call opt-in. The protected guard stays
-    on file-destructive operations (untagged delete, duplicates)."""
-    rows = [rb_row("p1", title="Bad   Title", protected=True)]
+def test_smartfixes_include_permanent_library_tracks(tmp_path, monkeypatch):
+    """Smart Fixes metadata writes are independent of file ownership."""
+    rows = [rb_row("p1", title="Bad   Title", ownership="permanent_library")]
     env = make_env(tmp_path, rows=rows)
 
     dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
@@ -1033,20 +1058,49 @@ def test_smartfixes_include_protected_tracks(tmp_path, monkeypatch):
     assert applied == [("p1", {"title": "Bad Title"})]
 
 
-def test_smartfixes_execute_refuses_payload_outside_plan(tmp_path):
-    """The server still re-derives the plan on execute: a forged payload
-    entry (not produced by the current plan) is refused before any backup."""
+def test_smartfixes_execute_requires_the_complete_canonical_payload(tmp_path):
+    env = make_env(
+        tmp_path,
+        rows=[
+            rb_row("1", title="Song   Twice"),
+            rb_row("2", artist="Artist  Two"),
+        ],
+    )
+    dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
+    assert len(dry["payload"]) == 2
+
+    changed = [dict(change) for change in dry["payload"]]
+    changed[0]["after"] = "Hacked"
+    enriched = [dict(change) for change in dry["payload"]]
+    enriched[0]["rule"] = "unexpected"
+    wrong_type = [dict(change) for change in dry["payload"]]
+    wrong_type[0]["content_id"] = 1
+    forged_payloads = (
+        dry["payload"][:-1],
+        list(reversed(dry["payload"])),
+        dry["payload"] + [dry["payload"][0]],
+        changed,
+        enriched,
+        wrong_type,
+    )
+
+    for payload in forged_payloads:
+        refused = env.client.post(
+            "/api/smartfixes/execute",
+            json={"payload": payload, "fingerprint": dry["fingerprint"]},
+        )
+        assert refused.status_code == 400
+        assert "exactly match" in refused.json()["message"]
+    assert not env.deps.backups_root.exists()
+
+
+def test_smartfixes_execute_requires_the_preview_fingerprint(tmp_path):
     env = make_env(tmp_path, rows=[rb_row("1", title="Song   Twice")])
     dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
-    forged = {
-        "payload": [
-            {"content_id": "1", "field": "title", "before": "Song   Twice", "after": "Hacked"}
-        ],
-        "fingerprint": dry["fingerprint"],
-    }
-    refused = env.client.post("/api/smartfixes/execute", json=forged)
-    assert refused.status_code == 400
-    assert "server-side plan" in refused.json()["message"]
+    response = env.client.post(
+        "/api/smartfixes/execute", json={"payload": dry["payload"]}
+    )
+    assert response.status_code == 400
     assert not env.deps.backups_root.exists()
 
 
@@ -1316,10 +1370,10 @@ def test_track_manual_match_transition(tmp_path):
 
 def test_missing_remove_soft_deletes_via_mutate(tmp_path, monkeypatch):
     """G3: remove = soft-delete through mutate (fingerprint checked), no
-    audio deletion; protected and present-file rows are refused."""
+    audio deletion; ownership is irrelevant and present-file rows are refused."""
     rows = [
         rb_row("1", file_missing=True),
-        rb_row("2", file_missing=True, protected=True),
+        rb_row("2", file_missing=True, ownership="permanent_library"),
         rb_row("3"),  # file present
     ]
     env = make_env(tmp_path, rows=rows)
@@ -1340,7 +1394,8 @@ def test_missing_remove_soft_deletes_via_mutate(tmp_path, monkeypatch):
     assert deleted == ["1"]
     assert seen["fingerprint"] == env.cache.current_fingerprint
 
-    assert env.client.post("/api/missing/collection/2/remove").status_code == 409
+    assert env.client.post("/api/missing/collection/2/remove").status_code == 200
+    assert deleted == ["1", "2"]
     assert env.client.post("/api/missing/collection/3/remove").status_code == 409
     assert env.client.post("/api/missing/collection/9/remove").status_code == 404
 

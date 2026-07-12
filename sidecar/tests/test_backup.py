@@ -101,6 +101,39 @@ class TestCreateBackup:
         for dest in (first, second, third):
             assert (dest / "master.db").read_bytes() == b"main-v1"
 
+    def test_copies_rekordbox_support_files_with_relative_layout(
+        self, db, backups_root
+    ):
+        anlz = db.parent / "share" / "PIONEER" / "ANLZ0000.DAT"
+        anlz.parent.mkdir(parents=True)
+        anlz.write_bytes(b"anlz-v1")
+        destination = backup.create_backup(db, backups_root, extra_files=[anlz])
+        backed = destination / "extra" / anlz.relative_to(db.parent)
+        assert backed.read_bytes() == b"anlz-v1"
+        listing = backup.list_backups(backups_root)[0]
+        assert str(backed.relative_to(destination)) in listing["files"]
+
+    def test_rejects_extra_files_outside_database_directory(
+        self, db, backups_root, tmp_path
+    ):
+        outside = tmp_path / "outside.DAT"
+        outside.write_bytes(b"unsafe")
+        with pytest.raises(ValueError, match="database directory"):
+            backup.create_backup(db, backups_root, extra_files=[outside])
+        assert not backups_root.exists()
+
+    def test_restore_extra_files_rejects_missing_required_support_file(
+        self, db, backups_root
+    ):
+        destination = backup.create_backup(db, backups_root)
+        required = db.parent / "share" / "PIONEER" / "ANLZ0000.DAT"
+        with pytest.raises(FileNotFoundError, match="required support files"):
+            backup.restore_extra_files(
+                destination,
+                db,
+                required_files=[required],
+            )
+
 
 class TestRotation:
     def test_retention_zero_is_unlimited(self, db, backups_root, monkeypatch):
@@ -162,6 +195,25 @@ class TestRotation:
             "rekordbox-db-20260702-120001",
             "unrelated-dir",
         ]
+
+    def test_pending_event_backup_is_pinned_until_recovery_finishes(
+        self, db, backups_root, monkeypatch
+    ):
+        freeze_timestamp(
+            monkeypatch,
+            "20260702-120000",
+            "20260702-120001",
+            "20260702-120002",
+        )
+        pending = backup.create_backup(db, backups_root, retention=1)
+        marker = backup.pin_backup(pending)
+        current = backup.create_backup(db, backups_root, retention=1)
+        assert pending.is_dir() and current.is_dir() and marker.is_file()
+        assert marker.name not in backup.list_backups(backups_root)[1]["files"]
+
+        backup.unpin_backup(pending)
+        newest = backup.create_backup(db, backups_root, retention=1)
+        assert backup_names(backups_root) == [newest.name]
 
 
 # --- restore_backup --------------------------------------------------------
@@ -280,6 +332,24 @@ class TestRestoreBehavior:
         assert snapshot.name in names
         assert len(names) == 17
         assert db.read_bytes() == b"main-v1"
+
+    def test_restore_includes_anlz_and_snapshots_current_anlz(
+        self, db, backups_root, monkeypatch
+    ):
+        install_fake_guard(monkeypatch)
+        freeze_timestamp(monkeypatch, "20260702-120000", "20260702-120100")
+        anlz = db.parent / "share" / "PIONEER" / "ANLZ0000.DAT"
+        anlz.parent.mkdir(parents=True)
+        anlz.write_bytes(b"anlz-v1")
+        target = backup.create_backup(db, backups_root, extra_files=[anlz])
+
+        db.write_bytes(b"main-v2")
+        anlz.write_bytes(b"anlz-v2")
+        snapshot = backup.restore_backup(target.name, backups_root, db)
+
+        assert anlz.read_bytes() == b"anlz-v1"
+        backed_current = snapshot / "extra" / anlz.relative_to(db.parent)
+        assert backed_current.read_bytes() == b"anlz-v2"
 
 
 # --- fix-round regression tests (adversarial review findings) ----------------

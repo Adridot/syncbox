@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// Réglages (M4.11 — SPEC-DESIGN §4, SPEC-UNIFIED §5.10). Spotify card with
+// Settings (M4.11 — SPEC-DESIGN §4, SPEC-UNIFIED §5.10). Spotify card with
 // the user-supplied Client ID (R1) gating the connect flow; 2 editable paths
 // with SERVER-validated ticks re-checked on mount (B3 — never an optimistic
 // ✓) + full inline help (R3 arbitrated 2026-07-07: 2 paths kept, NO folder
-// name imposed — the protected zone is everything under <root>/rekordbox/);
-// retention; language; Avancé (G4 knobs, sum=1.00, locked invariants, reset).
+// name imposed under the permanent library); retention; language; Advanced
+// options (G4 knobs, sum=1.00, locked invariants, reset).
 // The deprecated download-module card / ARL field are never built (§6.5).
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -204,9 +204,9 @@ async function importData() {
 const derivedRows = computed(() => {
   const root = settings.values?.storage_root
   if (!root) return []
-  return ['protected', 'inbox', 'events', 'backups'].map((key) => ({
+  return ['permanent_library', 'inbox', 'events', 'backups'].map((key) => ({
     key,
-    path: key === 'protected' ? `${root}/rekordbox/` : `${root}/_syncbox/${key}`,
+    path: key === 'permanent_library' ? `${root}/rekordbox/` : `${root}/_syncbox/${key}`,
     label: t(`settings.paths.derived.${key}`),
     desc: t(`settings.paths.derived.${key}Desc`),
   }))

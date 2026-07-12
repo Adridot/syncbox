@@ -62,7 +62,6 @@ from syncbox.safety.backup import list_backups, restore_backup
 from syncbox.safety.mutate import StaleSnapshotError, mutate
 from syncbox.safety.paths import (
     SYNC_DIR_NAME,
-    is_protected_path,
     paths_equal,
     resolve_stored_path,
     tcc_exists,
@@ -275,8 +274,7 @@ class _Progress:
     """Real job progress on the canonical SSE bus (F16).
 
     pct always derives from done/total actual work units. Publishing happens
-    from the worker thread back into the running loop via anyio.from_thread
-    (the shim the server-side JobBus ponytail note planned for M3).
+    from the worker thread back into the running loop via anyio.from_thread.
     """
 
     def __init__(self, bus: JobBus, kind: str):
@@ -498,7 +496,7 @@ def source_tracks(deps, request, body):
                 row["content_id"]: row["bit_rate"]
                 for row in deps.cache().get(deps.storage_root)
             }
-        except Exception:  # ponytail: optional enrichment, never load-bearing
+        except Exception:  # Optional enrichment must never block the track list.
             bit_rates = {}
     for track in tracks:
         track["bit_rate"] = (
@@ -892,8 +890,7 @@ def events_reapply(deps, request, body):
 
 
 def events_delete(deps, request, body):
-    """dry_run defaults to TRUE: the destructive call must be explicit and
-    its confirmation text reflects the exact executed payload (D11/D23, B10)."""
+    """Preview by default; execution must echo the complete displayed plan."""
     event = _get_event(deps, request.path_params["event_id"])
     _require_rekordbox(deps)
     return events_service.delete_event(
@@ -904,6 +901,7 @@ def events_delete(deps, request, body):
         deps.storage_root,
         event,
         dry_run=bool(body.get("dry_run", True)),
+        plan=body.get("plan"),
         consent_to_permanent_delete=bool(body.get("consent_to_permanent_delete")),
         retention=deps.retention,
     )
@@ -954,8 +952,6 @@ def missing_remove(deps, request, body):
     )
     if row is None:
         raise KeyError(f"content {content_id} not found in the Rekordbox snapshot")
-    if row["protected"]:
-        raise ConflictError(f"protected tracks are never deleted (5.4): {content_id}")
     if not row["file_missing"]:
         raise ConflictError(
             f"content {content_id} has a present file; remove applies to "
@@ -1077,11 +1073,9 @@ def duplicates_resolve(deps, request, body):
     unknown = [c for c in losers if c not in states]
     if unknown:
         raise KeyError(f"unknown content ids: {unknown}")
-    # Owner amendment to 5.4 (2026-07-07): loser files in the protected zone
-    # are resolvable like any other — the per-group confirmation is the
-    # consent, and the file goes through the same trash-first contract below
-    # (permanent delete still requires the 428 consent). The keeper's file
-    # remains untouchable either way.
+    # Duplicate resolution is ownership-neutral after exact per-group
+    # confirmation. Every loser uses the same trash-first contract; the
+    # keeper's physical file remains untouchable.
 
     active = [c for c in losers if not states[c]["deleted"]]
     cache = deps.cache()
@@ -1162,11 +1156,11 @@ def untagged_patterns_remove(deps, request, body):
 
 
 def untagged_delete(deps, request, body):
-    """D15: the protected guard applies with a REAL skip report - protected
-    (and stale not-found/now-tagged) rows are skipped and reported, never
-    silently dropped. Soft-delete only: reversible via backup + reactivate
-    (D21). ponytail: no audio file deletion here - 5.8 asks for collection
-    removal; wire the 6.9 trash contract in if a real DJ asks for it."""
+    """Soft-delete untagged Rekordbox rows without deleting any audio file.
+
+    Stale not-found or now-tagged rows are skipped and reported. Ownership
+    does not affect this reversible database-only operation.
+    """
     _require_rekordbox(deps)
     content_ids = [str(c) for c in _require_list(body, "content_ids")]
     cache = deps.cache()
@@ -1176,8 +1170,6 @@ def untagged_delete(deps, request, body):
         row = by_id.get(content_id)
         if row is None:
             skipped.append({"content_id": content_id, "reason": "not_found"})
-        elif row["protected"]:
-            skipped.append({"content_id": content_id, "reason": "protected"})
         elif row["tag_count"]:
             skipped.append({"content_id": content_id, "reason": "tagged"})
         else:
@@ -1461,7 +1453,7 @@ def mytags_get(deps, request, body):
 # --- spotify ----------------------------------------------------------------------
 
 
-_PLAYLISTS_MAX_PAGES = 20  # ponytail: 50/page = 1000 playlists; raise if a real DJ overflows
+_PLAYLISTS_MAX_PAGES = 20  # 50/page bounds one request to 1,000 playlists.
 
 
 def spotify_playlists(deps, request, body):

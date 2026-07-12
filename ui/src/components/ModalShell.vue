@@ -5,6 +5,7 @@
 // opener on close.
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
+defineOptions({ inheritAttrs: false })
 defineProps<{ width?: string }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -55,6 +56,7 @@ onBeforeUnmount(() => {
     <div class="backdrop" @click.self="emit('close')">
       <div
         ref="modal"
+        v-bind="$attrs"
         class="modal"
         role="dialog"
         aria-modal="true"

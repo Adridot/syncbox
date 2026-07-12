@@ -200,6 +200,44 @@ class TestMutateSequencing:
             pass
         assert received["retention"] == 7
 
+    def test_extra_backup_files_and_observer_run_before_open(
+        self, db, backups_root, monkeypatch
+    ):
+        install_fake_guard(monkeypatch)
+        anlz = db.parent / "share" / "ANLZ0000.DAT"
+        anlz.parent.mkdir()
+        anlz.write_bytes(b"anlz")
+        log = []
+        made = backups_root / "rekordbox-db-20260711-120000"
+
+        def fake_create(path, root, retention=15, *, extra_files=()):
+            assert list(extra_files) == [anlz]
+            log.append("backup")
+            return made
+
+        monkeypatch.setattr(mutate_mod, "create_backup", fake_create)
+
+        def open_db(path):
+            log.append("open")
+            return FakeHandle(log)
+
+        with mutate(
+            db,
+            backups_root,
+            open_db=open_db,
+            backup_files=[anlz],
+            backup_observer=lambda path: log.append(f"observed:{path.name}"),
+        ):
+            log.append("body")
+        assert log == [
+            "backup",
+            f"observed:{made.name}",
+            "open",
+            "body",
+            "commit",
+            "close",
+        ]
+
     def test_invalidate_cache_is_optional(self, db, backups_root, monkeypatch):
         install_fake_guard(monkeypatch)
         log = []

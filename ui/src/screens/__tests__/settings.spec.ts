@@ -10,6 +10,7 @@ let pinia: ReturnType<typeof createPinia>
 beforeEach(() => {
   pinia = createPinia()
   setActivePinia(pinia)
+  i18n.global.locale.value = 'fr'
 })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -71,6 +72,9 @@ test('B3: stored paths are re-validated on mount — ✕ + server message, never
   // storage root: pre-filled but NOT FOUND server-side -> ✕ + inline message
   expect(ticks[1].attributes('data-state')).toBe('invalid')
   expect(wrapper.text()).toContain('storage_root: not found')
+  expect(wrapper.text()).toContain('Bibliothèque permanente (ton audio)')
+  expect(wrapper.text()).toContain('/gone/away/rekordbox/')
+  expect(wrapper.text()).not.toContain('Zone protégée')
 })
 
 test('R1: the connect CTA is gated while spotify_client_id is empty, with an actionable note', async () => {

@@ -14,6 +14,7 @@ import pytest
 
 from syncbox.safety.paths import (
     canonical_key,
+    classify_ownership,
     path_lookup_keys,
     paths_equal,
     stored_form,
@@ -26,7 +27,7 @@ def root(tmp_path):
     # Volume name deliberately contains a space, like a real external SSD.
     r = tmp_path / "Music SSD"
     (r / "rekordbox" / "Collection").mkdir(parents=True)
-    (r / "inbox").mkdir()
+    (r / "_syncbox" / "inbox").mkdir(parents=True)
     return r
 
 
@@ -39,7 +40,7 @@ def test_stored_form_under_rekordbox_is_volume_relative(root):
 
 
 def test_stored_form_inbox_is_absolute(root):
-    p = root / "inbox" / "track.mp3"
+    p = root / "_syncbox" / "inbox" / "track.mp3"
     assert stored_form(p, root) == str(p)
 
 
@@ -148,6 +149,69 @@ def test_paths_equal_outside_root_absolute_only(root):
     a = "/Users/dj/Downloads/track.mp3"
     assert paths_equal(a, a, root) is True
     assert paths_equal(a, "/Users/dj/Downloads/other.mp3", root) is False
+
+
+def test_canonical_equality_resolves_symlink_for_missing_file(root, tmp_path):
+    link = tmp_path / "collection-link"
+    link.symlink_to(root / "rekordbox" / "Collection")
+    through_link = link / "missing.mp3"
+    canonical = root / "rekordbox" / "Collection" / "missing.mp3"
+    assert paths_equal(through_link, canonical, root)
+
+
+# --- ownership classification -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        (("_syncbox", "events", "gig", "track.mp3"), "app_managed"),
+        (("_syncbox", "inbox", "track.mp3"), "app_managed"),
+        (("rekordbox", "Collection", "track.mp3"), "permanent_library"),
+        (("_syncbox", "backups", "track.mp3"), "external"),
+        (("_syncbox", "events-old", "track.mp3"), "external"),
+        (("rekordbox-old", "track.mp3"), "external"),
+        (("Downloads", "track.mp3"), "external"),
+    ],
+)
+def test_classify_ownership_uses_exact_segments_for_missing_paths(
+    root, relative, expected
+):
+    assert classify_ownership(root.joinpath(*relative), root) == expected
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ("/Music SSD/_syncbox/events/gig/track.mp3", "app_managed"),
+        ("/Music SSD/_syncbox/inbox/track.mp3", "app_managed"),
+        ("/Music SSD/rekordbox/Collection/track.mp3", "permanent_library"),
+        ("/Music SSD/_syncbox/backups/track.mp3", "external"),
+    ],
+)
+def test_classify_ownership_accepts_volume_relative_paths(root, stored, expected):
+    assert classify_ownership(stored, root) == expected
+
+
+def test_classify_ownership_expands_user_for_missing_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    root = "~/Music SSD"
+    path = "~/Music SSD/_syncbox/inbox/track.mp3"
+    assert classify_ownership(path, root) == "app_managed"
+
+
+def test_classify_ownership_canonicalizes_parent_traversal(root):
+    disguised_backup = root / "_syncbox" / "events" / ".." / "backups" / "db"
+    assert classify_ownership(disguised_backup, root) == "external"
+
+
+def test_classify_ownership_follows_symlink_out_of_managed_area(root, tmp_path):
+    external = tmp_path / "external"
+    external.mkdir()
+    events = root / "_syncbox" / "events"
+    events.mkdir()
+    (events / "linked").symlink_to(external)
+    assert classify_ownership(events / "linked" / "track.mp3", root) == "external"
 
 
 # --- tcc_exists (SPEC-UNIFIED 3.3, SPEC-01 1.5) ---------------------------------

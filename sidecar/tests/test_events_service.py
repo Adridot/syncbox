@@ -6,6 +6,8 @@ tmp_path (apply -> reapply delta -> delete with preview).
 """
 
 import hashlib
+import json
+import os
 import shutil
 import sqlite3
 from contextlib import contextmanager
@@ -14,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from syncbox import appdb, events_service
+from syncbox import appdb, event_delete, events_service
 from syncbox.events_service import (
     add_track,
     apply_event,
@@ -27,6 +29,7 @@ from syncbox.events_service import (
     recompute_event_status,
     slugify,
 )
+from syncbox.safety.paths import stored_form
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTDATA = REPO_ROOT / "poc" / "testdata"
@@ -505,102 +508,280 @@ def test_apply_restores_xml_byte_identical_after_commit(conn, tmp_path, monkeypa
     assert bak.read_bytes() == original  # covers the commit->restore window
 
 
-def test_delete_event_flows_consent_to_delete_file(conn, tmp_path, monkeypatch):
-    """D21/6.9: the consent_to_permanent_delete flag must reach
-    platform_os.delete_file for every staged artifact - both values."""
+def test_delete_event_forwards_exact_plan_and_consent(conn, tmp_path, monkeypatch):
+    event = create_event(conn, tmp_path / "storage", "Forward")
+    plan = {"plan_version": 1, "event_id": event["id"]}
+    seen = {}
 
-    class EmptyRO:
-        def execute(self, sql, params):
-            return SimpleNamespace(fetchall=lambda: [])
+    def fake_delete(*args, **kwargs):
+        seen.update(kwargs)
+        return {"ok": True}
 
-        def close(self):
-            pass
-
-    consents = []
-
-    def fake_delete(path, *, consent_to_permanent_delete=False):
-        consents.append(consent_to_permanent_delete)
-        Path(path).unlink()
-        return "trashed"
-
-    monkeypatch.setattr(events_service, "open_readonly", lambda p: EmptyRO())
-    monkeypatch.setattr(events_service, "delete_file", fake_delete)
-
-    for consent in (True, False):
-        event = create_event(conn, tmp_path / "storage", f"Consent {consent}")
-        (Path(event["staging_dir"]) / "a.mp3").write_bytes(b"x")
-        done = delete_event(
-            conn,
-            tmp_path / "master.db",
-            tmp_path / "b",
-            FakeCache([]),
-            tmp_path / "storage",
-            event,
-            dry_run=False,
-            consent_to_permanent_delete=consent,
-        )
-        assert len(done["removed_files"]) == 1
-        assert get_event(conn, event["id"]) is None
-    assert consents == [True, False]  # the flag flowed through, per call
+    monkeypatch.setattr(events_service.event_delete, "delete_event", fake_delete)
+    result = delete_event(
+        conn,
+        tmp_path / "master.db",
+        tmp_path / "backups",
+        FakeCache([]),
+        tmp_path / "storage",
+        event,
+        dry_run=False,
+        plan=plan,
+        consent_to_permanent_delete=True,
+    )
+    assert result == {"ok": True}
+    assert seen["plan"] is plan
+    assert seen["dry_run"] is False
+    assert seen["consent_to_permanent_delete"] is True
 
 
 # --- delete preview rules (SPEC-01 1.8) --------------------------------------------
 
 
-def test_delete_preview_protection_rules(tmp_path):
+def test_delete_preview_ownership_and_retained_track_rules(tmp_path):
     storage = tmp_path / "store"
-    staging = tmp_path / "staging"
-    staging.mkdir()
-    (staging / "a.mp3").write_bytes(b"x")
+    staging = storage / "_syncbox" / "events" / "gala"
+    staging.mkdir(parents=True)
+    solo = staging / "solo.mp3"
+    retained = staging / "retained.mp3"
+    solo.write_bytes(b"solo")
+    retained.write_bytes(b"retained")
     (staging / "masterPlaylists6.xml.bak").write_bytes(b"<xml/>")
-    event = {"name": "Gala Night", "default_tag": "Gala Night", "staging_dir": str(staging)}
-    protected_path = "/store/rekordbox/Collection/track3.flac"  # volume-relative
+    event = {
+        "id": 7,
+        "name": "Gala Night",
+        "default_tag": "Gala Night",
+        "staging_dir": str(staging),
+    }
+    permanent_path = f"/{storage.name}/rekordbox/Collection/track3.flac"
+    tagged = {"102": [("88", "Energy")], "105": [("89", "Favorite")]}
 
     def query(sql, params):
-        if sql == events_service._TAG_SQL:
+        if sql == event_delete._TAG_SQL:
             assert params == {"tag": "Gala Night", "category": "Situation"}
             return [("42",)]
-        if sql == events_service._TAGGED_SQL:
+        if sql == event_delete._ACTIVE_PATHS_SQL:
             return [
-                ("101", "Solo", "/somewhere/inbox/a.mp3"),
-                ("102", "Tagged Elsewhere", "/somewhere/inbox/b.mp3"),
-                ("103", "In Collection", protected_path),
+                ("101", str(solo)),
+                ("102", str(retained)),
+                ("103", permanent_path),
+                ("104", "/Users/dj/Music/external.mp3"),
+                ("105", "/Users/dj/Music/tagged.mp3"),
             ]
-        if sql == events_service._OTHER_TAGS_SQL:
-            return [(1 if params["content_id"] == "102" else 0,)]
-        if sql == events_service._PLAYLISTS_SQL:
+        if sql == event_delete._TAGGED_SQL:
+            return [
+                ("101", "Solo", "Artist", str(solo), None),
+                ("102", "Retained", "Artist", str(retained), None),
+                ("103", "In Collection", "Artist", permanent_path, None),
+                ("104", "External Solo", "Artist", "/Users/dj/Music/external.mp3", None),
+                ("105", "External Tagged", "Artist", "/Users/dj/Music/tagged.mp3", None),
+            ]
+        if sql == event_delete._OTHER_TAGS_SQL:
+            return tagged.get(params["content_id"], [])
+        if sql == event_delete._PLAYLISTS_SQL:
             assert params["legacy"] == "Gala Night - Smart"
             return [("9", "Gala Night"), ("10", "Gala Night - Smart")]
         raise AssertionError(f"unexpected sql: {sql}")
 
-    preview = events_service._delete_preview(query, event, storage)
+    preview = events_service._delete_preview(
+        query, event, storage, tmp_path / "master.db", [["1", "2"]]
+    )
 
     assert preview["tag_id"] == "42"
-    by_id = {c["content_id"]: c for c in preview["contents"]}
-    assert (by_id["101"]["action"], by_id["101"]["reason"]) == ("soft_delete", "event_only")
-    assert (by_id["102"]["action"], by_id["102"]["reason"]) == ("keep", "carries_other_mytag")
-    assert (by_id["103"]["action"], by_id["103"]["reason"]) == ("keep", "protected_path")
+    by_id = {track["content_id"]: track for track in preview["tracks"]}
+    assert by_id["101"]["action"] == "delete_with_event"
+    assert by_id["102"]["action"] == "migrate_to_collection"
+    assert by_id["102"]["retaining_mytags"] == ["Energy"]
+    assert by_id["102"]["destination_path"] == str(
+        storage / "rekordbox" / "Collection" / retained.name
+    )
+    assert by_id["103"]["action"] == "already_permanent"
+    assert by_id["103"]["ownership"] == "permanent_library"
+    assert by_id["104"]["action"] == "soft_delete_only"
+    assert by_id["105"]["action"] == "already_permanent"
+    assert by_id["105"]["ownership"] == "external"
     assert {p["name"] for p in preview["playlists"]} == {
         "Gala Night",
         "Gala Night - Smart",
     }
-    assert preview["artifacts"] == sorted(
-        [str(staging / "a.mp3"), str(staging / "masterPlaylists6.xml.bak")]
-    )
+    assert preview["expected_file_deletions"] == preview["staging_artifacts"]
+    assert set(preview["staging_artifacts"]) == {
+        str(solo),
+        str(retained),
+        str(staging / "masterPlaylists6.xml.bak"),
+    }
 
 
 def test_delete_preview_without_tag_is_empty(tmp_path):
-    event = {"name": "Ghost", "default_tag": "Ghost", "staging_dir": None}
+    event = {
+        "id": 8,
+        "name": "Ghost",
+        "default_tag": "Ghost",
+        "staging_dir": None,
+    }
 
     def query(sql, params):
-        if sql == events_service._TAG_SQL:
+        if sql == event_delete._TAG_SQL:
             return []
-        if sql == events_service._PLAYLISTS_SQL:
+        if sql == event_delete._PLAYLISTS_SQL:
             return []
         raise AssertionError("content queries must not run without a tag")
 
-    preview = events_service._delete_preview(query, event, tmp_path)
-    assert preview == {"tag_id": None, "contents": [], "playlists": [], "artifacts": []}
+    preview = events_service._delete_preview(
+        query, event, tmp_path, tmp_path / "master.db", [["1", "2"]]
+    )
+    assert preview["tag_id"] is None
+    assert preview["tracks"] == []
+    assert preview["playlists"] == []
+    assert preview["expected_file_deletions"] == []
+
+
+@pytest.mark.skipif(
+    not os.environ.get("SYNCBOX_EVENT_MIGRATION_FIXTURE"),
+    reason="POC #9 event-migration fixture is not configured",
+)
+def test_retained_track_migration_on_real_db(tmp_path, monkeypatch):
+    """POC #9: preserve identity and analysis while moving one staged track."""
+    from pyrekordbox.anlz import AnlzFile
+
+    from syncbox import rb
+    from syncbox.rb_write import (
+        find_or_create_mytag,
+        migrate_content_path,
+        open_rekordbox,
+        tag_content,
+    )
+    from syncbox.safety.mutate import mutate
+    from syncbox.safety.paths import stored_form
+
+    manifest_path = Path(os.environ["SYNCBOX_EVENT_MIGRATION_FIXTURE"])
+    fixture_root = manifest_path.parent
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    db_path = fixture_root / "master.db"
+    declared_anlz = [fixture_root / value for value in manifest["anlz_files"]]
+    content_id = str(manifest["content_id"])
+
+    def rows(sql, params=()):
+        connection = rb.open_readonly(db_path)
+        try:
+            return connection.execute(sql, params).fetchall()
+        finally:
+            connection.close()
+
+    content_before = rows(
+        "SELECT FolderPath, OrgFolderPath, FileNameL, AnalysisDataPath, "
+        "rb_local_deleted FROM djmdContent WHERE ID = ?",
+        (content_id,),
+    )[0]
+    assert not int(content_before[4] or 0)
+    actual_anlz = event_delete._anlz_paths(db_path, content_before[3])
+    assert set(actual_anlz) == set(declared_anlz)
+    cue_rows = rows("SELECT * FROM djmdCue WHERE ContentID = ? ORDER BY ID", (content_id,))
+    playlist_rows = rows(
+        "SELECT PlaylistID, TrackNo FROM djmdSongPlaylist "
+        "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY PlaylistID",
+        (content_id,),
+    )
+    original_tags = rows(
+        "SELECT MyTagID FROM djmdSongMyTag "
+        "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY MyTagID",
+        (content_id,),
+    )
+    assert cue_rows and playlist_rows and original_tags
+
+    def analysis_payload(path):
+        parsed = AnlzFile.parse_file(path)
+        return [(tag.type, tag.build()) for tag in parsed.tags if tag.type != "PPTH"]
+
+    analysis_before = {path: analysis_payload(path) for path in declared_anlz}
+    audio_source = fixture_root / manifest["staging_audio"]
+    audio_digest = _sha256(audio_source)
+    storage = tmp_path / "storage"
+    conn = appdb.open_app_db(tmp_path / "app.db")
+    event = create_event(conn, storage, "Syncbox POC Retained Migration")
+    staged = Path(event["staging_dir"]) / audio_source.name
+    shutil.copy2(audio_source, staged)
+    backups = tmp_path / "backups"
+
+    with mutate(db_path, backups, open_db=open_rekordbox) as db:
+        event_tag = find_or_create_mytag(
+            db, event["default_tag"], events_service.SITUATION_CATEGORY
+        )
+        tag_content(db, content_id, str(event_tag.ID))
+        migrate_content_path(
+            db, content_id, str(staged), update_anlz=False
+        )
+        db.get_content(ID=content_id).OrgFolderPath = str(staged)
+        db.flush()
+
+    cache = rb.SnapshotCache(db_path)
+    plan = delete_event(
+        conn, db_path, backups, cache, storage, event, dry_run=True
+    )
+    track = next(item for item in plan["tracks"] if item["content_id"] == content_id)
+    assert track["action"] == "migrate_to_collection"
+    assert track["anlz_update_required"] is True
+    assert set(track["retaining_mytags"])
+
+    removed = []
+
+    def unlink(path, *, consent_to_permanent_delete=False):
+        Path(path).unlink()
+        removed.append(str(path))
+        return "trashed"
+
+    monkeypatch.setattr(event_delete, "delete_file", unlink)
+    result = delete_event(
+        conn,
+        db_path,
+        backups,
+        cache,
+        storage,
+        event,
+        dry_run=False,
+        plan=plan,
+    )
+    destination = Path(track["destination_path"])
+    assert result["deleted_event"] is True
+    assert str(staged) in removed
+    assert not staged.exists()
+    assert destination.is_file() and _sha256(destination) == audio_digest
+
+    stored_destination = stored_form(destination, storage)
+    content_after = rows(
+        "SELECT FolderPath, OrgFolderPath, FileNameL, AnalysisDataPath, "
+        "rb_local_deleted FROM djmdContent WHERE ID = ?",
+        (content_id,),
+    )[0]
+    assert content_after == (
+        stored_destination,
+        stored_destination,
+        destination.name,
+        content_before[3],
+        0,
+    )
+    assert rows("SELECT * FROM djmdCue WHERE ContentID = ? ORDER BY ID", (content_id,)) == cue_rows
+    assert rows(
+        "SELECT PlaylistID, TrackNo FROM djmdSongPlaylist "
+        "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY PlaylistID",
+        (content_id,),
+    ) == playlist_rows
+    assert rows(
+        "SELECT MyTagID FROM djmdSongMyTag "
+        "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY MyTagID",
+        (content_id,),
+    ) == original_tags
+
+    for path in declared_anlz:
+        parsed = AnlzFile.parse_file(path)
+        assert parsed.get("path") == stored_destination
+        assert analysis_payload(path) == analysis_before[path]
+    assert any(
+        all((backup / "extra" / path.relative_to(fixture_root)).is_file() for path in declared_anlz)
+        for backup in backups.glob("rekordbox-db-*")
+    )
+    assert get_event(conn, event["id"]) is None
+    conn.close()
 
 
 # --- integration: apply -> reapply(delta) -> delete on the real fixture ------------
@@ -612,6 +793,7 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
     from syncbox.rb_write import (
         create_or_repair_smart_playlist,
         ensure_playlist_folder,
+        find_or_create_mytag,
         open_rekordbox,
         tag_content,
     )
@@ -770,11 +952,14 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
     assert event["status"] == "applied"
     assert len(list(backups.iterdir())) == 3
 
-    # --- delete setup: a protected content + a legacy '<name> - Smart' playlist --
+    # --- delete setup: one retained staged content and a legacy smart playlist --
     with mutate(
         db_path, backups, open_db=open_rekordbox, invalidate_cache=cache.invalidate
     ) as db:
         tag_content(db, row_x["content_id"], tag_id)
+        retained_tag = find_or_create_mytag(db, "IT Retained", "Situation")
+        tag_content(db, content_b, retained_tag.ID)
+        retained_tag_id = str(retained_tag.ID)
         folder = ensure_playlist_folder(db, "Event Imports")
         create_or_repair_smart_playlist(
             db, "IT Event Lifecycle - Smart", folder.ID, tag_id
@@ -790,16 +975,27 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
         conn, db_path, backups, cache, storage_root, event, dry_run=True
     )
     assert preview["dry_run"] is True
-    actions = {c["content_id"]: (c["action"], c["reason"]) for c in preview["contents"]}
-    assert actions[row_x["content_id"]] == ("keep", "carries_other_mytag")
-    assert actions[row_a["content_id"]] == ("soft_delete", "event_only")
-    assert actions[content_b] == ("soft_delete", "event_only")
+    actions = {track["content_id"]: track for track in preview["tracks"]}
+    content_c = next(
+        track["content_id"]
+        for track in preview["tracks"]
+        if track["source_path"] == str(staged_c)
+    )
+    assert actions[row_x["content_id"]]["action"] == "already_permanent"
+    assert actions[row_a["content_id"]]["action"] == "soft_delete_only"
+    assert actions[content_b]["action"] == "migrate_to_collection"
+    assert actions[content_b]["retaining_mytags"] == ["IT Retained"]
+    assert actions[content_b]["anlz_update_required"] is False
+    assert actions[content_b]["destination_path"].endswith(
+        "/rekordbox/Collection/Syncbox IT Staged Tune QQ.mp3"
+    )
+    assert actions[content_c]["action"] == "delete_with_event"
     assert {p["name"] for p in preview["playlists"]} == {
         "IT Event Lifecycle",
         "IT Event Lifecycle - Smart",
     }
-    assert str(staged_b) in preview["artifacts"]
-    assert str(staged_c) in preview["artifacts"]
+    assert str(staged_b) in preview["staging_artifacts"]
+    assert str(staged_c) in preview["staging_artifacts"]
     assert len(list(backups.iterdir())) == 4  # dry-run wrote nothing
 
     # --- real delete ---------------------------------------------------------------
@@ -810,14 +1006,21 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
         deletions.append(str(path))
         return "trashed"
 
-    monkeypatch.setattr(events_service, "delete_file", fake_delete)
+    monkeypatch.setattr(event_delete, "delete_file", fake_delete)
     done = delete_event(
-        conn, db_path, backups, cache, storage_root, event, dry_run=False
+        conn,
+        db_path,
+        backups,
+        cache,
+        storage_root,
+        event,
+        dry_run=False,
+        plan=preview,
     )
     assert done["dry_run"] is False
     # executed payload == previewed payload (B10/D11 exact preview)
-    assert {c["content_id"]: c["action"] for c in done["contents"]} == {
-        c["content_id"]: c["action"] for c in preview["contents"]
+    assert {track["content_id"]: track["action"] for track in done["tracks"]} == {
+        track["content_id"]: track["action"] for track in preview["tracks"]
     }
 
     # artifacts cleaned only after the durable commit; staging fully gone (T8/T12)
@@ -826,14 +1029,14 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
     assert _sha256(xml_path) == xml_sha_pre_delete  # byte-identical restore (1.6)
 
     ro = rb.open_readonly(db_path)
-    for gone in (row_a["content_id"], content_b):
+    for gone in (row_a["content_id"], content_c):
         tup = ro.execute(
             "SELECT rb_local_deleted, rb_local_synced, rb_data_status,"
             " rb_local_data_status FROM djmdContent WHERE ID = ?",
             (gone,),
         ).fetchone()
         assert tuple(int(x) for x in tup) == (1, 0, 258, 0)  # exact 1.1 tuple
-    # protected content survives with its other tags; only the event link died
+    # Content carrying another tag survives in place; only the event link died.
     assert (
         int(
             ro.execute(
@@ -859,6 +1062,20 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
                 (row_x["content_id"], tag_id),
             ).fetchone()[0]
         )
+        == 1
+    )
+    migrated = ro.execute(
+        "SELECT FolderPath, rb_local_deleted FROM djmdContent WHERE ID = ?",
+        (content_b,),
+    ).fetchone()
+    assert migrated[0] == stored_form(actions[content_b]["destination_path"], storage_root)
+    assert int(migrated[1] or 0) == 0
+    assert (
+        ro.execute(
+            "SELECT COUNT(*) FROM djmdSongMyTag WHERE ContentID = ? "
+            "AND MyTagID = ? AND rb_local_deleted = 0",
+            (content_b, retained_tag_id),
+        ).fetchone()[0]
         == 1
     )
     # smart playlist cleaned by current AND legacy name; event tag gone

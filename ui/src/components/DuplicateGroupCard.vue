@@ -79,6 +79,12 @@ const confTone = computed(() =>
             }}</span>
           </div>
           <div class="attr">
+            <span>{{ t('ownership.label') }}</span>
+            <span class="mono" :data-ownership="member.ownership">{{
+              t(`ownership.${member.ownership}`)
+            }}</span>
+          </div>
+          <div class="attr">
             <span>{{ t('duplicates.attrPlaylists') }}</span>
             <span class="mono">{{ member.playlist_count }}</span>
           </div>
@@ -87,7 +93,6 @@ const confTone = computed(() =>
             <span class="mono">{{ member.cue_count }}</span>
           </div>
         </div>
-        <div v-if="member.protected" class="protected-line">🔒 {{ t('duplicates.protected') }}</div>
         <div v-if="member.quality_verdict !== 'ok'" class="quality-line">
           {{ t(`duplicates.qualityReason.${member.quality_reason}`, member.quality_reason) }}
         </div>
@@ -252,11 +257,6 @@ const confTone = computed(() =>
 }
 .mono {
   font-family: var(--font-mono);
-}
-.protected-line {
-  margin-top: 10px;
-  font-size: 11.5px;
-  color: var(--warning-text);
 }
 .quality-line {
   margin-top: 10px;
