@@ -1,6 +1,6 @@
 # Syncbox v1 POC Evidence Index
 
-Authoritative index date: 2026-07-12
+Authoritative index date: 2026-07-12 (Phase 4)
 
 This index follows the nine-item macOS v1 order in `docs/PROMPT-05-implementation.md`. Earlier POC numbers mentioned in source comments are historical claims, not evidence.
 
@@ -10,17 +10,18 @@ Status meanings:
 - **NO-GO** — reproducible evidence disproves viability and records the fallback.
 - **BLOCKED** — required evidence, fixtures, credentials, hardware, or implementation is unavailable.
 
-No POC is GO at the Phase 1 baseline.
+Phase 4 adds admissible evidence for POC #6 and POC #7. Other states remain
+unchanged unless their row explicitly records new partial evidence.
 
 | # | POC | Current evidence | State | GO condition | Fallback |
 |---|---|---|---|---|---|
-| 1 | Sidecar process lifecycle on macOS | Reusable scripts exist in `shell/harness/`; no complete evidence record. Startup can send `/shutdown` to an unrelated service on port 8765. | **BLOCKED** | Record clean shutdown, TERM/KILL fallback, port release, bounded restart, backend-down, and single-instance behavior on macOS arm64 without targeting an unrelated service. | Keep lifecycle delivery blocked; do not replace the supervisor without owner approval. |
-| 2 | PyInstaller onedir size and cold start | A 51 MiB arm64 onedir and a 72 MiB app exist, but no admissible cold-start record. Strict resource-seal verification fails and minimum macOS is inconsistent. | **BLOCKED** | Rebuild and record size, repeated cold starts, architecture, effective minimum OS, and functional local launch without Developer ID. | Keep PyInstaller; investigate another freezer only after measured evidence shows a decisive need. |
+| 1 | Sidecar process lifecycle on macOS | A fresh packaged single-instance smoke proved one embedded sidecar, `/health`, clean shutdown, and port release. TERM/KILL fallback and bounded restart were not rerun in Phase 4. | **BLOCKED** | Record the full lifecycle matrix, including TERM/KILL fallback, bounded restart, and backend-down, on the final package. | Keep lifecycle delivery blocked; do not replace the supervisor without owner approval. |
+| 2 | PyInstaller onedir size and cold start | A fresh arm64 build produced a 52 MiB onedir and 73 MiB app and launched successfully. Repeated cold-start, effective minimum macOS, and resource-seal acceptance remain unresolved. | **BLOCKED** | Record repeated cold starts, architecture, effective minimum OS, and functional local launch without Developer ID on the final package. | Keep PyInstaller; investigate another freezer only after measured evidence shows a decisive need. |
 | 3 | SSE in the real macOS Tauri WebView | Unit tests use a fake `EventSource`. | **BLOCKED** | Demonstrate connection, progress events, reconnect, and graceful shutdown in the packaged WKWebView. | Investigate WebKit buffering first; change transport only with owner approval. |
 | 4 | pyrekordbox writes on Rekordbox 7.x | Ten integration tests exist; the local fixture is absent. | **BLOCKED** | Run all ten tests through `poc/run_real_rekordbox_tests.py` with zero skips and unchanged source fixtures, then cover the remaining Phase 3 cases. | Block claims of complete `master.db` write support. |
 | 5 | Deezer full-track streamrip | No implementation, pinned dependency, credentials, or evidence exists. | **BLOCKED** | With owner-provided credentials, prove a complete full-track download, real output path, in-memory secret handling, TLS verification, and packaging boundary. | Use the legal B2 purchase-link path; defer acquisition without blocking v1. |
-| 6 | A3 bundle and audio calibration | Synthetic WAV unit tests exist; no labeled real corpus or admissible bundle delta. | **BLOCKED** | Record bundle delta and calibrated results on labeled real audio, including boundary and false-positive cases. | Use A3-lite or defer A3 if calibration is not reliable. |
-| 7 | B2 purchase-link browser behavior | URL generation and UI wiring have unit coverage; no real browser/shop evidence. | **BLOCKED** | Open Beatport and Bandcamp searches through the macOS system browser for 5–10 labeled tracks and record result quality. | Remove a broken store entry at build time. |
+| 6 | A3 bundle and audio calibration | The deterministic 12-case corpus ran identically in source, fresh PyInstaller onedir, and the sidecar embedded in a fresh app. Spectral-only detection cannot safely separate transcodes from legitimate band-limited masters. | **NO-GO for full A3** | No threshold-only detector may emit a keeper penalty until a real labeled corpus proves safe separation. | Conservative fallback active: sub-threshold is `incertain` and keeper-neutral; full detection is deferred. |
+| 7 | B2 purchase-link browser behavior | Eight Beatport and Bandcamp searches loaded through browser tooling. Templates work, but first-result relevance is store/catalog dependent and intentionally not resolved by the sidecar. | **GO with documented relevance limits** | Keep both templates browser-only and rerun the sample when either store changes its search format. | Remove a broken store entry at build time; never add sidecar scraping. |
 | 8 | Smart Fixes exact payload and idempotence | Synthetic catalog, API, mutation-order, backup, rollback, ownership-neutrality, and adversarial payload coverage passes. The copied-real-fixture test verifies exact written values and idempotence but remains skipped because the private fixture is absent. | **BLOCKED** | Run `tests/test_rb_write.py::test_smartfixes_runner_end_to_end` through the copied-fixture harness with zero skips, then verify the resulting metadata in Rekordbox 7.x. | Do not claim release readiness for Smart Fixes; disable or defer it if the real gate cannot run. |
 | 9 | Retained-event-track migration with ANLZ preservation | A dedicated copied-fixture harness and manifest contract exist; no local fixture or execution evidence is recorded. | **BLOCKED** | Run `test_retained_track_migration_on_real_db` through `poc/run_event_migration_tests.py` with one pass, zero skips, and unchanged sources; then record the required macOS/Rekordbox evidence. | Keep deletion of affected retained staging tracks blocked until safe behavior exists. |
 
