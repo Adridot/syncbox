@@ -48,6 +48,19 @@ Le principe directeur est la **sûreté** : aucune écriture dans `master.db` ta
 
 ## 3. Non-négociables (à respecter quoi qu'il arrive)
 
+### 3.0 — Syncbox v1 macOS owner override (2026-07-11)
+
+This subsection is authoritative for Syncbox v1 and overrides conflicting text in sections 3–8.
+
+- v1 targets macOS on Apple Silicon. Windows is deferred to v2, Linux remains out of scope, and v1 must not add unused Windows infrastructure.
+- v1 is delivered without Developer ID signing or notarization. Apple Silicon executables retain the ad-hoc signatures required to run locally. Developer ID signing, notarization, stapling, auto-update, and Keychain integration are deferred. The encrypted local secret store remains the v1 storage path.
+- The universal track-level `protected` rule is removed. File ownership is classified as `app_managed` (Syncbox working directories), `permanent_library` (`<storage_root>/rekordbox/`), or `external` (all other user-owned locations).
+- Safety follows the operation: event deletion may remove app-managed event artifacts; `permanent_library` and `external` audio survive event deletion; duplicate resolution may operate on any ownership class after exact per-group confirmation; keeper selection is path-neutral; untagged removal remains a reversible Rekordbox soft-delete and never deletes audio; missing-file removal may soft-delete the Rekordbox row regardless of its former location; Smart Fixes do not filter by file location.
+- When an event is deleted, an app-managed staging track with another active MyTag other than the event MyTag is migrated to `<storage_root>/rekordbox/Collection/` before event cleanup. This is the only intentional v1 file-move exception.
+- Windows validation, Developer ID signing, notarization, and Chromaprint are deferred rather than failed POCs. The authoritative nine-item v1 POC index is maintained in `poc/README.md`.
+- SoundCloud acquisition, ffmpeg bundling, AcoustID/MusicBrainz enrichment, automatic cues, beatgrid editing, a cloud backend, and a mobile app are deferred beyond v1.
+- Ponytail remains an implementation discipline, not an annotation system. No new Ponytail rationale markers may be added, and executable source must have zero such markers at overall completion.
+
 ### 3.1 — Sûreté Rekordbox
 Blocage de **toute** mutation si `rekordbox` **ou** `rekordboxAgent` tourne (détection stricte, anti-faux-positif, message « amical » **sans PID, sans chemin `/Applications/`, sans flag `--type=`**). Unit-of-work de mutation : assert RB fermé + DB existe → **backup horodaté** → ouvrir → muter → commit + invalider le cache snapshot ; rollback + close sur exception. Suppressions = **soft-delete réversible**. **Entiers de statut load-bearing** (256 = actif, 258 = supprimé, `rb_data_status`/`rb_local_*`) à reproduire **à l'identique** (sémantique de sync Rekordbox 6/7) sous peine de corrompre la sync de l'utilisateur. Restore qui snapshote d'abord la DB courante (réversible lui-même). Toutes les lectures filtrent les lignes soft-deleted. **Toute écriture en masse (Smart Fixes, §5.11) emprunte ce même unit-of-work `_mutate` — aucune échappatoire.** **Limite ANLZ (documentée, cf. §5.1)** : le backup couvre `master.db` ; les cues vivent aussi dans les fichiers ANLZ, que pyrekordbox **ne sait pas écrire** (§3.4) — Syncbox ne les modifie donc jamais et ses mutations restent intégralement réversibles via le backup `master.db`.
 
