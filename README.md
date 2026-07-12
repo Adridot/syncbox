@@ -31,9 +31,12 @@ your library**.
     file you own or soft-remove them.
   - *Untagged*: surfaces tracks that slipped through your tagging workflow,
     with structural rules plus your own patterns.
-- **Smart Fixes** — bulk metadata cleanup (casing, junk suffixes, remix
-  normalization…) with an exact before/after preview; what you confirm is
-  byte-for-byte what gets written.
+- **Smart Fixes** — conservative bulk metadata cleanup for trailing site
+  junk, Unicode whitespace/NFC, exact encoded entities, selected reversible
+  mojibake signatures,
+  explicit featured credits, and fill-only known remixers. Stylized casing
+  and ambiguous patterns stay unchanged. The complete ordered before/after
+  preview is revalidated field-for-field before anything is written.
 - **Audio quality verdicts** — a read-only spectral analysis flags files that
   claim 320 kbps / lossless but were transcoded from a lossy source; verdicts
   demote a file's rank when picking duplicate keepers.
