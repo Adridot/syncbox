@@ -1,4 +1,4 @@
-"""Tests for the A3 quality verdict (SPEC-UNIFIED 5.12, POC #7 boundaries)."""
+"""Tests for the conservative, read-only A3 spectral diagnostic."""
 
 import wave
 
@@ -6,9 +6,7 @@ import numpy as np
 import pytest
 
 from syncbox.quality import (
-    LOSSLESS_CONTAINER_LOSSY_BELOW_HZ,
     LOSSLESS_CONTAINER_OK_FROM_HZ,
-    LOSSY_CONTAINER_LOSSY_BELOW_HZ,
     LOSSY_CONTAINER_OK_FROM_HZ,
     analyze,
     classify,
@@ -39,26 +37,22 @@ def write_wav(path, seconds=2.0, lowpass_hz=None):
 
 
 def test_calibrated_boundaries_pinned():
-    assert LOSSY_CONTAINER_LOSSY_BELOW_HZ == 19100
     assert LOSSY_CONTAINER_OK_FROM_HZ == 19800
-    assert LOSSLESS_CONTAINER_LOSSY_BELOW_HZ == 19500
     assert LOSSLESS_CONTAINER_OK_FROM_HZ == 20800
 
 
 @pytest.mark.parametrize(
     "container,cutoff,expected",
     [
-        ("lossy", 20158, "ok"),        # genuine 320 CBR (measured POC #7)
-        ("lossy", 22050, "ok"),        # V0 - full spectrum
-        ("lossy", 19468, "incertain"), # genuine 256: conservative, no penalty
-        ("lossy", 19100, "incertain"), # exact lower boundary is incertain
-        ("lossy", 19099, "lossy_source_probable"),
-        ("lossy", 18774, "lossy_source_probable"),  # 192-class
+        ("lossy", 20158, "ok"),  # genuine 320 CBR
+        ("lossy", 22050, "ok"),  # V0 - full spectrum
+        ("lossy", 19468, "incertain"),  # genuine 256: no penalty
+        ("lossy", 18774, "incertain"),  # 192 or a band-limited master
+        ("lossy", 16000, "incertain"),  # lower rate or band-limited master
         ("lossless", 22050, "ok"),
         ("lossless", 20800, "ok"),
         ("lossless", 20799, "incertain"),
-        ("lossless", 19500, "incertain"),
-        ("lossless", 19499, "lossy_source_probable"),  # fake FLAC
+        ("lossless", 16000, "incertain"),  # fake FLAC or band-limited master
         ("unknown", 15000, "ok"),  # decoded but unknown container: neutral
     ],
 )
@@ -68,11 +62,11 @@ def test_classify_three_levels(container, cutoff, expected):
     assert reason  # always an i18n-able reason key
 
 
-def test_320_v0_zone_never_flagged_lossy():
-    # The physical 320/V0 boundary zone must never yield lossy (5.12).
-    for cutoff in range(19100, 22051, 50):
-        verdict, _ = classify("lossy", cutoff)
-        assert verdict in ("ok", "incertain")
+def test_cutoff_alone_never_triggers_keeper_penalty():
+    for container in ("lossy", "lossless", "unknown"):
+        for cutoff in range(10_000, 22_051, 250):
+            verdict, _ = classify(container, cutoff)
+            assert verdict in ("ok", "incertain")
 
 
 # --- end-to-end on synthetic files ---------------------------------------------
@@ -84,11 +78,31 @@ def test_full_spectrum_wav_is_ok(tmp_path):
     assert result.cutoff_hz > 20800
 
 
-def test_band_limited_wav_is_flagged(tmp_path):
-    # 16 kHz brick-wall inside a lossless container = fake-lossless signature
-    result = analyze(write_wav(tmp_path / "fake.wav", lowpass_hz=16_000))
-    assert result.verdict == "lossy_source_probable"
+def test_band_limited_wav_is_uncertain_without_keeper_penalty(tmp_path):
+    # A legitimate band-limited master and a lossy transcode can have the same
+    # spectrum, so the diagnostic must not claim one from the cutoff alone.
+    result = analyze(write_wav(tmp_path / "band-limited.wav", lowpass_hz=16_000))
+    assert result.verdict == "incertain"
     assert result.cutoff_hz < 19500
+    assert result.reason == "spectral_cutoff_ambiguous"
+
+
+def test_antiphase_stereo_is_analyzed_per_channel(tmp_path):
+    path = tmp_path / "antiphase.wav"
+    rng = np.random.default_rng(7)
+    left = rng.standard_normal(SR * 2)
+    stereo = np.column_stack((left, -left))
+    stereo = stereo / np.max(np.abs(stereo)) * 0.7
+    with wave.open(str(path), "wb") as f:
+        f.setnchannels(2)
+        f.setsampwidth(2)
+        f.setframerate(SR)
+        f.writeframes((stereo * 32767).astype("<i2").tobytes())
+
+    result = analyze(path)
+
+    assert result.verdict == "ok"
+    assert result.cutoff_hz is not None
 
 
 # --- neutral degradation (never an exception) ----------------------------------
@@ -108,6 +122,27 @@ def test_undecodable_bytes_are_neutral(tmp_path):
     assert result.reason.startswith("undecodable_neutral")
 
 
+def test_decode_receives_the_exact_path(tmp_path, monkeypatch):
+    import syncbox.quality as quality_module
+
+    path = tmp_path / "Folder With Spaces" / "音楽.mp3"
+    path.parent.mkdir()
+    path.write_bytes(b"not decoded by this test")
+    seen = []
+
+    def fail_decode(value):
+        seen.append(value)
+        raise RuntimeError("stop after exact-path assertion")
+
+    monkeypatch.setattr(quality_module.miniaudio, "decode_file", fail_decode)
+
+    result = analyze(path)
+
+    assert seen == [str(path)]
+    assert result.verdict == "ok"
+    assert result.reason == "undecodable_neutral:RuntimeError"
+
+
 def test_silent_file_is_neutral(tmp_path):
     silent = tmp_path / "silent.wav"
     with wave.open(str(silent), "wb") as f:
@@ -125,5 +160,24 @@ def test_quality_module_is_read_only_and_offline():
     from pathlib import Path
 
     source = Path(quality_module.__file__).read_text()
-    for forbidden in ("urlopen", "requests", "httpx", "socket", "shutil", "os.remove"):
+    for forbidden in (
+        "urlopen",
+        "requests",
+        "httpx",
+        "socket",
+        "shutil",
+        "os.remove",
+        ".iterdir(",
+        ".glob(",
+        ".rglob(",
+        ".mkdir(",
+        ".rename(",
+        ".replace(",
+        ".unlink(",
+        ".write_bytes(",
+        ".write_text(",
+        "os.listdir",
+        "os.walk",
+        "subprocess",
+    ):
         assert forbidden not in source

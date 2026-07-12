@@ -326,6 +326,8 @@ export const fr: typeof en = {
       cutoff_indicates_le192_source: 'la coupure spectrale indique une source ≤192 kbps',
       cutoff_in_256_class_zone: 'coupure dans la zone 256 kbps — incertain',
       lossless_container_cutoff_in_320_v0_zone: 'coupure à la frontière 320/V0 — incertain',
+      spectral_cutoff_ambiguous:
+        'coupure spectrale ambiguë — master limité en fréquences ou source lossy possible',
     },
   },
   missing: {

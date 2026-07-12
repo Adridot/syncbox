@@ -24,8 +24,8 @@ your library**.
   open after applying: add tracks later and re-apply just the delta —
   idempotent, never duplicated.
 - **Collection health** —
-  - *Duplicates*: groups duplicate tracks, ranks the best copy (format,
-    bitrate, audio-quality verdict), moves the losers' playlist and tag
+  - *Duplicates*: groups duplicate tracks, ranks the best copy (file presence,
+    bitrate bucket, trusted audio-quality verdict), moves the losers' playlist and tag
     memberships onto the keeper, and sends losing files to the macOS Trash.
   - *Missing files*: finds tracks whose audio file is gone; relink them to a
     file you own or soft-remove them.
@@ -37,9 +37,11 @@ your library**.
   explicit featured credits, and fill-only known remixers. Stylized casing
   and ambiguous patterns stay unchanged. The complete ordered before/after
   preview is revalidated field-for-field before anything is written.
-- **Audio quality verdicts** — a read-only spectral analysis flags files that
-  claim 320 kbps / lossless but were transcoded from a lossy source; verdicts
-  demote a file's rank when picking duplicate keepers.
+- **Audio quality diagnostics** — a local, read-only spectral analysis reports
+  a clearly full spectrum as consistent and a lower cutoff as uncertain. A
+  cutoff alone cannot distinguish a lossy transcode from a legitimate
+  band-limited master, so the current fallback never penalizes a duplicate
+  keeper from this heuristic alone.
 - **Doctor** — timestamped backups of the Rekordbox database with rotation,
   diagnostics, and application logs in one place.
 - **French / English** UI.

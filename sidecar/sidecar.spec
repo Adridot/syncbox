@@ -1,5 +1,5 @@
-# PyInstaller spec — onedir per SPEC-UNIFIED 6.11; recipe proven in POC #3
-# (poc/03-bundle-size-coldstart: 51 MB, ~0.44 s warm cold-start, GO 2026-07-02).
+# PyInstaller spec — onedir per SPEC-UNIFIED 6.11. Frozen behavior must be
+# validated from a fresh build; source comments are not POC evidence.
 # _cffi_backend hiddenimport and optimize=0 per SPEC-UNIFIED 6.12 (cffi breaks
 # under bytecode optimization). Entrypoint = the composition root run as a
 # script (same code path as `python -m syncbox`); pathex resolves the package

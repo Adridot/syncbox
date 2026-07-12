@@ -9,13 +9,14 @@ supervisor, which always consumes child output (6.6).
 """
 
 import asyncio
+import json
 import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from syncbox import api, appdb, platform_os, server
+from syncbox import api, appdb, platform_os, quality, server
 from syncbox.secrets import SecretsStore
 from syncbox.spotify import SpotifyAuth, SpotifyClient
 
@@ -67,7 +68,30 @@ def compose(data_dir=None):
     return app
 
 
-def main() -> int:
+def _quality_analyze(path: str) -> int:
+    """Print one read-only A3 result without composing the application."""
+    result = quality.analyze(path)
+    print(
+        json.dumps(
+            {
+                "verdict": result.verdict,
+                "cutoff_hz": result.cutoff_hz,
+                "reason": result.reason,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "--quality-analyze":
+        if len(argv) != 2:
+            print("usage: syncbox-sidecar --quality-analyze PATH", file=sys.stderr)
+            return 2
+        return _quality_analyze(argv[1])
+
     app = compose()
     log.info("syncbox sidecar starting on http://%s:%s", server.HOST, server.PORT)
     try:

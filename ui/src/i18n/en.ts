@@ -322,6 +322,8 @@ export const en = {
       cutoff_indicates_le192_source: 'spectral cutoff indicates a ≤192 kbps source',
       cutoff_in_256_class_zone: 'cutoff in the 256 kbps zone — uncertain',
       lossless_container_cutoff_in_320_v0_zone: 'cutoff at the 320/V0 border — uncertain',
+      spectral_cutoff_ambiguous:
+        'spectral cutoff is ambiguous — possible band-limited master or lossy source',
     },
   },
   missing: {
