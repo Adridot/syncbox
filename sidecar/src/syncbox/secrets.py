@@ -4,14 +4,11 @@ Only Spotify OAuth tokens exist as secrets in v1 (6.5: no provider
 credential of any kind). They are never written in cleartext to the
 settings DB or exports (3.6).
 
-# ponytail: sqlcipher3-encrypted store keyed by a per-install random key
-# file (0600) in the app data dir. This is the documented unsigned-path
-# tradeoff (research 07: unsigned PyInstaller binaries get Keychain
-# errSecInteractionNotAllowed -25308, and unstable code identities
-# invalidate Keychain ACLs on every release). The key never leaves the
-# machine; the protection is at-rest hygiene, not defense against a local
-# attacker with the user's account. Upgrade path: keyring/Keychain +
-# migrate-and-purge once a stable Developer ID exists (M5 / POC #1 exit).
+The sqlcipher3 store is keyed by a per-install random 0600 file in the app
+data directory. Unsigned PyInstaller binaries have unstable code identities,
+so Keychain migration remains deferred until a stable Developer ID exists.
+The key never leaves the machine; this protects data at rest, not against a
+local attacker using the same account.
 """
 
 import os

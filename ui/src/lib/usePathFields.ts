@@ -12,8 +12,7 @@ import { useSettingsStore } from '../stores/settings'
 export type PathKey = 'rekordbox_db_path' | 'storage_root'
 
 export const MACOS_DB_DEFAULT = '~/Library/Pioneer/rekordbox/master.db'
-// ponytail: literal macOS default (>95% of installs); pyrekordbox
-// auto-detection would need a sidecar route — add if Windows lands pre-M5.
+// Auto-detection would require a sidecar route; v1 uses the macOS default.
 
 export function usePathFields(onError: (message: string) => void) {
   const settings = useSettingsStore()

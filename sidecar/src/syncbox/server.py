@@ -36,11 +36,7 @@ WEBVIEW_ORIGINS = ["tauri://localhost", "http://tauri.localhost"]
 
 
 class JobBus:
-    """Canonical in-process job event bus feeding the single SSE stream.
-
-    ponytail: async-only publish for now; when M3 jobs run in worker threads
-    they publish via loop.call_soon_threadsafe - add that shim then.
-    """
+    """Canonical async event bus feeding the single SSE stream."""
 
     def __init__(self):
         self._subscribers: set[asyncio.Queue] = set()

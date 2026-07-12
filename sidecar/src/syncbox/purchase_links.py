@@ -11,8 +11,7 @@ from urllib.parse import quote
 
 from syncbox.matching import normalize  # D19: the one shared pipeline
 
-# ponytail: fixed 2-store catalog, no user editor in v1 - adding a store =
-# adding one entry at build time when a real DJ asks for it.
+# The v1 store catalog is fixed at build time.
 CATALOG = [
     {"name": "Beatport", "template": "https://www.beatport.com/search?q={query}"},
     {"name": "Bandcamp", "template": "https://bandcamp.com/search?q={query}&item_type=t"},

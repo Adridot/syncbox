@@ -91,9 +91,8 @@ fn start_supervisor(app: tauri::AppHandle) {
         return; // already supervising
     }
     std::thread::spawn(move || {
-        // ponytail: the strike counter never auto-resets; 3 crashes over the
-        // app's lifetime -> backend-down + manual "Relancer" (which starts a
-        // fresh supervisor). Add uptime-based reset only if it bites.
+        // Three crashes over this supervisor's lifetime require a manual
+        // restart, which creates a fresh supervisor and strike counter.
         let mut attempts: u32 = 0;
         loop {
             match spawn_sidecar(&app) {
