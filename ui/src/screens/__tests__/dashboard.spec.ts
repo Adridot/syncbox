@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { i18n } from '../../i18n'
 import { router } from '../../router'
 import { useHealthStore } from '../../stores/health'
+import { useJobsStore } from '../../stores/jobs'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusStore } from '../../stores/status'
 import DashboardScreen from '../DashboardScreen.vue'
@@ -93,6 +94,21 @@ test('hero switches to the RB-open variant from the status store', async () => {
   await flushPromises()
   expect(wrapper.get('.hero').attributes('data-open')).toBe('true')
   expect(wrapper.text()).toContain('écritures en pause')
+})
+
+test('SSE job completion renders a translated activity label', async () => {
+  stubApi()
+  useSettingsStore().$patch({ values: CONFIGURED, loaded: true })
+  useJobsStore().doneLog.push({
+    job: 'phase6',
+    kind: 'sources.sync_all',
+    synced: 0,
+    at: Date.now(),
+  })
+  const wrapper = mountDashboard()
+  await flushPromises()
+  expect(wrapper.text()).toContain('Sources synchronisées')
+  expect(wrapper.text()).not.toContain('activity.sources_sync_all')
 })
 
 test('unconfigured paths gate the dashboard toward Settings', async () => {

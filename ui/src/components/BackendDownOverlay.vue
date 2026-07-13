@@ -32,7 +32,13 @@ async function relaunch() {
     <div class="box">
       <div class="glyph">⚠</div>
       <h2>{{ t('backendDown.title') }}</h2>
-      <p>{{ t('backendDown.body') }}</p>
+      <p>
+        {{
+          status.backendDownReason === 'port_collision'
+            ? t('backendDown.portCollision')
+            : t('backendDown.body')
+        }}
+      </p>
       <button class="retry" :disabled="restarting" @click="relaunch">
         {{ restarting ? t('backendDown.retrying') : t('backendDown.retry') }}
       </button>

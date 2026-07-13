@@ -35,6 +35,8 @@ export const fr: typeof en = {
   backendDown: {
     title: 'Le moteur Syncbox ne répond plus',
     body: "Plusieurs tentatives de redémarrage ont échoué. Ta collection n'a pas été touchée — aucune écriture n'était en cours.",
+    portCollision:
+      "Le port 8765 est utilisé par une autre application. Ferme cette application, puis relance le moteur. Syncbox ne l'a pas arrêtée.",
     retry: '↻ Relancer le moteur',
     retrying: 'Redémarrage…',
   },

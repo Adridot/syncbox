@@ -5,8 +5,11 @@
 
 import { defineStore } from 'pinia'
 
-import { api } from '../api/client'
+import { NetworkError, api } from '../api/client'
 import { i18n } from '../i18n'
+
+export const SETTINGS_LOAD_ATTEMPTS = 15
+export const SETTINGS_RETRY_MS = 800
 
 export interface MatchWeights {
   title: number
@@ -48,9 +51,17 @@ export const useSettingsStore = defineStore('settings', {
   },
   actions: {
     async load() {
-      this.values = await api.get<SettingsPayload>('/api/settings')
-      this.loaded = true
-      applyLocale(this.values.language)
+      for (let attempt = 1; attempt <= SETTINGS_LOAD_ATTEMPTS; attempt += 1) {
+        try {
+          this.values = await api.get<SettingsPayload>('/api/settings')
+          this.loaded = true
+          applyLocale(this.values.language)
+          return
+        } catch (error) {
+          if (!(error instanceof NetworkError) || attempt === SETTINGS_LOAD_ATTEMPTS) throw error
+          await new Promise((resolve) => setTimeout(resolve, SETTINGS_RETRY_MS))
+        }
+      }
     },
     async update(partial: Partial<SettingsPayload>) {
       this.values = await api.put<SettingsPayload>('/api/settings', partial)

@@ -22,6 +22,7 @@ test('startup grace: backend-down only after sustained failures, and one success
 
   for (let i = 1; i < DOWN_AFTER_FAILURES; i += 1) await status.refresh()
   expect(status.backendDown).toBe(true) // sustained → overlay
+  expect(status.backendDownReason).toBe('unreachable')
 
   // the sidecar comes up: one success clears everything
   vi.stubGlobal(
@@ -32,6 +33,16 @@ test('startup grace: backend-down only after sustained failures, and one success
   )
   await status.refresh()
   expect(status.backendDown).toBe(false)
+  expect(status.backendDownReason).toBeNull()
   expect(status.failures).toBe(0)
   expect(status.spotifyConnected).toBe(true)
+})
+
+test('shell lifecycle reason is preserved for the backend-down overlay', () => {
+  const status = useStatusStore()
+  status.setBackendDown(true, 'port_collision')
+  expect(status.backendDown).toBe(true)
+  expect(status.backendDownReason).toBe('port_collision')
+  status.setBackendDown(false)
+  expect(status.backendDownReason).toBeNull()
 })

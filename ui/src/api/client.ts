@@ -90,6 +90,10 @@ async function doFetch<T>(method: string, path: string, body?: unknown): Promise
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       method,
+      // The WebKit HTTP cache outlives a sidecar process and even local app
+      // copies sharing the bundle identifier. Loopback state and OAuth URLs
+      // must always come from the currently supervised sidecar.
+      cache: 'no-store',
       headers: body === undefined ? undefined : { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     })

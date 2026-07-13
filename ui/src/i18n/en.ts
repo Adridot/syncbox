@@ -31,6 +31,8 @@ export const en = {
   backendDown: {
     title: 'The Syncbox engine is not responding',
     body: 'Several restart attempts failed. Your collection was not touched — no write was in progress.',
+    portCollision:
+      'Port 8765 is used by another application. Close that application, then restart the engine. Syncbox did not stop it.',
     retry: '↻ Restart the engine',
     retrying: 'Restarting…',
   },

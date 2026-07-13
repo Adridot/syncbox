@@ -117,7 +117,7 @@ const activity = computed(() =>
     .slice(0, 6)
     .map((entry) => ({
       key: `${entry.job}`,
-      text: t(`activity.${entry.kind.replace('.', '_')}`, entry as never),
+      text: t(`activity.job_${entry.kind.replace('.', '_')}`, entry as never),
       time: new Date(entry.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     })),
 )
