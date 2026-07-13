@@ -44,6 +44,11 @@ def test_tauri_conf_derives_from_package_json():
     assert conf["version"] == "../../ui/package.json"
 
 
+def test_readme_release_matches_canonical():
+    readme = (REPO / "README.md").read_text()
+    assert f"Current release: **{CANONICAL}**" in readme
+
+
 def test_vite_injects_the_version():
     vite_conf = (REPO / "ui" / "vite.config.ts").read_text()
     assert "__APP_VERSION__" in vite_conf and "pkg.version" in vite_conf

@@ -6,7 +6,8 @@
     "dev": "pnpm --dir ../ui dev",
     "build": "pnpm --dir ../ui build",
     "tauri": "tauri",
-    "freeze": "cd ../sidecar && .venv/bin/pyinstaller --noconfirm sidecar.spec"
+    "freeze": "cd ../sidecar && uv run --locked --managed-python pyinstaller --noconfirm --clean sidecar.spec",
+    "bundle:macos": "PATH=/usr/bin:/bin:$PATH RUSTFLAGS=\"--remap-path-prefix=$HOME=/Users/build\" tauri build --bundles app --target aarch64-apple-darwin -- --locked"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0"

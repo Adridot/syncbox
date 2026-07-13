@@ -32,6 +32,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=True,
+    target_arch="arm64",
 )
 coll = COLLECT(
     exe,

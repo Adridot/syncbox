@@ -1,13 +1,13 @@
-# ponytail: no build backend — tests import via pytest pythonpath, and the M5
-# freeze resolves the package via the spec's pathex (sidecar.spec). PyInstaller
-# is a dev-only tool (dependency-groups), never a runtime dependency.
+# No build backend: tests import through pytest's pythonpath and PyInstaller
+# resolves the package through the spec's pathex. Packaging tools remain in
+# the development dependency group, never in the runtime bundle graph.
 [project]
 name = "syncbox"
 # Pinned to ui/package.json (the canonical version source, 6.11) by
 # tests/test_version_single_source.py.
 version = "0.2.1"
 description = "Syncbox sidecar - lawful Rekordbox collection maintenance for DJs"
-requires-python = ">=3.14"
+requires-python = ">=3.14,<3.15"
 license = "MIT"
 dependencies = [
     "pyrekordbox",
@@ -15,6 +15,7 @@ dependencies = [
     "sqlalchemy",
     "rapidfuzz",
     "mutagen",
+    "send2trash",
     "psutil",
     "numpy",
     "miniaudio",
@@ -27,7 +28,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pyinstaller>=6.21"]
+dev = ["httpx2", "pyinstaller>=6.21", "pytest"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

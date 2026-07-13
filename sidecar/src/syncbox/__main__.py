@@ -84,6 +84,49 @@ def _quality_analyze(path: str) -> int:
     return 0
 
 
+def _packaging_check() -> int:
+    """Exercise packaged native/runtime dependencies without app data."""
+    import certifi
+    import miniaudio
+    import numpy
+    import pyrekordbox
+    import send2trash
+    import sqlcipher3
+
+    conn = sqlcipher3.connect(":memory:")
+    try:
+        conn.execute("PRAGMA key = \"x'" + "00" * 32 + "'\"")
+        conn.execute("CREATE TABLE packaging_check (value TEXT)")
+        cipher_version = conn.execute("PRAGMA cipher_version").fetchone()[0]
+    finally:
+        conn.close()
+    ca_file = Path(certifi.where())
+    if not ca_file.is_file():
+        raise RuntimeError("certifi CA bundle is missing")
+    packages = (
+        "certifi",
+        "miniaudio",
+        "numpy",
+        "pyrekordbox",
+        "send2trash",
+        "sqlcipher3-wheels",
+    )
+    # Keep imports live: PyInstaller must collect each dependency above.
+    assert miniaudio and numpy and pyrekordbox and send2trash
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "architecture": os.uname().machine,
+                "packages": packages,
+                "sqlcipher": cipher_version,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "--quality-analyze":
@@ -91,6 +134,11 @@ def main(argv=None) -> int:
             print("usage: syncbox-sidecar --quality-analyze PATH", file=sys.stderr)
             return 2
         return _quality_analyze(argv[1])
+    if argv and argv[0] == "--packaging-check":
+        if len(argv) != 1:
+            print("usage: syncbox-sidecar --packaging-check", file=sys.stderr)
+            return 2
+        return _packaging_check()
 
     app = compose()
     log.info("syncbox sidecar starting on http://%s:%s", server.HOST, server.PORT)
