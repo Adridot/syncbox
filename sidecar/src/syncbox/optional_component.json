@@ -1,0 +1,16 @@
+{
+  "architecture": "arm64",
+  "archive": "syncbox-deezer-component-0.2.1-macos-arm64.zip",
+  "certifi_version": "2026.6.17",
+  "component": "syncbox-deezer-component",
+  "component_version": "0.2.1",
+  "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.2.1/syncbox-deezer-component-0.2.1-macos-arm64.zip",
+  "executable": "syncbox-deezer-component",
+  "platform": "macos",
+  "root": "syncbox-deezer-component",
+  "schema": 1,
+  "sha256": "92ccd44e07523818854d52926a6e479c798f2f324e27b3f997586b9d98e2a181",
+  "size": 19072885,
+  "streamrip_commit": "189acda489927719aa8591f6acdd7d67aecf929b",
+  "streamrip_version": "2.2.0"
+}

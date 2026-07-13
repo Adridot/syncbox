@@ -14,7 +14,10 @@ a = Analysis(
     # appdb loads the migration .sql through importlib.resources: the files go
     # in as datas and the package as a hiddenimport (resolved only at runtime,
     # invisible to static analysis).
-    datas=[("src/syncbox/migrations/*.sql", "syncbox/migrations")],
+    datas=[
+        ("src/syncbox/migrations/*.sql", "syncbox/migrations"),
+        ("src/syncbox/optional_component.json", "syncbox"),
+    ],
     hiddenimports=["_cffi_backend", "syncbox.migrations"],
     hookspath=[],
     runtime_hooks=[],

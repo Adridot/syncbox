@@ -92,6 +92,8 @@ def _quality_analyze(path: str) -> int:
 
 def _packaging_check() -> int:
     """Exercise packaged native/runtime dependencies without app data."""
+    import importlib.util
+
     import certifi
     import miniaudio
     import numpy
@@ -126,6 +128,7 @@ def _packaging_check() -> int:
                 "architecture": os.uname().machine,
                 "packages": packages,
                 "sqlcipher": cipher_version,
+                "streamrip_importable": importlib.util.find_spec("streamrip") is not None,
             },
             sort_keys=True,
         )

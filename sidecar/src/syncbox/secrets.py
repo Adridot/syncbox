@@ -1,8 +1,7 @@
 """Secrets at rest - unsigned-build path (SPEC-UNIFIED 6.7, POC #1 deferred).
 
-Only Spotify OAuth tokens exist as secrets in v1 (6.5: no provider
-credential of any kind). They are never written in cleartext to the
-settings DB or exports (3.6).
+Spotify OAuth tokens and the optional Deezer credential are stored here. They
+are never written in cleartext to the settings DB or exports (3.6).
 
 The sqlcipher3 store is keyed by a per-install random 0600 file in the app
 data directory. Unsigned PyInstaller binaries have unstable code identities,

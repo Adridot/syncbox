@@ -4,8 +4,8 @@
 // with SERVER-validated ticks re-checked on mount (B3 — never an optimistic
 // ✓) + full inline help (R3 arbitrated 2026-07-07: 2 paths kept, NO folder
 // name imposed under the permanent library); retention; language; Advanced
-// options (G4 knobs, sum=1.00, locked invariants, reset).
-// The deprecated download-module card / ARL field are never built (§6.5).
+// options (G4 knobs, sum=1.00, locked invariants, reset), plus the explicitly
+// enabled optional Deezer component and its write-only credential field.
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -148,6 +148,7 @@ async function saveDeezerArl() {
   } catch (cause) {
     banner.value = { tone: 'error', text: describe(cause) }
   } finally {
+    deezerArl.value = ''
     deezerBusy.value = false
   }
 }
