@@ -6,7 +6,9 @@
     "dev": "pnpm --dir ../ui dev",
     "build": "pnpm --dir ../ui build",
     "tauri": "tauri",
-    "freeze": "cd ../sidecar && uv run --locked --managed-python pyinstaller --noconfirm --clean sidecar.spec",
+    "freeze:component": "cd ../optional-component && uv run --locked --managed-python pyinstaller --noconfirm --clean syncbox-deezer-component.spec && uv run --locked --managed-python python ../poc/package_optional_component.py",
+    "freeze:base": "cd ../sidecar && uv run --locked --managed-python pyinstaller --noconfirm --clean sidecar.spec",
+    "freeze": "pnpm freeze:component && pnpm freeze:base",
     "bundle:macos": "PATH=/usr/bin:/bin:$PATH RUSTFLAGS=\"--remap-path-prefix=$HOME=/Users/build\" tauri build --bundles app --target aarch64-apple-darwin -- --locked"
   },
   "devDependencies": {

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Run the one-shot B1 Deezer full-track gate without persisting credentials."""
+"""Run the isolated Deezer component without persisting credentials."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import contextlib
+import importlib
+import importlib.machinery
 import importlib.metadata
+import importlib.util
 import io
 import json
 import logging
@@ -18,13 +21,13 @@ import ssl
 import stat
 import sys
 import tempfile
+import types
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 STREAMRIP_VERSION = "2.2.0"
 STREAMRIP_COMMIT = "189acda489927719aa8591f6acdd7d67aecf929b"
-DEFAULT_CREDENTIAL_FILE = Path("/tmp/syncbox-premium-arl")
 ISRC_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
 
 
@@ -131,6 +134,43 @@ def _verify_streamrip_distribution() -> dict:
     }
 
 
+def _disable_artwork_processing() -> None:
+    def disabled(*_args, **_kwargs):
+        raise PocFailed("artwork_processing_disabled")
+
+    image = types.ModuleType("PIL.Image")
+    image.open = disabled
+    pillow = types.ModuleType("PIL")
+    pillow.__path__ = []
+    pillow.Image = image
+    sys.modules["PIL"] = pillow
+    sys.modules["PIL.Image"] = image
+
+
+def _prepare_deezer_client_package() -> types.ModuleType:
+    spec = importlib.util.find_spec("streamrip")
+    if spec is None or not spec.submodule_search_locations:
+        raise PocBlocked("streamrip_package_unavailable")
+
+    class InterfaceOnly:
+        pass
+
+    client = types.ModuleType("streamrip.client")
+    client.__path__ = [
+        str(Path(next(iter(spec.submodule_search_locations))) / "client")
+    ]
+    client.__package__ = "streamrip.client"
+    client.__spec__ = importlib.machinery.ModuleSpec(
+        "streamrip.client", loader=None, is_package=True
+    )
+    client.__spec__.submodule_search_locations = client.__path__
+    client.Client = InterfaceOnly
+    client.Downloadable = InterfaceOnly
+    client.BasicDownloadable = InterfaceOnly
+    sys.modules["streamrip.client"] = client
+    return client
+
+
 def _load_component(temp_root: Path, real_home: Path):
     real_app_dir = real_home / "Library" / "Application Support" / "streamrip"
     real_app_dir_before = _directory_state(real_app_dir)
@@ -142,15 +182,27 @@ def _load_component(temp_root: Path, real_home: Path):
     logging.disable(logging.CRITICAL)
 
     versions = _verify_streamrip_distribution()
+    _disable_artwork_processing()
+    client_package = _prepare_deezer_client_package()
     try:
         import certifi
         from mutagen import File as MutagenFile
         from streamrip import Config
         from streamrip import config as streamrip_config
         from streamrip import db as streamrip_db
-        from streamrip.client.deezer import DeezerClient
         from streamrip.media.track import PendingSingle
         from streamrip.utils import ssl_utils
+
+        client_module = importlib.import_module("streamrip.client.client")
+        downloadable_module = importlib.import_module(
+            "streamrip.client.downloadable"
+        )
+        client_package.Client = client_module.Client
+        client_package.Downloadable = downloadable_module.Downloadable
+        client_package.BasicDownloadable = downloadable_module.BasicDownloadable
+        DeezerClient = importlib.import_module(
+            "streamrip.client.deezer"
+        ).DeezerClient
     except ImportError as error:
         raise PocBlocked(f"component_import_failed_{type(error).__name__}") from None
 
@@ -359,8 +411,7 @@ def main(argv=None) -> int:
     parser.add_argument("--isrc", help="representative track ISRC")
     parser.add_argument(
         "--credential-file",
-        default=str(DEFAULT_CREDENTIAL_FILE),
-        help="one-shot ARL file; consumed and deleted on success",
+        help="required one-shot credential file; consumed and deleted on success",
     )
     parser.add_argument(
         "--output-dir",
@@ -371,8 +422,8 @@ def main(argv=None) -> int:
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         _emit(result="BLOCKED", reason="requires_macos_arm64")
         return 2
-    if not args.check and not args.isrc:
-        _emit(result="BLOCKED", reason="isrc_required")
+    if not args.check and not (args.isrc and args.credential_file and args.output_dir):
+        _emit(result="BLOCKED", reason="isrc_credential_and_output_required")
         return 2
 
     real_home = Path.home()
@@ -386,7 +437,7 @@ def main(argv=None) -> int:
                 isrc = _normalize_isrc(args.isrc)
                 arl = _read_one_shot_credential(Path(args.credential_file))
                 try:
-                    output_dir = Path(args.output_dir) if args.output_dir else temp_root / "downloads"
+                    output_dir = Path(args.output_dir)
                     output_dir.mkdir(parents=True, exist_ok=True)
                     captured = io.StringIO()
                     try:

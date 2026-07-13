@@ -5,6 +5,9 @@ __pycache__/
 .pytest_cache/
 sidecar/build/
 sidecar/dist/
+optional-component/.venv/
+optional-component/build/
+optional-component/dist/
 *.spec.bak
 
 # Rust / Tauri
