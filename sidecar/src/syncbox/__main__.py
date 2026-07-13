@@ -57,7 +57,13 @@ def compose(data_dir=None):
     db_file = data_dir / "syncbox.db"
     conn = appdb.open_app_db(db_file)
     secrets = SecretsStore(data_dir)
-    deps = api.Deps(conn, log_path=log_path, app_db_path=db_file)
+    deps = api.Deps(
+        conn,
+        log_path=log_path,
+        app_db_path=db_file,
+        data_dir=data_dir,
+        secrets=secrets,
+    )
     # The auth reads the client id THROUGH deps.settings, never a captured
     # Settings: the all-data import (5.10) swaps deps.conn/settings live.
     auth = SpotifyAuth(lambda: deps.settings.get("spotify_client_id"), secrets)

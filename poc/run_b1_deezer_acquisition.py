@@ -357,6 +357,15 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="run non-network checks")
     parser.add_argument("--isrc", help="representative track ISRC")
+    parser.add_argument(
+        "--credential-file",
+        default=str(DEFAULT_CREDENTIAL_FILE),
+        help="one-shot ARL file; consumed and deleted on success",
+    )
+    parser.add_argument(
+        "--output-dir",
+        help="persistent download directory; defaults to a temporary POC folder",
+    )
     args = parser.parse_args(argv)
 
     if platform.system() != "Darwin" or platform.machine() != "arm64":
@@ -375,10 +384,10 @@ def main(argv=None) -> int:
                 result = _check(component, temp_root)
             else:
                 isrc = _normalize_isrc(args.isrc)
-                arl = _read_one_shot_credential(DEFAULT_CREDENTIAL_FILE)
+                arl = _read_one_shot_credential(Path(args.credential_file))
                 try:
-                    output_dir = temp_root / "downloads"
-                    output_dir.mkdir()
+                    output_dir = Path(args.output_dir) if args.output_dir else temp_root / "downloads"
+                    output_dir.mkdir(parents=True, exist_ok=True)
                     captured = io.StringIO()
                     try:
                         with contextlib.redirect_stdout(

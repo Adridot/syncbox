@@ -41,6 +41,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from syncbox import (
+    acquisition,
     appdb,
     dedup,
     events_service,
@@ -108,6 +109,10 @@ class Deps:
         cache=None,
         log_path=None,
         app_db_path=None,
+        data_dir=None,
+        secrets=None,
+        acquisition_installer=None,
+        acquisition_runner=None,
     ):
         self.conn = conn
         # File behind ``conn`` - needed by the all-data import (5.10), which
@@ -119,6 +124,10 @@ class Deps:
         self.spotify_auth = spotify_auth
         self.spotify_client = spotify_client
         self.log_path = log_path
+        self.data_dir = Path(data_dir or (Path(app_db_path).parent if app_db_path else "."))
+        self.secrets = secrets
+        self.acquisition_installer = acquisition_installer or acquisition.install_component
+        self.acquisition_runner = acquisition_runner or acquisition.run_deezer_download
         self.lock = threading.RLock()
         self._injected_cache = cache  # tests inject a fake snapshot cache
         self._cache = None
@@ -927,6 +936,7 @@ def missing_list(deps, request, body):
         storage_root=deps.storage_root or None,
         user_roots=user_roots,
     )
+    _decorate_acquisition(deps, entries)
     return {"scope": scope, "entries": entries}
 
 
@@ -987,6 +997,209 @@ def missing_relink(deps, request, body):
         retention=deps.retention,
     )
     return {"content_id": request.path_params["content_id"], "stored_path": stored}
+
+
+# --- optional Deezer acquisition (B1) -----------------------------------------------
+
+
+def _has_deezer_arl(deps) -> bool:
+    return bool(deps.secrets and deps.secrets.get(acquisition.DEEZER_ARL_SECRET))
+
+
+def _acquisition_ready(deps) -> bool:
+    return (
+        bool(deps.settings.get("deezer_acquisition_enabled"))
+        and _has_deezer_arl(deps)
+        and bool(acquisition.component_status(deps.data_dir).get("installed"))
+    )
+
+
+def _decorate_acquisition(deps, entries: list[dict]) -> None:
+    enabled = bool(deps.settings.get("deezer_acquisition_enabled"))
+    has_arl = _has_deezer_arl(deps)
+    component = acquisition.component_status(deps.data_dir)
+    ready = enabled and has_arl and bool(component.get("installed"))
+    for entry in entries:
+        reason = None
+        if not enabled:
+            reason = "disabled"
+        elif not has_arl:
+            reason = "missing_arl"
+        elif not component.get("installed"):
+            reason = "component_not_installed"
+        elif not entry.get("isrc"):
+            reason = "missing_isrc"
+        entry["acquisition"] = {
+            "provider": "deezer",
+            "available": ready and bool(entry.get("isrc")),
+            "reason": reason,
+        }
+
+
+def acquisition_status(deps, request, body):
+    return {
+        "provider": "deezer",
+        "enabled": bool(deps.settings.get("deezer_acquisition_enabled")),
+        "has_arl": _has_deezer_arl(deps),
+        "component": acquisition.component_status(deps.data_dir),
+    }
+
+
+def acquisition_arl_set(deps, request, body):
+    if deps.secrets is None:
+        raise ValueError("secrets store is not configured")
+    deps.secrets.set(acquisition.DEEZER_ARL_SECRET, acquisition.validate_arl(_require(body, "arl")))
+    return acquisition_status(deps, request, body)
+
+
+def acquisition_arl_delete(deps, request, body):
+    if deps.secrets is not None:
+        deps.secrets.delete(acquisition.DEEZER_ARL_SECRET)
+    return acquisition_status(deps, request, body)
+
+
+def acquisition_component_install(deps, request, body):
+    if not deps.settings.get("deezer_acquisition_enabled"):
+        raise ValueError("enable Deezer acquisition before installing the component")
+    try:
+        component = deps.acquisition_installer(deps.data_dir)
+    except Exception as exc:
+        raise ValueError("optional Deezer component installation failed") from exc
+    return {"component": component}
+
+
+def _acquisition_entry(deps, scope: str, ref: str) -> dict:
+    if scope in ("library", "event"):
+        table = {"library": "library_tracks", "event": "event_tracks"}[scope]
+        row = deps.conn.execute(f"SELECT * FROM {table} WHERE id = ?", (ref,)).fetchone()
+        if row is None:
+            raise KeyError(f"{scope} track {ref} not found")
+        if row["status"] not in missing_service.MISSING_STATUSES:
+            raise ConflictError(f"{scope} track {ref} is not missing")
+        return {
+            "scope": scope,
+            "ref": str(ref),
+            "title": row["title"],
+            "artist": row["artist"],
+            "isrc": acquisition.normalize_isrc(row["isrc"]),
+        }
+    if scope == "collection":
+        _require_rekordbox(deps)
+        row = next(
+            (r for r in deps.cache().get(deps.storage_root) if str(r["content_id"]) == str(ref)),
+            None,
+        )
+        if row is None or not row["file_missing"]:
+            raise KeyError(f"missing collection content {ref} not found")
+        return {
+            "scope": scope,
+            "ref": str(ref),
+            "title": row["title"],
+            "artist": row["artist"],
+            "isrc": acquisition.normalize_isrc(row["isrc"]),
+        }
+    raise ValueError(f"unknown acquisition scope {scope!r}")
+
+
+def _job_row(conn, job_id: int) -> dict:
+    row = conn.execute("SELECT * FROM acquisition_jobs WHERE id = ?", (job_id,)).fetchone()
+    if row is None:
+        raise KeyError(f"acquisition job {job_id} not found")
+    return dict(row)
+
+
+def _update_job(conn, job_id: int, **values) -> dict:
+    assignments = ", ".join(f"{key} = ?" for key in values)
+    conn.execute(
+        f"UPDATE acquisition_jobs SET {assignments}, updated_at = datetime('now') WHERE id = ?",
+        (*values.values(), job_id),
+    )
+    return _job_row(conn, job_id)
+
+
+def acquisition_job_get(deps, request, body):
+    return _job_row(deps.conn, request.path_params["job_id"])
+
+
+def acquisition_job_start(deps, request, body):
+    if not deps.settings.get("deezer_acquisition_enabled"):
+        raise ValueError("Deezer acquisition is disabled")
+    if deps.secrets is None:
+        raise ValueError("secrets store is not configured")
+    arl = deps.secrets.get(acquisition.DEEZER_ARL_SECRET)
+    if not arl:
+        raise ValueError("Deezer ARL is not configured")
+    if not acquisition.component_status(deps.data_dir).get("installed"):
+        raise ValueError("optional Deezer component is not installed")
+    _require_storage(deps)
+
+    scope = _require(body, "scope")
+    ref = str(body.get("row_id") or body.get("content_id") or body.get("id") or "")
+    if not ref:
+        raise ValueError("missing required field 'row_id' or 'content_id'")
+    entry = _acquisition_entry(deps, scope, ref)
+    cursor = deps.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, artist, isrc, status) "
+        "VALUES (?, ?, ?, ?, ?, 'queued')",
+        (entry["scope"], entry["ref"], entry["title"], entry["artist"], entry["isrc"]),
+    )
+    job_id = cursor.lastrowid
+    progress = _Progress(deps.bus, "deezer.acquisition")
+    try:
+        _update_job(deps.conn, job_id, status="running")
+        progress.publish(1, 3)
+        output_dir = acquisition.acquisition_output_dir(deps.storage_root, job_id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result = deps.acquisition_runner(deps.data_dir, arl, entry["isrc"], output_dir)
+        arl = ""
+        output_path = result["output_path"]
+        progress.publish(2, 3)
+
+        stored_path = None
+        status = "downloaded"
+        error = None
+        if scope in ("library", "event"):
+            table = {"library": "library_tracks", "event": "event_tracks"}[scope]
+            deps.conn.execute(
+                f"UPDATE {table} SET status = 'ready', staging_file_path = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (output_path, ref),
+            )
+        elif body.get("relink"):
+            try:
+                stored_path = missing_service.relink_collection_file(
+                    deps.db_path,
+                    deps.backups_root,
+                    deps.cache(),
+                    deps.storage_root,
+                    ref,
+                    output_path,
+                    anlz_consent=bool(body.get("anlz_consent")),
+                    retention=deps.retention,
+                )
+                status = "relinked"
+            except MutationBlockedError:
+                status = "relink_blocked"
+                error = "rekordbox_open"
+            except Exception as exc:
+                status = "relink_failed"
+                error = type(exc).__name__
+        job = _update_job(
+            deps.conn,
+            job_id,
+            status=status,
+            output_path=output_path,
+            stored_path=stored_path,
+            error=error,
+        )
+        progress.publish(3, 3)
+        progress.done(id=job_id, status=status, output_path=output_path)
+        return job
+    except Exception as exc:
+        arl = ""
+        job = _update_job(deps.conn, job_id, status="failed", error=type(exc).__name__)
+        progress.done(id=job_id, status="failed", error=type(exc).__name__)
+        return job
 
 
 # --- duplicates (5.4, A3 per 5.12) ---------------------------------------------------
@@ -1550,6 +1763,12 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/missing/{scope}", missing_list, ["GET"]),
         r("/api/missing/{scope}/{row_id:int}/status", missing_status, ["POST"]),
         r("/api/missing/{scope}/{row_id:int}/restore", missing_restore, ["POST"]),
+        r("/api/acquisition/deezer", acquisition_status, ["GET"]),
+        r("/api/acquisition/deezer/arl", acquisition_arl_set, ["PUT"]),
+        r("/api/acquisition/deezer/arl", acquisition_arl_delete, ["DELETE"]),
+        r("/api/acquisition/component/install", acquisition_component_install, ["POST"]),
+        r("/api/acquisition/jobs", acquisition_job_start, ["POST"]),
+        r("/api/acquisition/jobs/{job_id:int}", acquisition_job_get, ["GET"]),
         r("/api/duplicates/scan", duplicates_scan, ["POST"]),
         r("/api/duplicates/resolve", duplicates_resolve, ["POST"]),
         r("/api/duplicates/dismiss", duplicates_dismiss, ["POST"]),
