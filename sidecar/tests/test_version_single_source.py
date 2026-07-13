@@ -38,6 +38,23 @@ def test_shell_package_json_pinned_to_canonical():
     assert shell_pkg["version"] == CANONICAL
 
 
+def test_optional_component_and_manifest_are_pinned_to_canonical():
+    component = tomllib.loads(
+        (REPO / "optional-component" / "pyproject.toml").read_text()
+    )
+    manifest = json.loads(
+        (REPO / "sidecar" / "src" / "syncbox" / "optional_component.json").read_text()
+    )
+    assert component["project"]["version"] == CANONICAL
+    assert manifest["component_version"] == CANONICAL
+    assert manifest["archive"] == (
+        f"syncbox-deezer-component-{CANONICAL}-macos-arm64.zip"
+    )
+    assert f"/releases/download/v{CANONICAL}/{manifest['archive']}" in manifest[
+        "download_url"
+    ]
+
+
 def test_tauri_conf_derives_from_package_json():
     conf = json.loads((REPO / "shell" / "src-tauri" / "tauri.conf.json").read_text())
     # Native derivation (tauri-utils: version may be a path to a package.json).

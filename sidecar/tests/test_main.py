@@ -5,6 +5,7 @@ import logging
 
 from starlette.testclient import TestClient
 
+from syncbox import acquisition
 from syncbox.__main__ import compose, main
 from syncbox.quality import QualityResult
 from syncbox.spotify import ACCESS_TOKEN, REFRESH_TOKEN
@@ -41,10 +42,12 @@ def test_compose_builds_a_live_wired_app(tmp_path):
 
 def test_composed_exports_and_logs_exclude_encrypted_oauth_tokens(tmp_path):
     sentinel = "SYNCBOX-PHASE6-COMPOSED-OAUTH-SENTINEL"
+    deezer_sentinel = "SYNCBOX-PHASE6-COMPOSED-DEEZER-SENTINEL"
     app = compose(tmp_path)
     client = TestClient(app)
     app.state.secrets.set(ACCESS_TOKEN, sentinel)
     app.state.secrets.set(REFRESH_TOKEN, f"{sentinel}-refresh")
+    app.state.secrets.set(acquisition.DEEZER_ARL_SECRET, deezer_sentinel)
 
     settings = tmp_path / "settings.json"
     data = tmp_path / "data.db"
@@ -58,7 +61,11 @@ def test_composed_exports_and_logs_exclude_encrypted_oauth_tokens(tmp_path):
     assert sentinel.encode() not in settings.read_bytes()
     assert sentinel.encode() not in data.read_bytes()
     assert sentinel.encode() not in (tmp_path / "logs" / "syncbox.log").read_bytes()
+    assert deezer_sentinel.encode() not in settings.read_bytes()
+    assert deezer_sentinel.encode() not in data.read_bytes()
+    assert deezer_sentinel.encode() not in (tmp_path / "logs" / "syncbox.log").read_bytes()
     assert app.state.secrets.get(ACCESS_TOKEN) == sentinel
+    assert app.state.secrets.get(acquisition.DEEZER_ARL_SECRET) == deezer_sentinel
     app.state.secrets.close()
     app.state.deps.conn.close()
 
@@ -115,6 +122,7 @@ def test_packaging_check_exercises_runtime_dependencies_without_app_data(
         "send2trash",
         "sqlcipher3-wheels",
     }
+    assert result["streamrip_importable"] is False
     assert list(tmp_path.iterdir()) == []
 
 
