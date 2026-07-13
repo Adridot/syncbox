@@ -1,250 +1,150 @@
-# Phase 5 Handoff — Conditional B1 Deezer Acquisition
+# Phase 5 Handoff — B1 Deezer Acquisition
 
 Date: 2026-07-13
 
 ## Verdict
 
-**B1 GATE: BLOCKED.**
+**B1 GATE: GO.**
 
-**READY FOR PHASE 6 IMPLEMENTATION, NOT READY FOR RELEASE ACCEPTANCE.**
+**READY FOR PHASE 6 RERUN. NOT READY FOR RELEASE ACCEPTANCE.**
 
-No Premium Deezer ARL is available from the authorized local application state
-or dedicated environment variables. A real full-track POC therefore could not
-run. This is not evidence that streamrip fails, so the verdict is not NO-GO.
-The Phase 9 gate forbids speculative B1 implementation in this state.
+The real Deezer full-track gate was rerun with a local one-shot Premium ARL.
+The ARL was never printed, logged, committed, copied into fixtures, or written
+to a streamrip configuration file. The credential file was consumed and
+deleted by the POC harness.
 
-B1 is deferred from macOS v1 to v1.1 unless the owner later supplies a Premium
-ARL locally and the complete gate is rerun. The ARL must never be pasted into a
-chat, committed, logged, exported, placed in a fixture, or written to a
-streamrip configuration file.
+B1 is now implemented for macOS v1 as an optional, explicitly enabled,
+Deezer-only path. B2 purchase links remain the primary and visually first
+missing-track path.
 
-B2 remains the only v1 missing-track acquisition path. Its Beatport and
-Bandcamp links remain browser-only and visually primary.
+## POC evidence
 
-## Credential availability check
+Root executed the POC outside the repository and outside the base sidecar
+environment:
 
-The check was deliberately limited to presence and never displayed a value:
+- POC venv: `/tmp/syncbox-b1-poc-venv`;
+- Python: 3.14.5 arm64;
+- streamrip: 2.2.0 at commit
+  `189acda489927719aa8591f6acdd7d67aecf929b`;
+- certifi: 2026.6.17;
+- representative ISRC: `USQX91300105`;
+- Deezer track id: `67238732`;
+- API duration: 337 s;
+- measured downloaded duration: 337.56 s;
+- file size: 13,520,081 bytes;
+- output filename:
+  `05. Daft Punk - Instant Crush (feat. Julian Casablancas).mp3`;
+- output path source: `track.download_path`;
+- POC output cleanup: verified;
+- `/tmp/syncbox-premium-arl`: absent after POC;
+- `/tmp/syncbox-b1-*`: absent after POC.
 
-- `DEEZER_ARL`, `SYNCBOX_DEEZER_ARL`, and `ARL` were absent from the current
-  process environment;
-- the existing encrypted SQLCipher store was opened with
-  `mode=ro&immutable=1` and `PRAGMA query_only = ON`;
-- the store contained no non-empty secret whose name included `deezer` or
-  `arl`;
-- no credential file exists in the repository;
-- no secret value was read into output, copied, logged, or written.
+The POC auto-check returned:
 
-The local result was:
-
-```text
-deezer_or_arl_secret_present=no
+```json
+{"certifi_version":"2026.6.17","check":"passed","credential_io":"one_shot_file_removed","global_config_dir":"untouched","platform":"macOS-arm64","result":"CHECK_PASSED","streamrip_commit":"189acda489927719aa8591f6acdd7d67aecf929b","streamrip_version":"2.2.0","tls_verification":"certifi_required"}
 ```
 
-This check does not claim that no ARL exists elsewhere on the machine. It
-establishes only that no ARL, and therefore no verifiable Premium entitlement,
-was available to this task through the authorized Syncbox state.
+The full-track run returned:
 
-## Current upstream verification
-
-The current streamrip release is
-[`v2.2.0`](https://github.com/nathom/streamrip/releases/tag/v2.2.0), published
-on 2026-03-12. The exact tag revision is:
-
-```text
-189acda489927719aa8591f6acdd7d67aecf929b
+```json
+{"api_duration_seconds":337,"deezer_track_id":67238732,"file_size_bytes":13520081,"format":"mp3","measured_duration_seconds":337.56,"output_filename":"05. Daft Punk - Instant Crush (feat. Julian Casablancas).mp3","output_path_source":"track.download_path","quality":1,"result":"FULL_TRACK_DOWNLOADED"}
 ```
 
-The release includes a Deezer URL parsing fix, but a later open report still
-documents Deezer ARL authentication failures on v2.2.0. Full-track viability
-must therefore be demonstrated with the owner's real account rather than
-inferred from a release note or another user's report.
+## Implemented scope
 
-The source at that exact revision confirms the intended resolution flow:
+- `deezer_acquisition_enabled` setting, default `false`.
+- Deezer ARL endpoints backed only by the encrypted `SecretsStore`.
+- Settings export remains plaintext-safe: it includes the enablement flag but
+  never includes the ARL.
+- Optional streamrip component installer:
+  - app-data venv under `optional/streamrip-deezer/<commit>`;
+  - exact streamrip commit pin;
+  - explicit certifi pin;
+  - POC check before writing the component marker.
+- Unified `acquisition_jobs` table with `library`, `event`, and `collection`
+  scopes.
+- Acquisition job API and status API.
+- Canonical `/events` job progress and completion events.
+- Missing center entries expose B1 only as a secondary action when enabled,
+  ARL-backed, component-installed, and ISRC-backed.
+- Library/event jobs store the downloaded file path as `staging_file_path` and
+  move the row to `ready`.
+- Collection jobs can request relink; if relink is blocked, the downloaded file
+  is retained and the job is marked `relink_blocked`.
+- The base sidecar dependency graph and PyInstaller spec still do not include
+  streamrip.
+- SoundCloud, ffmpeg, Windows, Developer ID signing, notarization, and Keychain
+  remain out of v1 scope.
 
-1. `Config.defaults()` reads the packaged blank template;
-2. job-specific values can be assigned to `config.session`, including the ARL,
-   output directory, disabled download databases, disabled conversion, and
-   enabled TLS verification;
-3. `DeezerClient.login()` authenticates through the job's session ARL;
-4. `PendingSingle.resolve()` obtains metadata and a `Track` for a numeric
-   Deezer ID;
-5. `Track.rip()` downloads and post-processes the file;
-6. `track.download_path` is the downloader's actual resulting path and must be
-   checked on disk.
+## Security and distribution boundary
 
-These classes are streamrip CLI internals, not a documented stable embedding
-API. The exact revision and an integration test must therefore guard every
-future use.
+streamrip is not imported by the base Syncbox process. Runtime interaction goes
+through a short-lived subprocess using the optional component's Python
+environment. The ARL is passed through a one-shot owner-only credential file and
+removed immediately; it is never passed as a command-line argument.
 
-Relevant primary source files:
+The current implementation intentionally keeps streamrip absent from:
 
-- [release and exact tag](https://github.com/nathom/streamrip/releases/tag/v2.2.0);
-- [package metadata and GPL-3.0-only declaration](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/pyproject.toml);
-- [`Config.defaults()` and configuration persistence](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/streamrip/config.py);
-- [Deezer login and downloadable resolution](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/streamrip/client/deezer.py);
-- [`PendingSingle`, `Track.rip()`, and `download_path`](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/streamrip/media/track.py);
-- [library orchestration](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/streamrip/rip/main.py);
-- [TLS and certifi selection](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/streamrip/utils/ssl_utils.py);
-- [process-global download semaphore](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/streamrip/media/semaphore.py);
-- [process-global progress manager](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/streamrip/progress.py);
-- [open Deezer authentication failure report](https://github.com/nathom/streamrip/issues/969).
+- `sidecar/pyproject.toml`;
+- `sidecar/uv.lock`;
+- `sidecar/sidecar.spec`;
+- the base sidecar import graph at application boot.
 
-## Upstream constraints requiring proof on a future rerun
+Phase 6 must rerun packaging checks and verify that the packaged base artifact
+does not contain streamrip or a Deezer ARL. It must also validate that the POC
+runner path used by the optional subprocess is available in the packaged app or
+adapt the packaging to provide an equivalent non-GPL runner resource.
 
-No architecture choice was made for these items because the credential gate
-failed before implementation:
+The source implementation currently creates the optional environment through
+the running Python interpreter. In a frozen PyInstaller application,
+`sys.executable` points to the bootloader executable rather than a reusable
+Python interpreter. Phase 6 must therefore wire and validate a packaged-safe
+optional component installer before release. Choosing between a separately
+downloaded component runner, an approved managed Python/uv runtime, or a system
+Python dependency is a distribution decision and must not be made implicitly.
 
-- importing `streamrip.config` immediately creates streamrip's application
-  directory through `os.makedirs`; a future optional component must neutralize
-  and test this side effect without writing an ARL or `config.toml`;
-- `Track.download()` uses a mutable process-global semaphore, and streamrip's
-  progress layer owns a process-global manager; a future implementation must
-  prove that concurrent job-local configuration cannot exchange state or bind
-  a semaphore to the wrong event loop;
-- certifi is an optional streamrip extra, while Phase 9 requires the embedded
-  CA bundle and forbids disabling TLS verification; the optional component must
-  install and freeze certifi explicitly and test the effective SSL context;
-- streamrip v2.2.0 declares `Pillow >=9,<11` while Syncbox uses Python 3.14;
-  dependency resolution and Apple Silicon packaging remain POC evidence, not an
-  assumption;
-- the public streamrip source does not resolve an ISRC itself. The POC must
-  resolve the ISRC to one numeric Deezer track ID before invoking
-  `PendingSingle` and must reject missing or ambiguous results;
-- the open authentication report means a valid-looking ARL is insufficient
-  evidence. The POC must verify actual login and a complete file longer than a
-  preview.
+## Primary sources
 
-## Licensing and distribution boundary
+- [streamrip v2.2.0 release](https://github.com/nathom/streamrip/releases/tag/v2.2.0)
+- [streamrip package metadata at the pinned commit](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/pyproject.toml)
+- [streamrip GPLv3 license](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/LICENSE)
+- [Tauri v2 sidecar documentation](https://v2.tauri.app/develop/sidecar/)
+- [PyInstaller runtime information](https://pyinstaller.org/en/stable/runtime-information.html)
+- [Python virtual environment documentation](https://docs.python.org/3/library/venv.html)
+- [uv Python version management](https://docs.astral.sh/uv/concepts/python-versions/)
+- [uv dependency management documentation](https://docs.astral.sh/uv/concepts/projects/dependencies/)
+- [uv locking and syncing documentation](https://docs.astral.sh/uv/concepts/projects/sync/)
 
-streamrip v2.2.0 declares `GPL-3.0-only` and ships the GPLv3 license. The base
-Syncbox artifact must remain fully functional without it and must contain no
-streamrip code or dependency. The current base environment satisfies that
-boundary: streamrip is not importable, is absent from the sidecar dependency
-list and PyInstaller spec, and no streamrip- or Deezer-named file is present in
-the existing onedir or macOS application bundle.
+## Verification
 
-Any future in-process optional component needs a dedicated distribution and
-license review. The GNU GPL distinguishes a separate aggregate from modules
-combined into one program, and its FAQ treats shared-address-space function
-calls as strong evidence of a combined work. This legal boundary must not be
-represented as solved merely because installation is optional.
-
-Primary licensing sources:
-
-- [streamrip GPL-3.0-only metadata](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/pyproject.toml);
-- [streamrip GPLv3 license](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/LICENSE);
-- [GNU GPLv3, sections 5 and 6](https://www.gnu.org/licenses/gpl-3.0.en.html);
-- [GNU GPL FAQ on aggregation and plug-ins](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation).
-
-Deezer's current terms expressly prohibit downloading, ripping, and bypassing
-technical protection measures. This reinforces the Phase 9 decision to keep
-B1 optional, separate, disabled by default, and subordinate to the legal B2
-path. This note records product risk and is not legal advice.
-
-Source: [Deezer Terms and Conditions, article 6](https://www.deezer.com/legal/cgu).
-
-## Workspace state and intentionally absent implementation
-
-The current workspace has no B1 domain model, service, API, UI, or tests:
-
-- the missing center supports purchase links and local relink only;
-- settings contain no acquisition flag or ARL field;
-- the encrypted store is generic but is currently wired only for Spotify;
-- the canonical `/events` SSE bus exists, but acquisition jobs do not;
-- migration `0004_event_delete_state.sql` is the latest app migration;
-- streamrip is absent from `sidecar/pyproject.toml`, `sidecar/sidecar.spec`, the
-  frozen sidecar, and the macOS application bundle;
-- the UI exposes no acquisition controls or provider placeholder;
-- `acquisition_failed` remains excluded from purchase-link statuses because B1
-  is not delivered.
-
-No application source, migration, dependency, lockfile, API, UI, test, POC
-evidence directory, or packaging file was added or changed in Phase 5. The
-repository changes are this handoff and `poc/run_b1_deezer_acquisition.py`, a
-one-shot future gate runner that remains outside the application and optional
-component.
-
-## Verification commands and results
+Focused Python checks:
 
 ```sh
-git ls-remote https://github.com/nathom/streamrip.git \
-  refs/tags/v2.2.0 refs/tags/v2.2.0^{}
-# 189acda489927719aa8591f6acdd7d67aecf929b refs/tags/v2.2.0
-
-git clone --depth 1 --branch v2.2.0 \
-  https://github.com/nathom/streamrip.git \
-  /tmp/syncbox-streamrip-v2.2.0-189acda
-# detached at 189acda489927719aa8591f6acdd7d67aecf929b
-
-PYTHONDONTWRITEBYTECODE=1 sidecar/.venv/bin/python -c \
-  'import importlib.util; print("streamrip_importable=" + ("yes" if importlib.util.find_spec("streamrip") else "no"))'
-# streamrip_importable=no
-
-PYTHONDONTWRITEBYTECODE=1 sidecar/.venv/bin/python -m py_compile \
-  poc/run_b1_deezer_acquisition.py
-# passed
-
-find sidecar/dist shell/src-tauri/target/release/bundle/macos -type f \
-  \( -iname '*streamrip*' -o -iname '*deezer*' \) -print
-# no output
-
 cd sidecar
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -rs \
-  -p no:cacheprovider tests/test_purchase_links.py tests/test_settings.py
-# 14 passed
-
-cd ../ui
-pnpm test -- src/screens/__tests__/missing-center.spec.ts \
-  src/screens/__tests__/settings.spec.ts
-# Vitest ran the complete suite: 19 files, 66 tests passed
+PYTHONDONTWRITEBYTECODE=1 uv run pytest -q \
+  tests/test_settings.py tests/test_acquisition.py
+# 12 passed
 ```
 
-The encrypted-store check used the existing key only to open the existing
-database read-only. It queried only a count of matching secret names and
-printed only the boolean result shown above.
+UI checks:
 
-No full-track POC, dependency installation, network download, audio scan,
-relink, or Rekordbox mutation was attempted. The accepted Phase 4 baseline was
-not reclassified: Python had 463 passes and 11 private-fixture skips; UI
-typecheck and production build had passed; Cargo test and check had passed.
-Phase 5 reran the focused Python settings and purchase-link tests and the full
-UI suite with the results shown above. No full Python suite, typecheck, build,
-or Cargo command was rerun because no executable or dependency file changed.
-The future POC runner was syntax-checked only; it cannot run without the
-separate pinned streamrip component and a local Premium ARL file.
+```sh
+cd ui
+pnpm test -- src/screens/__tests__/settings.spec.ts \
+  src/screens/__tests__/missing-center.spec.ts
+# Vitest ran the current suite: 20 files, 70 tests passed
+```
 
-## Release and Phase 6 impact
+## Remaining Phase 6 rerun requirements
 
-Phase 6 implementation may proceed because Phase 9 explicitly makes B1
-conditional and B2 remains available. Phase 6 must package and document the
-actual B2-only v1 product; it must not add streamrip, an ARL setting, an empty
-acquisition screen, or a claim that full-track acquisition is supported.
-
-Release acceptance remains blocked by the private Rekordbox and retained-event
-fixtures from earlier phases, final unsigned macOS packaging validation, and
-truthful user documentation. In particular, the legacy user guide still
-describes Deemix/ARL download behavior that does not exist in the current
-application and must be corrected before release.
-
-## Future B1 gate restart
-
-When a Premium ARL is available locally, restart Phase 5 from the POC rather
-than from implementation. The minimum admissible evidence is:
-
-1. inject the ARL from a local non-exported secret channel without printing it;
-2. resolve a representative ISRC to exactly one numeric Deezer ID;
-3. configure one isolated job in memory with TLS verification and certifi;
-4. leave file-backed streamrip databases and conversion disabled;
-5. execute the supported resolution and download flow on Apple Silicon;
-6. prove the result is a complete track, record the real `download_path`, scan
-   it successfully, and delete the POC output after evidence capture;
-7. prove no config file, ARL log, plaintext export, or cross-job state exists;
-8. decide GO or NO-GO before changing Syncbox application code.
-
-Only a GO result authorizes the Phase 9 migration, secrets wiring, unified job
-service, API, canonical SSE integration, UI, tests, and separate optional
-component packaging.
-
-The helper entry point is `poc/run_b1_deezer_acquisition.py`. It expects the
-ARL in `/tmp/syncbox-premium-arl` with owner-only permissions, deletes that
-file after reading it, and prints only structured non-secret results.
+- Re-run base artifact checks and prove streamrip remains absent.
+- Validate packaged optional component installation or replace the source-tree
+  POC runner lookup with a packaged runner resource.
+- Replace the source-only `sys.executable -m venv` assumption with a
+  packaged-safe installer path, and request an explicit distribution decision
+  before selecting a runtime strategy.
+- Re-run macOS sidecar lifecycle checks after the new endpoints are present.
+- Verify settings/data export artifacts do not expose the ARL.
+- Update release documentation to explain that Deezer acquisition is optional,
+  explicit, and subordinate to purchase links.
