@@ -24,6 +24,7 @@ const STORED = {
   match_ambiguity_margin: 6,
   match_weights: { title: 0.52, artist: 0.36, duration: 0.12 },
   isrc_collision_policy: 'guarded',
+  deezer_acquisition_enabled: false,
 }
 
 function stubApi() {
@@ -52,6 +53,17 @@ function stubApi() {
       }
       if (path === '/api/settings')
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(STORED) })
+      if (path === '/api/acquisition/deezer')
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              enabled: false,
+              has_arl: false,
+              component: { installed: false },
+            }),
+        })
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) })
     }),
   )
@@ -74,6 +86,7 @@ test('B3: stored paths are re-validated on mount — ✕ + server message, never
   expect(wrapper.text()).toContain('storage_root: not found')
   expect(wrapper.text()).toContain('Bibliothèque permanente (ton audio)')
   expect(wrapper.text()).toContain('/gone/away/rekordbox/')
+  expect(wrapper.text()).toContain('Acquisition Deezer optionnelle')
   expect(wrapper.text()).not.toContain('Zone protégée')
 })
 

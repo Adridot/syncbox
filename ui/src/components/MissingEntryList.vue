@@ -26,9 +26,27 @@ const banner = ref<{ tone: 'error' | 'success'; text: string; undo?: MissingEntr
 const relinkEntry = ref<MissingEntry | null>(null)
 const relinkBusy = ref(false)
 const relinkError = ref<string | null>(null)
+const purchaseMenu = ref<string | null>(null)
 
 function describe(cause: unknown): string {
   return cause instanceof ApiError ? cause.message : t('common.networkError')
+}
+
+function entryKey(entry: MissingEntry): string {
+  return `${entry.scope}:${String(entry.id)}`
+}
+
+function buy(entry: MissingEntry) {
+  if (entry.purchase_links.length === 1) {
+    openExternal(entry.purchase_links[0].url)
+    return
+  }
+  purchaseMenu.value = purchaseMenu.value === entryKey(entry) ? null : entryKey(entry)
+}
+
+function openPurchase(url: string) {
+  purchaseMenu.value = null
+  openExternal(url)
 }
 
 async function act(request: () => Promise<unknown>, success?: string, undo?: MissingEntry) {
@@ -58,6 +76,17 @@ const removeCollection = (entry: MissingEntry) =>
   act(
     () => api.post(`/api/missing/collection/${entry.content_id}/remove`),
     t('missing.removed', { title: entry.title ?? '' }),
+  )
+
+const acquire = (entry: MissingEntry) =>
+  act(
+    () =>
+      api.post('/api/acquisition/jobs', {
+        scope: entry.scope,
+        row_id: entry.scope === 'collection' ? undefined : entry.id,
+        content_id: entry.scope === 'collection' ? entry.content_id : undefined,
+      }),
+    t('missing.acquired', { title: entry.title ?? '' }),
   )
 
 async function pickRelink(path: string) {
@@ -126,12 +155,42 @@ async function markNone() {
         <span class="actions">
           <!-- legal path FIRST, prominent (§6.5); absent for removed_from_source -->
           <button
-            v-for="link in entry.purchase_links"
-            :key="link.store"
+            v-if="entry.purchase_links.length"
             class="buy"
-            @click="openExternal(link.url)"
+            :aria-haspopup="entry.purchase_links.length > 1 ? true : undefined"
+            :aria-expanded="
+              entry.purchase_links.length > 1
+                ? purchaseMenu === entryKey(entry)
+                : undefined
+            "
+            @click="buy(entry)"
           >
-            {{ t('missing.buyOn', { store: link.store }) }}
+            {{
+              entry.purchase_links.length === 1
+                ? t('missing.buyOn', { store: entry.purchase_links[0].store })
+                : t('missing.buyMenu', { n: entry.purchase_links.length })
+            }}
+          </button>
+          <span
+            v-if="entry.purchase_links.length > 1 && purchaseMenu === entryKey(entry)"
+            class="buy-menu"
+          >
+            <button
+              v-for="link in entry.purchase_links"
+              :key="link.store"
+              class="buy-menu-item"
+              @click="openPurchase(link.url)"
+            >
+              {{ link.store }}
+            </button>
+          </span>
+          <button
+            v-if="entry.acquisition?.available"
+            class="secondary"
+            :disabled="jobs.jobRunning"
+            @click="acquire(entry)"
+          >
+            {{ t('missing.acquireDeezer') }}
           </button>
           <button class="secondary" @click="relinkEntry = entry">
             {{ t('missing.relinkCta') }}
@@ -262,6 +321,27 @@ async function markNone() {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+}
+.buy-menu {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--teal-border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+.buy-menu-item {
+  background: transparent;
+  border: none;
+  color: var(--teal);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.buy-menu-item:hover {
+  background: var(--teal-tint);
 }
 .secondary {
   background: transparent;

@@ -27,6 +27,7 @@ export interface SettingsPayload {
   match_ambiguity_margin: number
   match_weights: MatchWeights
   isrc_collision_policy: 'guarded' | 'trust_isrc' | 'strict'
+  deezer_acquisition_enabled: boolean
 }
 
 function applyLocale(language: string): void {

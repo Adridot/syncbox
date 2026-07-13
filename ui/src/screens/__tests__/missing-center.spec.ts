@@ -31,6 +31,7 @@ const LIB_ENTRY = {
     { store: 'Bandcamp', url: 'https://bandcamp.com/search?q=x' },
   ],
   relink_candidates: [],
+  acquisition: { provider: 'deezer', available: true },
 }
 // purchase_link_unavailable: the server sends NO links — the UI must not re-add
 const NO_LINK_ENTRY = {
@@ -82,13 +83,12 @@ test('"all" merges the 3 scopes with scope badges; purchase links only when the 
   expect(wrapper.text()).toContain('Obscure Bootleg')
   // scope badges visible in the merged view
   expect(wrapper.findAll('.row').length).toBe(2)
-  // 2 buy buttons on the linked row, ZERO on the purchase_link_unavailable
-  // row — labelled through i18n (§5.13), the store name interpolated
+  // ONE buy button on the linked row, ZERO on the purchase_link_unavailable
+  // row; multiple providers live behind the unified purchase menu.
   const rows = wrapper.findAll('.row')
-  expect(rows[0].findAll('.buy').map((b) => b.text())).toEqual([
-    'Acheter sur Beatport ↗',
-    'Acheter sur Bandcamp ↗',
-  ])
+  expect(rows[0].findAll('.buy')).toHaveLength(1)
+  expect(rows[0].get('.buy').text()).toBe('Acheter (2 boutiques) ↗')
+  expect(rows[0].findAll('.secondary')[0].text()).toBe('Télécharger via Deezer')
   expect(rows[1].findAll('.buy')).toHaveLength(0)
 })
 
@@ -106,6 +106,11 @@ test('purchase buttons delegate the URL to the external browser bridge', async (
   await flushPromises()
 
   await wrapper.get('.buy').trigger('click')
+  expect(wrapper.findAll('.buy-menu-item').map((button) => button.text())).toEqual([
+    'Beatport',
+    'Bandcamp',
+  ])
+  await wrapper.get('.buy-menu-item').trigger('click')
 
   expect(openExternal).toHaveBeenCalledWith(LIB_ENTRY.purchase_links[0].url)
 })

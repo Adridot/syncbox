@@ -166,6 +166,7 @@ export interface MissingEntry {
   resolved_path?: string | null
   purchase_links: Array<{ store: string; url: string }>
   relink_candidates: Array<{ path: string; score: number; format: string; duration_s?: number }>
+  acquisition?: { provider: 'deezer'; available: boolean; reason?: string | null }
 }
 
 export interface UntaggedTrack {
