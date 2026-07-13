@@ -155,7 +155,12 @@ def build_app(deps: Deps, *, oauth_callback=None):
     plus the REST routes below, sharing one JobBus."""
     if oauth_callback is None and deps.spotify_auth is not None:
         oauth_callback = deps.spotify_auth.handle_callback
-    app = create_app(bus=deps.bus, oauth_callback=oauth_callback, routes=routes(deps))
+    app = create_app(
+        bus=deps.bus,
+        oauth_callback=oauth_callback,
+        oauth_lock=deps.lock,
+        routes=routes(deps),
+    )
     app.state.deps = deps
     return app
 
@@ -1262,6 +1267,8 @@ SETTINGS_EXPORT_KIND = "syncbox-settings"
 
 def _body_path(body, *, must_exist=False) -> Path:
     path = Path(_require(body, "path")).expanduser()
+    if not path.is_absolute():
+        raise ValueError("path must be absolute")
     if must_exist:
         if not path.is_file():
             raise FileNotFoundError(str(path))
@@ -1334,17 +1341,6 @@ def data_import(deps, request, body):
     if deps.app_db_path is None:
         raise ValueError("all-data import needs a file-backed app DB")
     source = _body_path(body, must_exist=True)
-    probe = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
-    try:
-        is_syncbox = probe.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
-        ).fetchone()
-    except sqlite3.DatabaseError:
-        is_syncbox = None
-    finally:
-        probe.close()
-    if not is_syncbox:
-        raise ValueError("not a Syncbox data export")
     deps.conn.close()
     try:
         backup = appdb.import_data(deps.app_db_path, source)

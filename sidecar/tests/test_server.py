@@ -3,6 +3,8 @@
 
 import asyncio
 import socket
+import threading
+import time
 
 import pytest
 from starlette.testclient import TestClient
@@ -41,6 +43,17 @@ def test_cors_rejects_non_loopback_origins(origin):
     client = TestClient(create_app())
     response = client.get("/health", headers={"Origin": origin})
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_health_identifies_the_sidecar_protocol_exactly():
+    response = TestClient(create_app()).get("/health")
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "service": server.SERVICE_NAME,
+        "protocol": server.PROTOCOL_VERSION,
+    }
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_jobbus_delivers_published_events():
@@ -115,6 +128,41 @@ def test_callback_error_returns_400():
     response = client.get("/callback?code=abc&state=wrong")
     assert response.status_code == 400
     assert response.json()["error"] == "state_mismatch"
+
+
+def test_slow_callback_uses_threadpool_and_shared_lock_without_blocking_shutdown():
+    started = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    callback_response = []
+
+    def slow_callback(params):
+        assert lock.locked()
+        started.set()
+        assert release.wait(timeout=3)
+        return {"ok": True}
+
+    app = create_app(oauth_callback=slow_callback, oauth_lock=lock)
+    with TestClient(app) as client:
+        worker = threading.Thread(
+            target=lambda: callback_response.append(
+                client.get("/callback?code=abc&state=s1")
+            )
+        )
+        worker.start()
+        assert started.wait(timeout=1)
+        timer = threading.Timer(2, release.set)
+        timer.start()
+        t0 = time.perf_counter()
+        response = client.post("/shutdown")
+        elapsed = time.perf_counter() - t0
+        release.set()
+        worker.join(timeout=3)
+        timer.cancel()
+
+    assert response.status_code == 202
+    assert elapsed < 1
+    assert callback_response[0].status_code == 200
 
 
 def test_port_collision_fails_clean_with_actionable_message():

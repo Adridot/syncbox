@@ -26,13 +26,32 @@ from sse_starlette.sse import EventSourceResponse
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import MutableHeaders
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
 HOST = "127.0.0.1"
 PORT = 8765
+SERVICE_NAME = "syncbox-sidecar"
+PROTOCOL_VERSION = 1
 LOOPBACK_ORIGIN_REGEX = r"http://(127\.0\.0\.1|localhost):\d+"
 WEBVIEW_ORIGINS = ["tauri://localhost", "http://tauri.localhost"]
+
+
+class NoStoreMiddleware:
+    """Never reuse state or OAuth URLs from a previous loopback process."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        async def send_no_store(message):
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["cache-control"] = "no-store"
+            await send(message)
+
+        await self.app(scope, receive, send_no_store)
 
 
 class JobBus:
@@ -75,7 +94,9 @@ class ShutdownController:
             self._trigger()
 
 
-def create_app(*, bus: JobBus | None = None, oauth_callback=None, routes=()) -> Starlette:
+def create_app(
+    *, bus: JobBus | None = None, oauth_callback=None, oauth_lock=None, routes=()
+) -> Starlette:
     """App factory. oauth_callback(params: dict) -> dict is injected by the
     OAuth layer (spotify.SpotifyAuth.handle_callback); ``routes`` appends
     extra Route objects (the REST API layer, api.build_app) after the
@@ -85,7 +106,13 @@ def create_app(*, bus: JobBus | None = None, oauth_callback=None, routes=()) -> 
     shutdown = ShutdownController()
 
     async def health(request):
-        return JSONResponse({"ok": True})
+        return JSONResponse(
+            {
+                "ok": True,
+                "service": SERVICE_NAME,
+                "protocol": PROTOCOL_VERSION,
+            }
+        )
 
     async def events(request):
         return EventSourceResponse(bus.stream())
@@ -100,7 +127,17 @@ def create_app(*, bus: JobBus | None = None, oauth_callback=None, routes=()) -> 
         # from this request.
         if oauth_callback is None:
             return JSONResponse({"error": "oauth not configured"}, status_code=503)
-        result = oauth_callback(dict(request.query_params))
+
+        def exchange():
+            if oauth_lock is None:
+                return oauth_callback(dict(request.query_params))
+            with oauth_lock:
+                return oauth_callback(dict(request.query_params))
+
+        # Spotify's stdlib HTTP transport is synchronous and may take up to
+        # 30 seconds. Keep it off the main asyncio loop so SSE and /shutdown
+        # remain responsive, and serialize SQLCipher access with REST routes.
+        result = await run_in_threadpool(exchange)
         if result.get("ok"):
             return HTMLResponse(
                 "<html><body><p>Spotify connected. You can close this window "
@@ -117,6 +154,7 @@ def create_app(*, bus: JobBus | None = None, oauth_callback=None, routes=()) -> 
             *routes,
         ],
         middleware=[
+            Middleware(NoStoreMiddleware),
             Middleware(
                 CORSMiddleware,
                 allow_origins=WEBVIEW_ORIGINS,

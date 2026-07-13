@@ -12,6 +12,7 @@ local attacker using the same account.
 """
 
 import os
+import stat
 from pathlib import Path
 
 import sqlcipher3
@@ -26,11 +27,44 @@ class SecretsStore:
         self._conn = None
 
     def _key(self) -> str:
-        if not self._key_path.is_file():
-            fd = os.open(self._key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w") as f:
-                f.write(os.urandom(32).hex())
-        return self._key_path.read_text().strip()
+        try:
+            fd = os.open(
+                self._key_path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(os.urandom(32).hex())
+                handle.flush()
+                os.fsync(handle.fileno())
+
+        try:
+            fd = os.open(
+                self._key_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            )
+        except OSError as exc:
+            raise ValueError("secrets.key must be a regular owner-only file") from exc
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("secrets.key must be a regular owner-only file")
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "r") as handle:
+                fd = -1
+                key = handle.read().strip()
+        finally:
+            if fd >= 0:
+                os.close(fd)
+
+        try:
+            raw = bytes.fromhex(key)
+        except ValueError as exc:
+            raise ValueError("secrets.key is not a valid 32-byte key") from exc
+        if len(raw) != 32:
+            raise ValueError("secrets.key is not a valid 32-byte key")
+        return raw.hex()
 
     def _connect(self):
         if self._conn is None:

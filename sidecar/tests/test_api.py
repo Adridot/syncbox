@@ -17,6 +17,8 @@ from syncbox.platform_os import PermanentDeleteConsentRequired
 from syncbox.quality import QualityResult
 from syncbox.safety import process_guard
 from syncbox.safety.process_guard import MutationBlockedError
+from syncbox.secrets import SecretsStore
+from syncbox.spotify import ACCESS_TOKEN, REFRESH_TOKEN, SpotifyAuth
 
 PLAYLIST_ID = "A" * 22  # valid 22-char base62 shape
 
@@ -115,7 +117,11 @@ def seed_source(conn, tracks, tags=()):
 
 def test_build_app_keeps_transport_routes(tmp_path):
     env = make_env(tmp_path)
-    assert env.client.get("/health").json() == {"ok": True}
+    assert env.client.get("/health").json() == {
+        "ok": True,
+        "service": "syncbox-sidecar",
+        "protocol": 1,
+    }
     # SSE and shutdown stay canonical; the REST surface lives under /api.
     assert env.client.post("/shutdown").status_code == 202
 
@@ -1748,6 +1754,27 @@ def test_settings_export_import_roundtrip(tmp_path):
     assert env.deps.settings.get("backup_retention") == 7
 
 
+def test_exports_and_logs_exclude_encrypted_oauth_tokens(tmp_path):
+    sentinel = "SYNCBOX-PHASE6-OAUTH-SENTINEL-DO-NOT-EXPORT"
+    secrets = SecretsStore(tmp_path / "secrets")
+    secrets.set(ACCESS_TOKEN, sentinel)
+    secrets.set(REFRESH_TOKEN, f"{sentinel}-refresh")
+    auth = SpotifyAuth(lambda: "client-id", secrets)
+    env = make_env(tmp_path / "app", spotify_auth=auth)
+
+    settings = tmp_path / "settings.json"
+    data = tmp_path / "data.db"
+    assert env.client.post("/api/settings/export", json={"path": str(settings)}).status_code == 200
+    assert env.client.post("/api/data/export", json={"path": str(data)}).status_code == 200
+
+    assert sentinel.encode() not in settings.read_bytes()
+    assert sentinel.encode() not in data.read_bytes()
+    if env.deps.log_path.exists():
+        assert sentinel.encode() not in env.deps.log_path.read_bytes()
+    assert secrets.get(ACCESS_TOKEN) == sentinel
+    secrets.close()
+
+
 def test_settings_import_skips_bad_paths_and_unknown_keys(tmp_path):
     env = make_env(tmp_path)
     source = tmp_path / "foreign-settings.json"
@@ -1840,4 +1867,20 @@ def test_data_import_rejects_non_syncbox_files(tmp_path):
         == 400
     )
     # the live DB survived both refusals untouched
+    assert env.client.get("/api/settings").json() == before
+
+
+def test_transfer_paths_must_be_absolute_and_live_db_cannot_import_itself(tmp_path):
+    env = make_env(tmp_path)
+    before = env.deps.settings.all()
+
+    relative = env.client.post("/api/data/export", json={"path": "relative.db"})
+    assert relative.status_code == 400
+    assert "absolute" in relative.json()["message"]
+
+    live = env.client.post(
+        "/api/data/import", json={"path": str(env.deps.app_db_path)}
+    )
+    assert live.status_code == 400
+    assert "live Syncbox database" in live.json()["message"]
     assert env.client.get("/api/settings").json() == before
