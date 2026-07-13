@@ -30,14 +30,6 @@ SHELL_BIN = os.environ.get("SYNCBOX_SHELL_BIN") or os.path.join(
 )
 LOG = os.path.join(HERE, "build/single-instance.log")
 PORT = 8765
-# Dev: the venv python execs the framework binary, so match on the args (the
-# leading [-] keeps pgrep from parsing the pattern as its own options).
-# Packaged: the frozen binary carries its own name.
-SIDECAR_PATTERN = (
-    "[s]yncbox-sidecar" if os.environ.get("SYNCBOX_SHELL_BIN") else "[-]u -m syncbox"
-)
-
-
 def log_lines():
     if not os.path.exists(LOG):
         return []
@@ -70,17 +62,25 @@ def lsof_listeners():
     return [int(x) for x in out.stdout.split()]
 
 
-def sidecar_pids():
-    out = subprocess.run(
-        ["pgrep", "-f", SIDECAR_PATTERN], capture_output=True, text=True
-    )
-    return [int(x) for x in out.stdout.split()]
+def spawned_pids():
+    pids = []
+    for line in log_lines():
+        if "SIDECAR_SPAWNED pid=" in line:
+            pids.append(int(line.rsplit("pid=", 1)[1]))
+    return pids
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
 
 
 def main():
     assert os.path.isfile(SHELL_BIN), f"build the shell first: {SHELL_BIN}"
     assert not lsof_listeners(), f"port {PORT} busy before test"
-    assert not sidecar_pids(), "stray sidecar running before test"
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     if os.path.exists(LOG):
         os.remove(LOG)
@@ -98,7 +98,10 @@ def main():
     try:
         wait_for(lambda: any("SIDECAR_SPAWNED" in l for l in log_lines()), 15, "SIDECAR_SPAWNED")
         wait_for(health_ok, 15, "/health from primary's sidecar")
-        print("  primary up, sidecar healthy", flush=True)
+        [sidecar_pid] = spawned_pids()
+        assert os.getpgid(sidecar_pid) == sidecar_pid, \
+            f"sidecar does not lead its process group: pid={sidecar_pid} pgid={os.getpgid(sidecar_pid)}"
+        print(f"  primary up, sidecar healthy, own process group pid={sidecar_pid}", flush=True)
 
         print("launching instance 2 (should self-exit)...", flush=True)
         t0 = time.perf_counter()
@@ -124,7 +127,7 @@ def main():
               f"1 spawn line, 1 setup line — no second sidecar attempt", flush=True)
 
         listeners = lsof_listeners()
-        pids = sidecar_pids()
+        pids = [pid for pid in spawned_pids() if pid_alive(pid)]
         print(f"  overlap-window state: listeners={listeners} sidecar_pids={pids}", flush=True)
         assert len(listeners) == 1, f"expected one :{PORT} listener, got {listeners}"
         assert len(pids) == 1, f"expected one sidecar process, got {pids}"
@@ -138,7 +141,13 @@ def main():
         stopped = [l for l in log_lines() if "SIDECAR_STOPPED" in l]
         assert stopped and "clean" in stopped[0], f"handshake was not clean: {stopped}"
         wait_for(lambda: not lsof_listeners(), 5, "port release after shutdown")
-        wait_for(lambda: not sidecar_pids(), 5, "sidecar process gone")
+        wait_for(
+            lambda: all(
+                not pid_alive(pid) for pid in spawned_pids()
+            ),
+            5,
+            "spawned sidecar processes gone",
+        )
         print(f"  primary exited rc={rc1}, clean intent-flagged handshake, "
               f"port {PORT} released, no sidecar left", flush=True)
 
@@ -148,8 +157,8 @@ def main():
         print("\nSINGLE-INSTANCE ASSERTIONS PASSED", flush=True)
     finally:
         log_file.close()
-        for pid in sidecar_pids():
-            subprocess.run(["kill", "-9", str(pid)])
+        for pid in spawned_pids():
+            subprocess.run(["kill", "-9", str(pid)], capture_output=True)
         if p1.poll() is None:
             p1.kill()
             p1.wait()

@@ -7,12 +7,12 @@
 // `restart_sidecar` command after exhaustion; shutdown handshake on exit =
 // POST /shutdown -> bounded wait -> SIGTERM group -> SIGKILL group.
 //
-// macOS-only code paths for now; Windows (taskkill /T, mutex) is pre-M5 work.
+// macOS-only code paths for v1; Windows is deferred.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -73,8 +73,22 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> std::io::Result<Child> {
     ] {
         if let Some(stream) = stream {
             std::thread::spawn(move || {
-                for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                    eprintln!("[sidecar:{name}] {line}");
+                eprintln!("SIDECAR_{name}_DRAIN_STARTED");
+                let mut stream = stream;
+                let mut buffer = [0u8; 8192];
+                loop {
+                    let count = match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(count) => count,
+                    };
+                    // Lock stderr only for this chunk. Holding the global
+                    // lock while waiting for sidecar output would block the
+                    // supervisor's own lifecycle markers indefinitely.
+                    let mut stderr = std::io::stderr().lock();
+                    if stderr.write_all(&buffer[..count]).is_err() {
+                        break;
+                    }
+                    let _ = stderr.flush();
                 }
             });
         }
@@ -86,40 +100,61 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> std::io::Result<Child> {
 /// Supervisor loop (6.6): spawn, watch for exit, restart with bounded
 /// backoff on crash, emit `backend-down` on exhaustion. Returns silently
 /// when the shutdown path takes ownership of the child.
-fn start_supervisor(app: tauri::AppHandle) {
+fn start_supervisor(app: tauri::AppHandle) -> bool {
     if SUPERVISING.swap(true, Ordering::SeqCst) {
-        return; // already supervising
+        return false; // already supervising
     }
     std::thread::spawn(move || {
         // Three crashes over this supervisor's lifetime require a manual
         // restart, which creates a fresh supervisor and strike counter.
         let mut attempts: u32 = 0;
         loop {
-            match spawn_sidecar(&app) {
-                Ok(child) => {
-                    let state = app.state::<Sidecar>();
-                    *state.0.lock().unwrap() = Some(child);
-                    loop {
-                        std::thread::sleep(Duration::from_millis(300));
-                        let mut guard = state.0.lock().unwrap();
-                        match guard.as_mut() {
-                            // The shutdown path took the child: we are done.
-                            None => {
-                                SUPERVISING.store(false, Ordering::SeqCst);
-                                return;
-                            }
-                            Some(child) => match child.try_wait() {
-                                Ok(Some(status)) => {
-                                    guard.take();
-                                    eprintln!("SIDECAR_EXITED status={status}");
-                                    break;
-                                }
-                                _ => {}
-                            },
-                        }
+            let state = app.state::<Sidecar>();
+            let spawned = {
+                // Serialize intent-check, spawn and publication with exit.
+                // Exit can therefore never observe None and then leave a
+                // newly spawned child behind.
+                let mut guard = state.0.lock().unwrap();
+                if INTENT_SHUTDOWN.load(Ordering::SeqCst) {
+                    SUPERVISING.store(false, Ordering::SeqCst);
+                    return;
+                }
+                match spawn_sidecar(&app) {
+                    Ok(child) => {
+                        *guard = Some(child);
+                        true
+                    }
+                    Err(err) => {
+                        eprintln!("SIDECAR_SPAWN_FAILED {err}");
+                        false
                     }
                 }
-                Err(err) => eprintln!("SIDECAR_SPAWN_FAILED {err}"),
+            };
+            if spawned {
+                loop {
+                    std::thread::sleep(Duration::from_millis(300));
+                    let mut guard = state.0.lock().unwrap();
+                    match guard.as_mut() {
+                        // The shutdown path took the child: we are done.
+                        None => {
+                            SUPERVISING.store(false, Ordering::SeqCst);
+                            return;
+                        }
+                        Some(child) => match child.try_wait() {
+                            Ok(Some(status)) => {
+                                guard.take();
+                                eprintln!("SIDECAR_EXITED status={status}");
+                                break;
+                            }
+                            Ok(None) => {}
+                            Err(err) => {
+                                guard.take();
+                                eprintln!("SIDECAR_WAIT_FAILED {err}");
+                                break;
+                            }
+                        },
+                    }
+                }
             }
             if INTENT_SHUTDOWN.load(Ordering::SeqCst) {
                 break;
@@ -127,8 +162,19 @@ fn start_supervisor(app: tauri::AppHandle) {
             attempts += 1;
             if attempts > MAX_RESTARTS {
                 eprintln!("BACKEND_DOWN restarts_exhausted");
-                let _ = app.emit("backend-down", ());
-                break;
+                // Make a retry issued by the event handler observable: the
+                // new supervisor must not race a still-true state flag.
+                SUPERVISING.store(false, Ordering::SeqCst);
+                let _ = app.emit("backend-down", "restarts_exhausted");
+                // Test-only hook: invoke the same command as the overlay,
+                // but only from the exhaustion branch so backoff cannot be
+                // mistaken for a backend-down transition.
+                if std::env::var_os("SYNCBOX_RESTART_AFTER_EXHAUSTION").is_some() {
+                    std::thread::sleep(Duration::from_millis(250));
+                    let started = restart_sidecar(app.clone());
+                    eprintln!("HARNESS_MANUAL_RESTART started={started}");
+                }
+                return;
             }
             let delay = BACKOFF_SECS[(attempts - 1) as usize];
             eprintln!("SIDECAR_RESTARTING attempt={attempts} backoff={delay}s");
@@ -136,35 +182,89 @@ fn start_supervisor(app: tauri::AppHandle) {
         }
         SUPERVISING.store(false, Ordering::SeqCst);
     });
+    true
 }
 
 /// Manual "Relancer" after restart exhaustion (SPEC-DESIGN 5 backend-down
 /// overlay). Starts a fresh supervisor (counter back to zero); the UI
 /// confirms recovery through /health itself.
 #[tauri::command]
-fn restart_sidecar(app: tauri::AppHandle) {
+fn restart_sidecar(app: tauri::AppHandle) -> bool {
     eprintln!("RESTART_SIDECAR_REQUESTED");
     INTENT_SHUTDOWN.store(false, Ordering::SeqCst);
     if app.state::<Sidecar>().0.lock().unwrap().is_some() {
-        return; // still running; nothing to do
+        return false; // still running; nothing to do
     }
-    start_supervisor(app);
+    start_supervisor(app)
 }
 
-/// Best-effort POST /shutdown over a raw socket (stdlib only; no HTTP crate
-/// for one loopback request). Returns true if the sidecar answered.
-fn post_shutdown() -> bool {
+/// Small bounded HTTP client for the two loopback lifecycle requests.
+fn http_request(request: &str) -> Option<Vec<u8>> {
     let Ok(mut stream) = TcpStream::connect(SIDECAR_ADDR) else {
-        return false;
+        return None;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-    let request = "POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
     if stream.write_all(request.as_bytes()).is_err() {
-        return false;
+        return None;
     }
-    let mut buf = [0u8; 64];
-    stream.read(&mut buf).is_ok()
+    let mut response = Vec::new();
+    stream.take(8192).read_to_end(&mut response).ok()?;
+    Some(response)
+}
+
+fn http_status_body(response: &[u8]) -> Option<(u16, &[u8])> {
+    let header_end = response.windows(4).position(|part| part == b"\r\n\r\n")?;
+    let headers = std::str::from_utf8(&response[..header_end]).ok()?;
+    let status = headers.lines().next()?.split_whitespace().nth(1)?.parse().ok()?;
+    Some((status, &response[header_end + 4..]))
+}
+
+/// Exact protocol identity approved for stale-sidecar cleanup. This prevents
+/// Syncbox from sending /shutdown to an unrelated service using port 8765.
+fn syncbox_health() -> bool {
+    let request = "GET /health HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nConnection: close\r\n\r\n";
+    let Some(response) = http_request(request) else {
+        return false;
+    };
+    is_syncbox_health_response(&response)
+}
+
+fn is_syncbox_health_response(response: &[u8]) -> bool {
+    let Some((200, body)) = http_status_body(&response) else {
+        return false;
+    };
+    let Ok(payload) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return false;
+    };
+    payload
+        == serde_json::json!({
+            "ok": true,
+            "service": "syncbox-sidecar",
+            "protocol": 1
+        })
+}
+
+fn post_shutdown() -> bool {
+    let request = "POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    http_request(request)
+        .and_then(|response| http_status_body(&response).map(|(status, _)| status))
+        == Some(202)
+}
+
+fn port_available() -> bool {
+    TcpListener::bind(SIDECAR_ADDR).is_ok()
+}
+
+fn wait_port_available(timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if port_available() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
 }
 
 fn wait_exit(child: &mut Child, timeout: Duration) -> bool {
@@ -190,7 +290,7 @@ fn kill_group(pid: i32, signal: libc::c_int) {
 /// wait -> SIGTERM to the group -> SIGKILL to the group.
 fn shutdown_sidecar(child: &mut Child) {
     let pid = child.id() as i32;
-    if post_shutdown() && wait_exit(child, Duration::from_secs(4)) {
+    if syncbox_health() && post_shutdown() && wait_exit(child, Duration::from_secs(4)) {
         eprintln!("SIDECAR_STOPPED clean");
         return;
     }
@@ -204,12 +304,26 @@ fn shutdown_sidecar(child: &mut Child) {
     eprintln!("SIDECAR_STOPPED sigkill");
 }
 
-/// An orphaned sidecar from a previous shell crash still holds :8765 and
-/// would make this launch fail its port check. Ask it to stop first.
-fn reap_stale_sidecar() {
-    if post_shutdown() {
+enum StartupPort {
+    Available,
+    Reaped,
+    Blocked,
+}
+
+/// Stop only a sidecar carrying the exact approved protocol identity. A
+/// foreign or unresponsive listener is preserved and reported as a collision.
+fn reap_stale_sidecar() -> StartupPort {
+    if port_available() {
+        return StartupPort::Available;
+    }
+    if !syncbox_health() {
+        return StartupPort::Blocked;
+    }
+    if post_shutdown() && wait_port_available(Duration::from_secs(5)) {
         eprintln!("STALE_SIDECAR_REAPED");
-        std::thread::sleep(Duration::from_millis(500));
+        StartupPort::Reaped
+    } else {
+        StartupPort::Blocked
     }
 }
 
@@ -250,9 +364,24 @@ fn main() {
             eprintln!("PRIMARY_INSTANCE_STARTED shell_pid={}", std::process::id());
             #[cfg(target_os = "macos")]
             set_dock_icon();
-            reap_stale_sidecar();
             app.manage(Sidecar(Mutex::new(None)));
-            start_supervisor(app.handle().clone());
+            match reap_stale_sidecar() {
+                StartupPort::Available | StartupPort::Reaped => {
+                    start_supervisor(app.handle().clone());
+                }
+                StartupPort::Blocked => {
+                    eprintln!(
+                        "PORT_COLLISION 127.0.0.1:8765 is occupied by a non-Syncbox service"
+                    );
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        // Let the webview register its event listener first;
+                        // status polling is the fallback if startup is slower.
+                        std::thread::sleep(Duration::from_millis(500));
+                        let _ = handle.emit("backend-down", "port_collision");
+                    });
+                }
+            }
             // Harness hook: timed exit exercises the full shutdown handshake
             // without a window click (regression scripts in shell/harness/).
             if let Ok(secs) = std::env::var("SYNCBOX_EXIT_AFTER_SECS") {
@@ -280,4 +409,36 @@ fn main() {
                 eprintln!("SHUTDOWN intent=true");
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{http_status_body, is_syncbox_health_response};
+
+    #[test]
+    fn parses_bounded_http_status_and_body() {
+        let response = b"HTTP/1.1 202 Accepted\r\nContent-Length: 17\r\n\r\n{\"stopping\":true}";
+        let (status, body) = http_status_body(response).expect("valid response");
+        assert_eq!(status, 202);
+        assert_eq!(body, b"{\"stopping\":true}");
+    }
+
+    #[test]
+    fn rejects_malformed_http_responses() {
+        assert!(http_status_body(b"").is_none());
+        assert!(http_status_body(b"HTTP/1.1 nope\r\n\r\n").is_none());
+        assert!(http_status_body(b"HTTP/1.1 200 OK\n\n{}").is_none());
+    }
+
+    #[test]
+    fn accepts_only_the_exact_syncbox_health_identity() {
+        let exact = b"HTTP/1.1 200 OK\r\n\r\n{\"ok\":true,\"service\":\"syncbox-sidecar\",\"protocol\":1}";
+        assert!(is_syncbox_health_response(exact));
+        assert!(!is_syncbox_health_response(
+            b"HTTP/1.1 200 OK\r\n\r\n{\"ok\":true}"
+        ));
+        assert!(!is_syncbox_health_response(
+            b"HTTP/1.1 200 OK\r\n\r\n{\"ok\":true,\"service\":\"syncbox-sidecar\",\"protocol\":2}"
+        ));
+    }
 }
