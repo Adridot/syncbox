@@ -68,8 +68,9 @@ Syncbox write goes through a single guarded pipeline:
 
 1. Download `Syncbox-<version>-macos-arm64.zip` from
    [Releases](https://github.com/Adridot/syncbox/releases) and unzip.
-2. The app is **not yet code-signed** (see roadmap), so on first launch macOS
-   will say it "is damaged" or "cannot be verified". Either:
+2. The current app is ad-hoc signed, not signed with an Apple Developer ID and
+   not notarized. On first launch macOS may say it "is damaged" or "cannot be
+   verified". Either:
    - **Right-click the app → Open → Open** (once; macOS remembers), or
    - `xattr -dr com.apple.quarantine /path/to/Syncbox.app`
 3. Launch. The onboarding walks you through the three things it needs: your
@@ -97,8 +98,9 @@ Tested with Rekordbox 7 on Apple Silicon. App data lives in
 ```
 
 The full functional specification lives in
-[docs/SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md); [docs/](docs/README.md) indexes
-the plans, design spec, and dated research behind every decision.
+[docs/SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md). See the
+[user guide](docs/USER_GUIDE.md), [distribution contract](docs/DISTRIBUTION.md),
+and [POC evidence index](poc/README.md) for the current implementation state.
 
 ## Build from source
 
@@ -106,19 +108,19 @@ Prerequisites: [pnpm](https://pnpm.io), [Rust](https://rustup.rs),
 [uv](https://docs.astral.sh/uv/) (Python 3.14).
 
 ```sh
-pnpm install                 # workspace: ui + shell
-cd sidecar && uv sync        # python venv + deps
-cd ../shell && pnpm tauri build --bundles app
-# → shell/src-tauri/target/release/bundle/macos/Syncbox.app
+pnpm install --frozen-lockfile
+cd sidecar && uv sync --locked --managed-python
+cd ../shell && pnpm bundle:macos
+# → shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
 ```
 
 Dev loop and tests:
 
 ```sh
 cd shell && pnpm tauri dev                       # app against the source tree
-cd sidecar && .venv/bin/python -m pytest -q      # sidecar suite
+cd sidecar && uv run --locked pytest -q -rs      # sidecar suite
 cd ui && pnpm test && pnpm typecheck             # UI suite
-cd shell/src-tauri && cargo check                # shell
+cd shell/src-tauri && cargo check --locked --target aarch64-apple-darwin
 ```
 
 Packaging regression harnesses (lifecycle, single-instance, supervisor,
@@ -138,20 +140,20 @@ docstring says how to run it.
 
 ## Status & roadmap
 
-Current release: **0.1.0** — macOS (Apple Silicon), unsigned.
+Current release: **0.2.1** — macOS 14+ (Apple Silicon), ad-hoc signed without a Developer ID.
 
-- **Signing & notarization** — planned as soon as an Apple Developer ID
-  exists; secrets then migrate from the encrypted store to the macOS
-  Keychain.
-- **Windows** — the OS seams are in place (process kill, WebView origin,
-  path formats); implementation waits on a Windows host to run the
-  validation harnesses.
+- **Signing, notarization, and Keychain** — deferred; the current release uses
+  a per-install encrypted SQLCipher secret store and never exports OAuth
+  tokens.
+- **Windows** — deferred to v2; the v1 build and validation contract is macOS
+  Apple Silicon only.
+- **Updates** — no in-app auto-update is implemented.
 - **Later** — in-app audio preview, fingerprint-based duplicate detection
   (Chromaprint), ISRC enrichment.
 
 ## License
 
 [MIT](LICENSE). The packaged app bundles third-party components under their
-own licenses — among them [mutagen](https://github.com/quodlibet/mutagen)
-(GPL-2.0-or-later), whose source-availability terms this public repository
-satisfies.
+own licenses, including [mutagen](https://github.com/quodlibet/mutagen)
+(GPL-2.0-or-later). A consolidated third-party notice and redistribution
+review remain release gates before public binary distribution.

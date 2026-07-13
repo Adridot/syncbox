@@ -17,11 +17,27 @@ stream), spawned and supervised by the Tauri shell.
   `PRAGMA user_version`.
 
 ```sh
-uv sync                                       # venv + deps (Python 3.14)
-.venv/bin/python -m pytest -q                 # test suite
-PYTHONPATH=src .venv/bin/python -m syncbox    # run standalone (dev)
-.venv/bin/pyinstaller --noconfirm sidecar.spec  # freeze (onedir, M5)
+uv lock --check
+uv sync --locked --managed-python             # exact Python 3.14.2 environment
+uv run --locked --managed-python pytest -q -rs
+PYTHONPATH=src uv run --locked --managed-python python -m syncbox
+uv run --locked --managed-python pyinstaller --noconfirm --clean sidecar.spec
 ```
+
+`.python-version` selects Python 3.14.2 and `uv.lock` records the complete
+runtime and development dependency graph. The PyInstaller spec emits an arm64
+onedir at `dist/syncbox-sidecar/`. Validate the frozen native dependency set
+without creating application data:
+
+```sh
+dist/syncbox-sidecar/syncbox-sidecar --packaging-check
+```
+
+That check imports the packaged CA bundle, audio/native stack, Rekordbox
+reader, Trash integration, and SQLCipher extension, then opens an in-memory
+encrypted database. The release scanner in `poc/run_phase6_packaging.py`
+performs the complementary app-tree, lock, license, architecture, signature,
+secret, and archive checks.
 
 Rekordbox-integration tests skip unless `poc/testdata/master.db` exists
 (a real Rekordbox 7 database, not committed).

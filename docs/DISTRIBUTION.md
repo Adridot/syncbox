@@ -1,150 +1,118 @@
-# Distribution — building, signing, notarizing & auto-update
+# Distribution
 
-Syncbox packages the FastAPI service (PyInstaller `--onedir`) as an Electron
-app resource and ships it as a macOS bundle. This document covers the three
-distribution levels, from a local unsigned build to a signed/notarized,
-auto-updating release.
+This is the release contract for Syncbox 0.2.1. The supported v1 target is
+macOS 14 or later on Apple Silicon. The deliverable is a PyInstaller onedir
+sidecar embedded as a Tauri v2 application resource, plus a ZIP archive.
 
----
+The local artifact is ad-hoc signed. It has no Apple Developer ID signature,
+notarization, installer, auto-update mechanism, Keychain dependency, or Windows
+build. Do not describe it as trusted by Gatekeeper.
 
-## 1. Build outputs
+## Prerequisites
 
-| Command | Output | Use |
-|---------|--------|-----|
-| `npm run dist` | `release/mac-arm64/Syncbox.app` (unsigned, `--dir`) | Fast local testing |
-| `npm run dist:dmg` | `release/Syncbox-<version>-arm64.dmg` | Shareable installer (still unsigned by default) |
+- Apple Silicon Mac running macOS 14 or later;
+- Xcode Command Line Tools and Rust;
+- Node.js, pnpm, and uv;
+- the committed `pnpm-lock.yaml`, `Cargo.lock`, and `sidecar/uv.lock`.
 
-Both first run `npm run build` (renderer + main + preload) and
-`npm run build:service` (PyInstaller binary into `service/dist/syncbox-service`).
+The build follows the current official guidance for
+[Tauri macOS bundles](https://v2.tauri.app/distribute/macos-application-bundle/),
+[Tauri external binaries](https://v2.tauri.app/develop/sidecar/),
+[PyInstaller onedir bundles](https://pyinstaller.org/en/stable/usage.html), and
+[uv locked environments](https://docs.astral.sh/uv/concepts/projects/sync/).
 
-> Requires **Node ≥ 20** — the bundler uses `crypto.hash`.
+## Build
 
-`build:service` collects, besides the app's own modules, a few packages whose
-data PyInstaller can't infer: `pyrekordbox`, `sqlcipher3`, `uvicorn`, `mutagen`,
-`pydantic`, and — importantly — **`certifi` / `httpx` / `httpcore`** so the
-bundled service ships a CA bundle. Without it every outbound HTTPS call (Spotify
-token exchange, Deezer search) fails SSL verification in the packaged app.
+Run from a clean source checkout on an Apple Silicon Mac:
 
-The bundled service is spawned by the main process from
-`process.resourcesPath/syncbox-service/syncbox-service`; the seed DB is copied
-on first launch (see `electron/main.ts`). The Electron main process also
-auto-launches (or one-click-installs) **Deemix Remastered** — see
-`electron/deemix.ts`.
-
-### Unsigned `.dmg` caveat
-
-Without a Developer ID signature, Gatekeeper quarantines the app. To open an
-unsigned build the user must **right-click → Open** once, or run:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Syncbox.app
+```sh
+pnpm install --frozen-lockfile
+cd sidecar
+uv lock --check
+uv sync --locked --managed-python
+cd ../shell
+pnpm bundle:macos
 ```
 
-### Publishing an (unsigned) release to GitHub
+`bundle:macos` performs these reproducibility-sensitive steps:
 
-The current public builds are unsigned and published by hand with the `gh` CLI:
+- freezes the sidecar with `uv run --locked --managed-python` and PyInstaller
+  `--clean`;
+- builds the Vue production bundle;
+- invokes Tauri with Cargo `--locked` and the explicit
+  `aarch64-apple-darwin` target;
+- places `/usr/bin` and `/bin` first so Tauri calls Apple's `/usr/bin/xattr`
+  rather than an incompatible third-party executable;
+- remaps the builder home prefix to `/Users/build` in Rust debug paths;
+- applies an ad-hoc signature through Tauri's `signingIdentity: "-"` setting.
 
-```bash
-npm run dist:dmg
-gh release create v<version> \
-  "release/Syncbox-<version>-arm64.dmg" \
-  --repo Adridot/syncbox \
-  --title "Syncbox <version>" \
-  --notes "…release notes…"
+Output:
+
+```text
+shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
 ```
 
-The README's **Install** section links to
-<https://github.com/Adridot/syncbox/releases>. For a hands-off, signed,
-auto-updating feed instead, see §2–§3 below.
+Create the unsigned distribution archive from that directory:
 
----
+```sh
+cd shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos
+COPYFILE_DISABLE=1 /usr/bin/zip -FS -qry -y \
+  Syncbox-0.2.1-macos-arm64.zip Syncbox.app
+```
 
-## 2. Signing & notarization (Developer ID)
+Build artifacts are intentionally not committed.
 
-Requires an Apple Developer account ($99/yr) and a **Developer ID Application**
-certificate in the login keychain.
+## Verification
 
-1. In `package.json` → `build.mac`, replace `"identity": null` with your
-   identity (or remove it to auto-detect), and add hardened runtime:
+From the repository root, with the locked sidecar environment active:
 
-   ```json
-   "mac": {
-     "target": ["dmg"],
-     "category": "public.app-category.music",
-     "icon": "build/icon.icns",
-     "hardenedRuntime": true,
-     "gatekeeperAssess": false,
-     "entitlements": "build/entitlements.mac.plist",
-     "entitlementsInherit": "build/entitlements.mac.plist"
-   }
-   ```
+```sh
+APP=shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
+ZIP=shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.1-macos-arm64.zip
 
-   A minimal `build/entitlements.mac.plist` must allow the JIT/unsigned-memory
-   needed by the embedded Python runtime:
+codesign --verify --deep --strict "$APP"
+PYI_ARCHIVE_VIEWER=sidecar/.venv/bin/pyi-archive_viewer \
+  sidecar/.venv/bin/python poc/run_phase6_packaging.py \
+  "$APP" --archive "$ZIP"
+```
 
-   ```xml
-   <?xml version="1.0" encoding="UTF-8"?>
-   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-   <plist version="1.0"><dict>
-     <key>com.apple.security.cs.allow-jit</key><true/>
-     <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
-     <key>com.apple.security.cs.disable-library-validation</key><true/>
-   </dict></plist>
-   ```
+The scanner fails closed on:
 
-   > `disable-library-validation` is required because the PyInstaller binary
-   > loads unsigned `.so` files (sqlcipher3, pyrekordbox, numpy).
+- missing or version-mismatched runtime dependencies;
+- missing license metadata or unexpected GPL runtime packages;
+- non-arm64 Mach-O files or an effective deployment target above macOS 14;
+- a non-ad-hoc signature, missing native package, or malformed app resource;
+- archive payload, mode, or symlink drift from the validated app tree;
+- streamrip, Deemix, Deezer acquisition components, ARL/config markers,
+  private-key material, common token shapes, or local repository paths.
 
-2. Notarize. electron-builder ≥25 notarizes automatically when credentials are
-   present. Provide an app-specific password via environment:
+Run the lifecycle harnesses documented in `shell/README.md` against the same
+app. Phase 6 evidence and measurements are recorded in
+`poc/08-phase6-packaging-lifecycle.md`.
 
-   ```bash
-   export APPLE_ID="you@example.com"
-   export APPLE_APP_SPECIFIC_PASSWORD="abcd-efgh-ijkl-mnop"
-   export APPLE_TEAM_ID="XXXXXXXXXX"
-   npm run dist:dmg
-   ```
+`spctl` is not an acceptance test for this artifact: the current build has no
+Developer ID or notarization ticket. On the Phase 6 host it returned an
+internal Code Signing subsystem error, while `codesign --verify --deep
+--strict` passed. Users may need to right-click the app and choose Open, or
+remove quarantine explicitly:
 
-   electron-builder runs `notarytool submit --wait` and staples the ticket.
+```sh
+xattr -dr com.apple.quarantine /path/to/Syncbox.app
+```
 
-3. Verify:
+## Release gates
 
-   ```bash
-   spctl -a -vvv -t install release/Syncbox-<version>.dmg
-   xcrun stapler validate "release/mac/Syncbox.app"
-   ```
+The functional local artifact is complete, but public binary distribution is
+not approved until all of the following are resolved:
 
----
+- choose a durable reverse-DNS bundle identifier; the current
+  `dev.syncbox.app` triggers Tauri's warning because it ends in `.app`, and an
+  identifier change affects application identity and persisted data paths;
+- include the project license and a reviewed consolidated third-party notice
+  in the distributed artifact;
+- complete the private Rekordbox fixture gates listed in the Phase 6 handoff;
+- if a frictionless public macOS install is required, obtain a Developer ID and
+  add signing/notarization in a later phase.
 
-## 3. Auto-update (electron-updater)
-
-Scaffolding is wired in `electron/main.ts` (`checkForUpdates()`) but **dormant**
-by default — it only runs when:
-
-- the app is packaged (`app.isPackaged`), **and**
-- `RBSYNC_ENABLE_UPDATES=1`, **and**
-- a publish provider is configured (so electron-builder emits `app-update.yml`).
-
-To enable a GitHub-releases feed:
-
-1. Set the provider in `package.json` → `build`:
-
-   ```json
-   "publish": [{ "provider": "github", "owner": "<you>", "repo": "syncbox" }]
-   ```
-
-2. Build & publish a **signed, notarized** release (auto-update refuses
-   unsigned updates on macOS):
-
-   ```bash
-   GH_TOKEN=<token> npm run dist:dmg -- --publish always
-   ```
-
-3. Ship the app with `RBSYNC_ENABLE_UPDATES=1`. On launch the updater checks the
-   feed, downloads in the background, and notifies the user to restart.
-
-For a self-hosted feed use `{ "provider": "generic", "url": "https://…" }` and
-upload the `latest-mac.yml` + `.dmg`/`.zip` artifacts there.
-
-> macOS auto-update requires a `.zip` target in addition to `.dmg` for the
-> differential download. Add `"zip"` to `build.mac.target` when enabling updates.
+No legal compliance, Gatekeeper acceptance, bit-for-bit reproducibility, or
+notarization claim is made by this document.
