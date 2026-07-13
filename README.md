@@ -18,11 +18,12 @@ your library**.
   let Syncbox match every track against your collection by ISRC first, fuzzy
   title/artist second. Review and apply the matches as MyTags in Rekordbox.
 - **Events** — build a set for a gig from a Spotify playlist (or link). Each
-  event becomes a MyTag + smart playlist inside Rekordbox. Tracks you don't
-  own yet are listed as *missing* with purchase links; drop the file you
-  bought into the event's staging folder and Syncbox picks it up. Events stay
-  open after applying: add tracks later and re-apply just the delta —
-  idempotent, never duplicated.
+  event becomes a MyTag + smart playlist inside Rekordbox. Tracks you do not
+  own yet are listed as *missing* with purchase links first. An optional
+  Deezer component can acquire an ISRC-resolved track after explicit setup;
+  it is disabled by default and distributed separately from the base app.
+  Events stay open after applying: add tracks later and re-apply just the
+  delta — idempotent, never duplicated.
 - **Collection health** —
   - *Duplicates*: groups duplicate tracks, ranks the best copy (file presence,
     bitrate bucket, trusted audio-quality verdict), moves the losers' playlist and tag
@@ -95,6 +96,10 @@ Tested with Rekordbox 7 on Apple Silicon. App data lives in
 │           onedir binary inside the app bundle                        │
 └──────────────────────────────────────────────────────────────────────┘
              reads/writes master.db via pyrekordbox, guarded
+
+ optional-component/  Separate pinned PyInstaller onedir download.
+                      Deezer-only Syncbox interface; streamrip is never
+                      imported or bundled by the base application.
 ```
 
 The full functional specification lives in
@@ -105,7 +110,8 @@ and [POC evidence index](poc/README.md) for the current implementation state.
 ## Build from source
 
 Prerequisites: [pnpm](https://pnpm.io), [Rust](https://rustup.rs),
-[uv](https://docs.astral.sh/uv/) (Python 3.14).
+[uv](https://docs.astral.sh/uv/) (Python 3.14). The build uses separate locked
+Python projects for the base sidecar and optional component.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -132,6 +138,7 @@ docstring says how to run it.
 | Path | What |
 |---|---|
 | `sidecar/` | Python sidecar — domain logic, HTTP+SSE API, Rekordbox writes |
+| `optional-component/` | Separately distributed pinned Deezer/streamrip runner |
 | `ui/` | Vue 3 front end |
 | `shell/` | Tauri shell (Rust supervisor) + packaging harnesses |
 | `docs/` | Specification, plans, owner decisions, dated research |
@@ -148,12 +155,17 @@ Current release: **0.2.1** — macOS 14+ (Apple Silicon), ad-hoc signed without 
 - **Windows** — deferred to v2; the v1 build and validation contract is macOS
   Apple Silicon only.
 - **Updates** — no in-app auto-update is implemented.
+- **Optional acquisition** — purchase links remain first. Deezer acquisition
+  is explicit, disabled by default, requires a Premium credential stored only
+  in the encrypted secret store, and downloads a hash-pinned component from
+  the matching GitHub Release. SoundCloud and ffmpeg are not exposed.
 - **Later** — in-app audio preview, fingerprint-based duplicate detection
   (Chromaprint), ISRC enrichment.
 
 ## License
 
-[MIT](LICENSE). The packaged app bundles third-party components under their
-own licenses, including [mutagen](https://github.com/quodlibet/mutagen)
-(GPL-2.0-or-later). A consolidated third-party notice and redistribution
+[MIT](LICENSE). The packaged base app bundles third-party components under
+their own licenses, including [mutagen](https://github.com/quodlibet/mutagen)
+(GPL-2.0-or-later). The separately distributed streamrip component carries its
+GPL license and notice. A consolidated third-party notice and redistribution
 review remain release gates before public binary distribution.

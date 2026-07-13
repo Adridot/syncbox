@@ -8,6 +8,12 @@ Date: 2026-07-13
 
 **READY FOR PHASE 6 RERUN. NOT READY FOR RELEASE ACCEPTANCE.**
 
+Phase 6 superseded the source-only venv installer described below with the
+owner-approved separate self-contained PyInstaller onedir component. The final
+packaged boundary, hash, measurements, and remaining publication gates are in
+`phase-06-packaging-lifecycle.md`. This Phase 5 handoff remains the historical
+full-track acquisition evidence.
+
 The real Deezer full-track gate was rerun with a local one-shot Premium ARL.
 The ARL was never printed, logged, committed, copied into fixtures, or written
 to a streamrip configuration file. The credential file was consumed and
@@ -51,7 +57,7 @@ The full-track run returned:
 {"api_duration_seconds":337,"deezer_track_id":67238732,"file_size_bytes":13520081,"format":"mp3","measured_duration_seconds":337.56,"output_filename":"05. Daft Punk - Instant Crush (feat. Julian Casablancas).mp3","output_path_source":"track.download_path","quality":1,"result":"FULL_TRACK_DOWNLOADED"}
 ```
 
-## Implemented scope
+## Phase 5 source implementation at handoff
 
 - `deezer_acquisition_enabled` setting, default `false`.
 - Deezer ARL endpoints backed only by the encrypted `SecretsStore`.
@@ -77,7 +83,7 @@ The full-track run returned:
 - SoundCloud, ffmpeg, Windows, Developer ID signing, notarization, and Keychain
   remain out of v1 scope.
 
-## Security and distribution boundary
+## Phase 5 security and distribution boundary
 
 streamrip is not imported by the base Syncbox process. Runtime interaction goes
 through a short-lived subprocess using the optional component's Python

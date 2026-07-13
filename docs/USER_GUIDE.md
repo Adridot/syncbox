@@ -70,8 +70,10 @@ assign MyTags, and apply selected matches while Rekordbox is closed. Removed or
 ambiguous tracks remain review items; Syncbox does not silently apply them.
 
 Tracks missing from the owned collection are handled through the Missing
-center. Syncbox v1 does not download music. It opens Beatport and Bandcamp
-searches in the system browser, or lets you relink a file that you already own.
+center. Beatport and Bandcamp searches remain the primary path and open in the
+system browser. Syncbox can also use a separately distributed optional Deezer
+component after explicit setup; it is disabled by default and never required
+for the base application.
 
 ### Events
 
@@ -107,21 +109,36 @@ artist/store, then place or select the file you lawfully own and relink it.
 Store results are searches, not guaranteed exact matches; verify artist,
 title, version, and duration before buying.
 
-There is no streamrip, Deezer ARL, Deemix, acquisition queue, or hidden
-downloader in the base v1 application. Full-track B1 acquisition is blocked by
-its credential POC and is not a shipped capability.
+For optional Deezer acquisition:
+
+1. Enable it in Settings.
+2. Save a valid Premium credential. The value is sent only to the local
+   sidecar, stored in the encrypted secret database, and immediately cleared
+   from the input field.
+3. Install the matching component. Syncbox downloads the versioned macOS arm64
+   archive from the GitHub Release, verifies its exact byte size and SHA-256,
+   extracts it into app data, and runs its self-check before marking it ready.
+4. Start acquisition explicitly from a missing track with a valid ISRC.
+
+The component is Deezer-only at the Syncbox interface. It does not expose
+SoundCloud or invoke ffmpeg. Each job passes the credential through an
+owner-only one-shot file, never as a command-line value. Purchase links remain
+available even when the component is absent or disabled. Only acquire music
+when your account and local law authorize it.
 
 ### Settings
 
-Settings contains the Spotify Client ID and connection flow, Rekordbox and
-storage paths, backup retention, language, matching controls, and transfer
-tools. Blank credential updates preserve an existing value.
+Settings contains the Spotify Client ID and connection flow, optional Deezer
+enablement and component controls, Rekordbox and storage paths, backup
+retention, language, matching controls, and transfer tools. Secret fields are
+write-only: the UI receives only a boolean indicating whether a value exists.
+Blank credential updates preserve an existing value.
 
 **Settings export** creates JSON containing portable non-secret settings.
 **All-data export** creates one coherent Syncbox SQLite snapshot. Neither
-format contains OAuth tokens. All-data import validates and migrates a staged
-copy before atomically replacing current data and keeps a safety backup of the
-previous database.
+format contains OAuth tokens or the Deezer credential. All-data import
+validates and migrates a staged copy before atomically replacing current data
+and keeps a safety backup of the previous database.
 
 ## Managed storage
 
@@ -144,6 +161,9 @@ Rekordbox metadata; they are not copies of your audio files.
 
 - Apple Silicon and macOS 14+ only;
 - no Developer ID, notarization, Keychain, Windows build, or auto-update;
-- B2 browser purchase links and local relink only; no B1 downloader;
+- the base app contains no streamrip component and works without it;
+- optional Deezer acquisition requires the matching GitHub Release asset,
+  explicit enablement, a Premium credential, and an ISRC;
+- no SoundCloud interface or ffmpeg support;
 - private real-Rekordbox fixture gates remain prerequisites for a public
   release claim covering all database mutations.

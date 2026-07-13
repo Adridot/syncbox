@@ -6,272 +6,286 @@ Date: 2026-07-13
 
 **READY FOR PHASE 7.**
 
-**FUNCTIONAL APPLE SILICON ARTIFACT: READY.**
+**FUNCTIONAL LOCAL APPLE SILICON APP AND OPTIONAL COMPONENT: READY.**
 
 **PUBLIC RELEASE ACCEPTANCE: NOT READY.**
 
-Phase 6 produced and validated the actual B2-only macOS v1 application as a
-PyInstaller onedir embedded in a Tauri application and an exact ZIP archive.
-Source, frozen, and packaged lifecycle gates pass. The repository dependency
-inputs are locked and application version 0.2.1 is aligned. The base bundle
-contains no B1/Deezer acquisition component or detected secret.
+Phase 6 rebuilt and validated Syncbox 0.2.1 after the Phase 5 B1 `GO`. The base
+PyInstaller onedir remains isolated from streamrip and is embedded in a Tauri
+application. Deezer acquisition uses a separate, exact-hash PyInstaller onedir
+component and requires no external Python runtime. Source, frozen, packaged,
+single-instance, restart, shutdown, secret, lock, native, and artifact gates
+pass.
 
-Phase 7 may proceed using this artifact and lifecycle contract. Public release
-acceptance remains blocked by the explicit gates in this handoff; none is a
-reason to reopen Phase 6 architecture.
+Phase 7 may proceed using the local artifact and contracts below. Public
+distribution remains blocked by the explicit release gates; most importantly,
+the pinned optional GitHub Release asset has not been uploaded or downloaded
+back for verification.
 
-## Scope and owner decisions preserved
+## Scope and owner decisions
 
 - macOS 14+ on Apple Silicon only;
-- ad-hoc local signature only, with no Developer ID or notarization claim;
-- no Windows implementation, Keychain requirement, or auto-update;
-- one local Tauri shell, one Python sidecar, fixed loopback port 8765;
-- encrypted local secret store for the unsigned release;
-- B1 remains BLOCKED from Phase 5, so B2 browser purchase links and local
-  relink are the only v1 missing-track path;
-- no streamrip, Deezer ARL setting, acquisition job/API/UI, or B1 claim;
-- no commits, staging, history edits, or pushes were made in Phase 6;
+- ad-hoc local signature only; no Developer ID or notarization claim;
+- no Windows implementation, Keychain requirement, auto-update, SoundCloud
+  feature, or ffmpeg;
+- B2 purchase links remain primary and always available;
+- B1 is optional, disabled by default, Deezer-only at the Syncbox interface,
+  and subordinate to B2;
+- the owner selected a separate self-contained onedir Release asset rather
+  than managed Python/uv or system Python;
+- the component is versioned with the app and verified by embedded size and
+  SHA-256 before extraction or execution;
+- no real ARL was requested, read, or used during Phase 6;
+- no commit, staging, history edit, or push was performed;
 - `.idea/` remained untracked and untouched.
 
-The owner authorized Apple Silicon implementation and exact stale-Syncbox
-cleanup. No permanent bundle identifier or licensing-policy choice was made
-silently; both are recorded as release gates below.
+The architecture choice follows PyInstaller's documented frozen runtime:
+`sys.executable` points to the bootloader and cannot safely create the previous
+source-style venv. The separate component is the approved distribution
+boundary.
 
-## Final artifact
+## Final artifacts
 
 ```text
-App: shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
-ZIP: shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.1-macos-arm64.zip
+Base app:
+  shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
+Base ZIP:
+  shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.1-macos-arm64.zip
+Optional onedir:
+  optional-component/dist/syncbox-deezer-component/
+Optional ZIP:
+  optional-component/dist/syncbox-deezer-component-0.2.1-macos-arm64.zip
 ```
+
+Base application:
 
 ```text
 Version:                     0.2.1
-App file bytes:              62,160,929
-ZIP bytes:                   32,461,008
+App file bytes:              62,179,355
+ZIP bytes:                   32,479,713
 Mach-O files:                30, all arm64
 Declared/effective minimum:  macOS 14.0 / 14.0
 Signature:                   ad-hoc, no Team ID or Developer ID
-App tree SHA-256:            24f99ca26c5afa97d4904777f9f85ccceb9699a1fce0d41329c1881ac2e84008
-ZIP SHA-256:                 7cd797bde87514600d15f2ba6743f5709db58003a72d3d687d241cf493030010
-Shell SHA-256:               e55e920b9be3c7d7b8a3d3f28622d98cbdc571fb963d3b767d35c69f03bceffe
-Sidecar SHA-256:             3d77136602631d4b5dde42c33703c6392c1972e4a609baae0bbed2a3a304ee4b
+App tree SHA-256:            91a22f36eedd8085722a5fc8b8c7cf30e85002aca793bde2b0560ceab7d17062
+ZIP SHA-256:                 851b6c98a49ec068671088dfd3577fe62df24cc5f7673bfd0141389b0192f091
+Shell SHA-256:               8f1d68cb67789d1e9eb829a788960d379af6d006479077fffaf30afe147a759a
+Sidecar executable SHA-256:  ea9e76f999004b6ba423d7d7adba702df63319d1eed01623d962e8a5790c1ff1
 ```
 
-`codesign --verify --deep --strict` passes. The archive file set, file bytes,
-modes, and symlink set exactly match the validated app tree. Build artifacts
-remain ignored and are not intended for commit.
+Optional component:
+
+```text
+Version:                     0.2.1
+ZIP bytes:                   19,072,885
+Mach-O files:                55, all arm64
+Effective minimum:           macOS 11.0
+ZIP SHA-256:                 92ccd44e07523818854d52926a6e479c798f2f324e27b3f997586b9d98e2a181
+Executable SHA-256:          338ce9ab7f4391e0684c8660dea06b3fa061bee4d0cfe9da6e1a75faaab52ebc
+streamrip:                   2.2.0 at 189acda489927719aa8591f6acdd7d67aecf929b
+certifi:                     2026.6.17
+```
+
+`codesign --verify --deep --strict` passes. The base ZIP exactly matches the
+validated app tree. Repacking the same component onedir reproduces its exact
+ZIP bytes and hash. Generated artifacts remain ignored and are not intended
+for commit.
 
 ## Implementation delivered
 
-### Shell lifecycle
+### Base/component boundary
 
-The Tauri shell now enforces this order:
+- `optional-component/` is a separate Python project with CPython 3.14.2,
+  its own `uv.lock`, PyInstaller spec, and third-party notice;
+- streamrip 2.2.0 is pinned to commit
+  `189acda489927719aa8591f6acdd7d67aecf929b`;
+- certifi 2026.6.17 and PyInstaller 6.21.0 are pinned;
+- the build creates the component first, generates its manifest, then freezes
+  the base sidecar and Tauri app;
+- the base app includes only `optional_component.json`, not the GPL component;
+- the base boot check reports `streamrip_importable=false`;
+- the frozen component exposes only the Deezer runner and excludes the
+  SoundCloud, Qobuz, Tidal client modules and generic streamrip CLI;
+- Pillow is locked upstream but excluded from the binary; artwork remains
+  disabled and fails closed if invoked;
+- no ffmpeg binary or interface is present.
 
-1. acquire the native single-instance guard before setup or sidecar spawn;
-2. inspect port 8765 with the exact Syncbox health identity;
-3. preserve a foreign listener and report an actionable collision;
-4. stop only an exact stale Syncbox sidecar;
-5. spawn the embedded sidecar as its own process-group leader;
-6. continuously drain stdout and stderr as bytes;
-7. supervise unexpected exits with 1/2/4-second bounded restarts;
-8. emit backend-down after exhaustion and support a real manual restart;
-9. on intentional exit, request `POST /shutdown`, wait, then use process-group
-   SIGTERM and SIGKILL fallbacks;
-10. finish with no listener, child, or orphan.
+The upstream streamrip core config schema still names unused providers. Those
+fields are not reachable through the Syncbox runner, whose CLI requires an
+ISRC, one-shot credential file, and output directory.
 
-Output consumption does not assume UTF-8, so arbitrary native-library output
-cannot stall or crash the drain tasks. Intent, spawn, and publication are
-serialized to prevent shutdown/restart races.
+### Component installation
 
-### Loopback transport and WKWebView
+- installation requires explicit B1 enablement;
+- the default URL is the versioned `v0.2.1` GitHub Release asset;
+- certifi-backed HTTPS is required for the public path;
+- the exact expected byte count and SHA-256 are embedded in the base;
+- extraction rejects absolute/traversal paths, duplicate paths, special files,
+  symlink escapes, content below symlinks, and excessive expansion;
+- the staged executable must pass `--check` before activation;
+- a 0600 marker binds the installed version, commit, certifi version, and hash;
+- replacement is staged and atomically swapped with rollback;
+- source, frozen, and packaged tests can use a local archive override but still
+  apply the same size/hash/extraction/self-check gates;
+- the base invokes the installed executable directly, never `sys.executable
+  -m venv`, pip, Git, or a source-tree POC path.
 
-`/health` now identifies the backend exactly as:
+### Credential boundary
 
-```json
-{"ok":true,"service":"syncbox-sidecar","protocol":1}
-```
+- the Deezer credential is not a normal setting;
+- only the encrypted SQLCipher `SecretsStore` persists it;
+- status APIs and the UI expose only `has_arl`, never the value;
+- settings and all-data exports, captured logs, fixtures, base bundle, and
+  component bundle contain no real credential;
+- subprocess arguments contain only the path of a new owner-only one-shot
+  file, never the secret value;
+- the runner opens that file with no-follow semantics, validates owner/mode,
+  consumes and removes it, clears the value as soon as practical, and writes no
+  user streamrip config or database;
+- the scanner detects common token/private-key forms, generic long hex values,
+  and structured ARL assignments beginning at 64 characters.
 
-API and OAuth responses carry `Cache-Control: no-store`. The no-store layer is
-a pure ASGI wrapper and does not buffer `/events`, preserving SSE streaming.
-OAuth callback handling is serialized and moved off the event loop so a token
-exchange cannot block health/SSE handling.
+### Lifecycle retained
 
-The Vue client uses no-store fetches, retries settings during the bounded
-frozen cold-start window, exposes the backend-down reason, and invokes the real
-shell manual-restart command. External OAuth and B2 links open in the system
-browser; there is no embedded `window.open` fallback in Tauri.
+The Tauri shell still:
 
-### Secrets and persistence
+1. acquires the native single-instance guard before setup;
+2. preserves a foreign port-8765 listener and replaces only an exact stale
+   Syncbox sidecar;
+3. starts the embedded sidecar as its own process-group leader;
+4. continuously drains stdout and stderr as bytes;
+5. restarts unexpected exits with 1/2/4-second backoff;
+6. emits backend-down after exhaustion and supports a real manual restart;
+7. uses `POST /shutdown`, then process-group TERM/KILL fallbacks;
+8. exits with no child, orphan, or retained listener.
 
-- one SQLite settings source remains canonical, with defaults applied on read;
-- blank credential writes preserve stored values;
-- the fixed OAuth callback remains
-  `http://127.0.0.1:8765/callback` and PKCE remains the only OAuth flow;
-- the per-install secret key is exactly 32 random bytes represented as hex,
-  created with no-follow semantics, verified as a regular file, and forced to
-  mode 0600;
-- OAuth tokens remain in the encrypted SQLCipher secret database and are
-  excluded entirely from settings JSON and all-data exports;
-- all-data import validates a staged absolute file, rejects future schemas,
-  migrates the stage, compares the canonical schema, runs integrity and foreign
-  key checks, makes a durable safety backup, fsyncs, then atomically replaces
-  the live app database;
-- no Keychain or keyring dependency was added.
-
-A composed-application test exports settings and all-data while a real logger
-captures output, then asserts a secret sentinel appears in none of them.
-
-### Packaging and reproducibility
-
-- `.python-version` selects CPython 3.14.2;
-- `sidecar/uv.lock` locks 42 packages and includes runtime and development
-  dependencies, including pytest, httpx, and PyInstaller 6.21.0;
-- `uv lock --check`, locked managed sync, and the locked runtime tree pass;
-- PyInstaller uses a clean arm64 onedir build and includes migrations;
-- `--packaging-check` imports certifi, miniaudio, numpy, pyrekordbox,
-  send2trash, and sqlcipher3 and opens an in-memory encrypted database;
-- the Tauri build uses frozen pnpm input, Cargo `--locked`, an explicit
-  `aarch64-apple-darwin` target, Apple `/usr/bin/xattr`, and builder-home path
-  remapping;
-- version 0.2.1 is aligned across UI, shell package, Rust package, sidecar,
-  Tauri bundle metadata, README, and final Info.plist.
-
-The scanner derives the applicable runtime graph from `uv.lock`, requires
-every installed version and license to match, validates all Mach-O targets,
-executes the packaged native check, verifies the ad-hoc seal, inspects the
-PyInstaller archive, scans raw bytes, and compares the ZIP with the app tree.
-
-## Validation results
-
-Host:
-
-```text
-macOS 26.5.1 (25F80), arm64
-Clean packaging, full-test, and source lifecycle CPython 3.14.2
-uv 0.9.28; PyInstaller 6.21.0
-Node.js 24.13.0; pnpm 10.29.3
-Rust/Cargo 1.96.1; Tauri CLI 2.11.4
-```
+## Final validation
 
 ### Lifecycle measurements
 
 | Lane | Initial ready | Warm respawn | Graceful shutdown | TERM release | Final state |
 |---|---:|---:|---:|---:|---|
-| Source sidecar, freshly synchronized lock | 6.47 s | 1.55 s | 303 ms | 252 ms | no listener/orphan |
-| Frozen sidecar | 6.47 s final; 8.19 s observed cold maximum | 0.43 s | 284 ms | 236 ms | no listener/orphan |
+| Source sidecar | 0.59 s | 0.35 s | 309 ms | 257 ms | no listener/orphan |
+| Frozen sidecar | 0.67 s | 0.40 s | 308 ms | 189 ms | no listener/orphan |
 
-The SIGKILL rung also released port 8765. The packaged application passed:
+The packaged bundle passed:
 
-- second-instance self-exit with code 0 in 0.13 seconds;
-- one primary setup and one sidecar whose process-group ID equals its PID;
-- graceful handshake and clean port/process teardown;
-- 1/2/4-second restart backoff, fourth-crash backend-down, then healthy manual
+- second-instance self-exit with code 0 in 0.15 seconds;
+- one primary setup and one sidecar process group;
+- foreign-listener preservation and exact stale-Syncbox replacement;
+- immediate-exit cleanup;
+- 1/2/4-second restart backoff, fourth-crash backend-down, and healthy manual
   restart;
-- foreign-listener preservation with no shutdown POST and no sidecar spawn;
-- exact stale-Syncbox replacement;
-- five immediate exits with no listener or child left behind.
+- stdout/stderr consumption, graceful shutdown, no orphan, and port release.
 
-### Real packaged WKWebView
+### Optional installation measurements
 
-- the final app loaded at the Tauri origin and reported version 0.2.1;
-- a synchronization job produced visible completion activity over real SSE;
-- killing the temporary sidecar triggered supervised recovery, and a second
-  job produced another activity row, proving EventSource reconnect;
-- cold packaged launch reloaded configured settings after backend readiness;
-- Spotify Connect opened the authorization endpoint in the system browser;
-  the deliberately invalid test Client ID stopped before authorization, so no
-  complete token exchange is claimed;
-- no real personal path, token, authorization code, or credential is recorded
-  in repository evidence.
+| Host lane | Ready | Total | Credential | External Python | Final state |
+|---|---:|---:|---|---|---|
+| Source | 0.59 s | 5.30 s | absent | no | installed, port released |
+| Frozen | 6.41 s | 12.22 s | absent | no | installed, port released |
+| Packaged | 1.57 s | 31.39 s | absent | no | installed, port released |
 
-### Test suites
+The packaged total includes the harness's intentional 30-second lifetime.
+Every lane verified the final component SHA-256 shown above.
+
+### Artifact and license scan
+
+- base native imports and in-memory SQLCipher open pass;
+- base `uv.lock`, installed venv, PyInstaller module archive, app tree, and ZIP
+  contain no streamrip or Deemix distribution;
+- component module inventory contains only the Deezer provider client;
+- all native files are arm64 and within their declared minimum macOS target;
+- no ffmpeg binary, real credential, private key, common token, personal
+  repository path, or executable-source implementation marker was detected;
+- the base's expected GPL runtime is `mutagen` 1.48.1;
+- streamrip's exact GPL license is present in the optional artifact;
+- the optional notice is not a complete reviewed transitive redistribution
+  inventory, so public licensing acceptance remains blocked.
+
+### Locks, versions, and tests
 
 ```text
-Python: 478 passed, 11 skipped in 6.02 s
-UI:     20 Vitest files, 70 tests passed
-UI:     typecheck passed
-UI:     production build passed, 194 modules
-Rust:   3 tests passed
-Rust:   cargo check --locked --target aarch64-apple-darwin passed
-uv:     lock check, managed locked sync, and locked runtime tree passed
+Base lock:       42 packages resolved; 37 installed in an independent env
+Optional lock:   48 packages resolved; 42 installed in an independent env
+Python:          493 passed, 11 private-fixture skips in 2.52 s
+UI:              20 Vitest files, 70 tests passed
+UI:              typecheck and production build passed, 194 modules
+Rust:            3 tests passed; locked arm64 cargo check passed
+Version:         0.2.1 aligned across Python, Rust, JS, Tauri, manifest, plist
 ```
 
-The 11 skips are the established private-fixture gates for real Rekordbox event
-migration, library, missing, mutation, and write cases. They are reported as
-gates, not converted into passes.
+### Packaged WKWebView
 
-### Bundle and license scan
+The final bundle loaded `Syncbox v0.2.1` at `tauri://localhost`, showed the
+optional controls disabled by default, and released the backend port after UI
+close. The previous same-day packaged Phase 6 POC remains the functional proof
+for SSE completion/reconnect and system-browser OAuth launch because the B1
+rerun did not change transport or link-opening code. No new live account OAuth
+or credential action was performed.
 
-- 30 Mach-O files are arm64 and valid under the declared macOS 14 minimum;
-- packaged resource lookup and all required native imports pass;
-- no unexpected absolute native dependency path was found;
-- no streamrip, Deemix, Deezer component, ARL/config marker, secret-shaped
-  value, personal home/repository path, or inline implementation marker was
-  found in the base artifact;
-- the only GPL runtime package is the expected `mutagen` 1.48.1 under
-  GPL-2.0-or-later;
-- no claim is made that identifying the package alone completes redistribution
-  compliance.
+## Reproducibility contract
 
-The full reproducible commands and measurements are in
-`poc/08-phase6-packaging-lifecycle.md`.
+Dependency resolution, Python selection, target architecture, versions,
+builder-path remapping, ZIP construction, and app/ZIP equivalence are
+reproducible from committed inputs.
+
+PyInstaller output was not bit-for-bit stable across clean rebuilds on this
+host. The release order is therefore load-bearing:
+
+1. build the component;
+2. generate and review its manifest;
+3. build the base app with that exact manifest;
+4. upload that exact component byte stream;
+5. download it back and repeat the hash and live install checks.
+
+Replacing a Release asset without rebuilding the manifest-bearing base app is
+forbidden.
 
 ## Residual limits and release gates
 
-These do not block Phase 7, but they block the corresponding broader claim:
+These do not block Phase 7, but they block the corresponding public claim:
 
-1. **Public binary license notices.** The ZIP does not include the repository
-   `LICENSE` or one reviewed consolidated third-party notice. The owner must
-   choose and approve the redistribution-notice approach before publication.
-2. **Permanent bundle identifier.** Tauri warns because `dev.syncbox.app` ends
-   in `.app`. An identifier change affects application identity and persisted
-   data paths; the owner must choose the durable reverse-DNS identifier before
-   public release.
-3. **Private Rekordbox fixtures.** POC #4, #8 real mutation, and #9 retained
-   event migration remain BLOCKED until their local fixtures run with zero
-   skips and the resulting databases open in Rekordbox 7.x.
-4. **Signing and trust.** The app is ad-hoc signed and not notarized. `spctl`
-   returned an internal Code Signing subsystem error on the Phase 6 host.
-   `codesign --verify --deep --strict` passes, but Gatekeeper acceptance is not
-   claimed.
-5. **Live OAuth completion.** System-browser launch and callback transport are
-   covered, but a complete Spotify authorization/token refresh needs the
-   owner's valid Client ID and consent.
-6. **Binary reproducibility.** Inputs, locks, target, versions, path remapping,
-   and archive equivalence are reproducible; a two-root bit-for-bit build was
-   not performed and is not claimed.
-7. **Tooling.** `cargo fmt --check` could not run because rustfmt is absent from
-   the installed toolchain. Cargo test/check pass. A packaged shutdown with an
-   active SSE client can emit a harmless Uvicorn incomplete-response warning;
-   all process and port assertions still pass.
-
-Phase 4's A3 conclusion is unchanged: the conservative keeper-neutral
-uncertain verdict remains accepted, while confident full spectral
-classification is NO-GO without a reliable labeled corpus. Phase 5's B1
-verdict is unchanged: BLOCKED, not NO-GO, and no B1 work is authorized.
+1. **Release asset.** The exact optional ZIP is not yet published at the pinned
+   GitHub URL. Public HTTPS installation has not been exercised.
+2. **Third-party notices.** The base ZIP lacks the root project license and a
+   reviewed consolidated notice. The optional notice does not cover every
+   redistributed runtime/transitive dependency.
+3. **Bundle identity.** `dev.syncbox.app` ends in `.app`; the owner must choose
+   a durable reverse-DNS identifier before public release.
+4. **Private Rekordbox fixtures.** Eleven real-data gates remain skipped.
+5. **Signing/trust.** No Developer ID, notarization, or Gatekeeper acceptance
+   claim exists.
+6. **Live OAuth.** Complete Spotify authorization/token refresh still needs
+   owner credentials and consent.
+7. **Binary reproducibility.** A two-root bit-for-bit result is not claimed.
+8. **Artwork.** Re-enabling streamrip artwork requires a new Pillow/minimum-OS
+   packaging review.
 
 ## Root-thread integration notes
 
-All Phase 6 changes are intentionally uncommitted. Before splitting commits,
-the root thread should:
+All Phase 6 changes are intentionally uncommitted. Before Phase 7, the root
+thread should:
 
-1. review the full working-tree diff and preserve `.idea/` as unrelated;
-2. rerun `git diff --check` and the packaging scanner on the exact artifact;
-3. split implementation, tests/harnesses, locks/packaging, UI transport, and
+1. review the entire working-tree diff and preserve `.idea/` as unrelated;
+2. rerun `git diff --check` and the scanner on the exact artifacts;
+3. split component packaging, base integration/security, tests/harnesses, and
    documentation into intentional commits;
-4. do not add generated app, ZIP, `dist`, `target`, venv, or private data;
-5. keep the release gates above visible rather than converting them into
-   unsupported claims.
+4. do not add generated app, ZIP, `dist`, `build`, `target`, venv, or private
+   data;
+5. publish nothing until the release gates above are explicitly accepted.
 
-Current primary documentation:
+Primary documentation:
 
-- `docs/DISTRIBUTION.md` — build and verification contract;
-- `docs/USER_GUIDE.md` — truthful B2-only user behavior;
-- `poc/08-phase6-packaging-lifecycle.md` — POC evidence;
+- `docs/DISTRIBUTION.md` — build, verification, and publication contract;
+- `docs/USER_GUIDE.md` — user-visible optional B1 behavior;
+- `poc/08-phase6-packaging-lifecycle.md` — exact evidence and measurements;
 - `poc/README.md` — authoritative POC states.
 
-The packaging choices follow current official
-[Tauri macOS bundle](https://v2.tauri.app/distribute/macos-application-bundle/),
-[Tauri sidecar](https://v2.tauri.app/develop/sidecar/),
-[PyInstaller](https://pyinstaller.org/en/stable/usage.html), and
-[uv locking](https://docs.astral.sh/uv/concepts/projects/sync/) guidance.
+Primary official sources:
+
+- [Tauri macOS bundle](https://v2.tauri.app/distribute/macos-application-bundle/)
+- [Tauri resources](https://v2.tauri.app/develop/resources/)
+- [PyInstaller runtime information](https://pyinstaller.org/en/stable/runtime-information.html)
+- [PyInstaller spec files](https://pyinstaller.org/en/stable/spec-files.html)
+- [uv locking](https://docs.astral.sh/uv/concepts/projects/sync/)
+- [GitHub Release assets](https://docs.github.com/en/rest/releases/assets)
