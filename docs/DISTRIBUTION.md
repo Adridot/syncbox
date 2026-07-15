@@ -1,7 +1,7 @@
 # Distribution
 
 This is the release contract for Syncbox 0.2.2. The supported v1 target is
-macOS 14 or later on Apple Silicon. The final candidate consists of two
+macOS 14 or later on Apple Silicon. The published release consists of two
 independent artifacts:
 
 - `Syncbox-0.2.2-macos-arm64.zip`, containing the Tauri application and its
@@ -131,7 +131,7 @@ GPL-licensed dependency.
 
 Run the source, frozen, packaged lifecycle, single-instance, supervisor, and
 optional-component harnesses documented in `shell/README.md` and
-`shell/harness/`. The Phase 7 candidate rerun is summarized in `poc/README.md`;
+`shell/harness/`. The Phase 7 release rerun is summarized in `poc/README.md`;
 the baseline commands and detailed measurements are recorded in
 `poc/08-phase6-packaging-lifecycle.md`.
 
@@ -152,13 +152,13 @@ SHA-256: 13976d4b49c345e241e0cac9a9465a06eeebafb97c36f246214b653785a7b9dd
 URL:    https://github.com/Adridot/syncbox/releases/download/v0.2.2/syncbox-deezer-component-0.2.2-macos-arm64.zip
 ```
 
-Before making the B1 path available to users, publish that exact byte stream as
-an asset of GitHub Release `v0.2.2`, then download the published asset and
-repeat the size/hash and live installation checks. A differently rebuilt asset
-must receive a new manifest and a rebuilt base application; never replace the
-asset while retaining the old manifest.
+That exact byte stream is published in GitHub Release `v0.2.2`. Its public
+HTTPS download passed byte equality, size/hash, scanner, and live packaged
+installation checks. A differently rebuilt asset must receive a new version,
+manifest, and rebuilt base application; never replace the published asset
+while retaining the old manifest.
 
-The current final-candidate base ZIP is 29,296,019 bytes with SHA-256
+The published base ZIP is 29,296,019 bytes with SHA-256
 `296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c`.
 Its strict scanner passes. The base contains 30 arm64 Mach-O files, has an
 effective macOS 14.0 minimum, uses CommonCrypto for SQLCipher, and contains no
@@ -167,12 +167,12 @@ effective macOS 11.0 minimum, includes artwork-capable Pillow payloads, and
 exposes only the Deezer provider. Real source, frozen, installed, and packaged
 lanes embedded the artwork in a full-length audio file produced by these exact
 optional bytes. Two isolated absolute source roots produced byte-identical
-ZIPs and unpacked trees for both artifacts. These exact values remain
-candidates until public download-back passes. The
-authoritative evolving evidence is
+ZIPs and unpacked trees for both artifacts. The public downloads are
+byte-identical to those validated streams and pass the downloaded scanner and
+runtime matrix. The authoritative evidence is
 [`docs/_handoffs/final-release-closure.md`](_handoffs/final-release-closure.md).
 
-## Current trust and release gates
+## Trust boundary and completed release gates
 
 `spctl` is not an acceptance test for this artifact because there is no
 Developer ID or notarization ticket. `codesign --verify --deep --strict`
@@ -181,7 +181,7 @@ may use **System Settings → Privacy & Security → Open Anyway**, then confirm
 **Open**, as described in Apple's
 [unknown-developer guidance](https://support.apple.com/guide/mac-help/mh40616/mac).
 
-Publication is permitted only after all applicable gates are closed:
+The published release closed these gates:
 
 - upload and revalidate the exact optional component Release asset;
 - preserve the scanner-verified `io.github.adridot.syncbox` bundle identifier
@@ -202,6 +202,7 @@ Publication is permitted only after all applicable gates are closed:
 The private automated Rekordbox fixtures and the owner-approved Rekordbox
 7.2.16 disposable-copy walkthrough pass with the CommonCrypto runtime. The
 untouched live directory was restored exactly after the Smart Fix and retained
-event checks. No legal-compliance, Gatekeeper-acceptance, notarization, or
-public-download claim is made until the final handoff records the corresponding
-executable evidence. The final handoff records the completed two-root proof.
+event checks. No legal-compliance, Gatekeeper-acceptance, or notarization claim
+is made. The final handoff records the completed two-root and public-download
+proofs. Repository-wide immutable releases remain disabled; no asset rewrite
+option was used, and any future byte change requires a new version and tag.

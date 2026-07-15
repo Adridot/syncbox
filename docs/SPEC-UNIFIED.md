@@ -220,7 +220,7 @@ Optimized for safety first, then footprint and responsiveness, with maintainabil
 
 ### 6.2 Shell — Tauri v2 (Fork B)
 
-Tauri v2 (MIT/Apache-2.0) is the validated v1 shell. It packages the frozen sidecar as an application resource and serves SSE over loopback HTTP in WKWebView, never through the `tauri://` custom protocol. Source, frozen, embedded, and packaged lifecycle tests pass on the current 0.2.2 candidate, including the split 8766 API/SSE and temporary 8765 OAuth callback ports. The packaged WKWebView walkthrough and SSE behavior also pass. Electron is not an active fallback.
+Tauri v2 (MIT/Apache-2.0) is the validated v1 shell. It packages the frozen sidecar as an application resource and serves SSE over loopback HTTP in WKWebView, never through the `tauri://` custom protocol. Source, frozen, embedded, packaged, and public-download lifecycle tests pass on 0.2.2, including the split 8766 API/SSE and temporary 8765 OAuth callback ports. The packaged WKWebView walkthrough and SSE behavior also pass. Electron is not an active fallback.
 
 The v1 distribution contract uses ad-hoc signing only. Developer ID signing, hardened-runtime entitlements, notarization, stapling, and any post-bundle signing pipeline are deferred to v2 and are not implemented or claimed by the current build.
 
@@ -255,7 +255,7 @@ The v1 distribution contract uses ad-hoc signing only. Developer ID signing, har
 
 **SoundCloud → v2/B4**: it serves HLS MP3 and **requires external ffmpeg** (+40-80 MB/platform, cross-OS packaging §3.7), which would almost double the sidecar (§2 lightness). Deezer (direct-served FLAC/MP3) **does not require ffmpeg** → v1 stays light. SoundCloud should ideally return as a **downloadable plugin outside the base sidecar**.
 
-**Validated gate (POC #5).** The Phase 5 rerun proved a full-track Deezer download on macOS Apple Silicon with a real Premium ARL. The final-candidate rerun resolved ISRC `USQX91300105` to Deezer track id `67238732`, matched the `337 s` catalogue duration with a measured duration of `337.56 s`, used the real `track.download_path`, produced a `13,540,687`-byte MP3, and verified an embedded 500x500 JPEG cover in every source/frozen/installed/Tauri-host lane before cleanup. B1 downloads by numeric Deezer ID resolved from ISRC, never by short URL (#865). The base contains no streamrip distribution, Deezer runtime, Pillow, or real ARL.
+**Validated gate (POC #5).** The Phase 5 rerun proved a full-track Deezer download on macOS Apple Silicon with a real Premium ARL. The final-artifact rerun resolved ISRC `USQX91300105` to Deezer track id `67238732`, matched the `337 s` catalogue duration with a measured duration of `337.56 s`, used the real `track.download_path`, produced a `13,540,687`-byte MP3, and verified an embedded 500x500 JPEG cover in every source/frozen/installed/Tauri-host lane before cleanup. The byte-identical public optional asset then passed scanner and packaged installation/runtime checks. B1 downloads by numeric Deezer ID resolved from ISRC, never by short URL (#865). The base contains no streamrip distribution, Deezer runtime, Pillow, or real ARL.
 
 ### 6.6 Lifecycle & Supervision (§10.8)
 
@@ -316,14 +316,14 @@ Three v1 additions live **in the Python sidecar**, without a new shell or servic
 | **A — RB write** | **`master.db` in place, without XML mode** (the former double-meaning “A2” is abandoned) | **Decided** | §6.4 |
 | **B — Shell** | **Tauri v2** for macOS Apple Silicon; Electron is not an active fallback | **Validated locally**; Developer ID/notarization deferred | §6.2 |
 | **C — Transport** | **Keep localhost HTTP + SSE** (Starlette+sse-starlette, uvicorn 1 worker); **reject JSON-RPC stdio** | **Decided** | §6.3 |
-| **D — Acquisition** | **Optional module, OFF by default**, with B2 purchase links kept primary. streamrip is a separately distributed component pinned to v2.2.0 and an exact commit; the Syncbox interface is Deezer-only. Deemix remains a documented fallback only; SoundCloud and ffmpeg are deferred beyond v1. | **Resolved** (full-track, artwork, packaged-boundary, and notice gates pass; public download-back remains a release gate) | §6.5 |
+| **D — Acquisition** | **Optional module, OFF by default**, with B2 purchase links kept primary. streamrip is a separately distributed component pinned to v2.2.0 and an exact commit; the Syncbox interface is Deezer-only. Deemix remains a documented fallback only; SoundCloud and ffmpeg are deferred beyond v1. | **Resolved** (full-track, artwork, packaged-boundary, notice, publication, and public download-back gates pass) | §6.5 |
 
 ### 7.2 Answers to the 10 §10 Questions
 
 | § | Question | Decided answer |
 |---|---|---|
 | 10.1 | Target stack | Tauri v2 + Vue UI + Python sidecar (Starlette HTTP+SSE) + pyrekordbox. §6 |
-| 10.2 | Deezer acquisition | Optional module, **OFF by default**; streamrip is a separate self-contained component pinned to v2.2.0 and the exact commit. Full-track, source/frozen/installed/packaged artwork, lifecycle, base-exclusion, license, controlled local archive/scanner, and exact two-root equality gates pass. Public download-back remains. §6.5 |
+| 10.2 | Deezer acquisition | Optional module, **OFF by default**; streamrip is a separate self-contained component pinned to v2.2.0 and the exact commit. Full-track, source/frozen/installed/packaged artwork, lifecycle, base-exclusion, license, controlled local archive/scanner, exact two-root equality, publication, and public download-back gates pass. §6.5 |
 | 10.3 | Data layer / source of truth | **Convergence**: one UI cache layer + one canonical SSE stream + one settings store. §6.3, §5.10 |
 | 10.4 | Secrets at rest | Owner-selected SQLCipher store using Apple CommonCrypto for unsigned v1; Keychain deferred. §6.7 |
 | 10.5 | Schema migration | `PRAGMA user_version` + stdlib SQL scripts; seed = migration 0001. §6.8 |
@@ -384,7 +384,7 @@ Three v1 additions live **in the Python sidecar**, without a new shell or servic
 1. **Signing/notarization** — closed by scope: v1 is ad-hoc signed, with no Developer ID, notarization, or Gatekeeper-trust claim.
 2. **Process lifecycle** — `GO`: source, frozen, embedded, and packaged lanes validate process-group termination, clean SQLCipher shutdown, 1/2/4-second restart exhaustion, manual recovery, single instance, foreign/stale listeners, no orphan, and release of ports 8766 and 8765.
 3. **Real bundle size + cold start** — measured with PyInstaller `onedir`, CommonCrypto SQLCipher, and the complete A3 runtime. Exact final sizes belong to the final release handoff; packager replacement is not justified.
-4. **Packaged WKWebView/SSE** — `GO` on the 0.2.2 candidate. WebView2 remains deferred with Windows v2.
+4. **Packaged WKWebView/SSE** — `GO` on the local and publicly downloaded 0.2.2 artifact. WebView2 remains deferred with Windows v2.
 5. **Real Rekordbox fidelity** — `GO`: the ten-node private harness, retained-event migration harness, and Smart Fix copied-fixture node pass with zero skips and unchanged sources. The owner-approved Rekordbox 7.2.16 CommonCrypto disposable-copy walkthrough also passed and the untouched live directory was restored exactly.
 6. **Acquisition B1** — `GO` for the full-track, artwork, and packaged boundary. Source, exact frozen, installed, and packaged lanes verify the embedded cover. SoundCloud and ffmpeg remain outside v1.
 7. **A3** — full classifier `NO-GO`; conservative read-only fallback `GO`, deterministic and keeper-neutral.
@@ -417,4 +417,4 @@ The design phase closed the two questions that Gate 1 delegated:
 
 - **Current implementation and test authority**: [PROMPT-05](PROMPT-05-implementation.md), [Phase 1 report](PHASE-1-REPORT.md), the phase handoffs in [_handoffs/](_handoffs/), and the executable POCs indexed by [poc/README.md](../poc/README.md).
 - **Material official and upstream sources**: recorded with URLs and access dates in the phase handoffs and [final release closure](_handoffs/final-release-closure.md). Historical `_research` and `_analysis` paths referenced by older prompts are not present in the current workspace and are not release inputs.
-- **Remaining release gates**: GitHub Release publication and validation of every publicly downloaded byte. Windows packaging and any evidence that could justify A2 belong to v2.
+- **Release closure**: every applicable macOS v1 gate, including GitHub publication and public download-back, is closed for 0.2.2. Windows packaging and any evidence that could justify A2 belong to v2.

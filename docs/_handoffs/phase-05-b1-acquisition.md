@@ -10,7 +10,7 @@ Date: 2026-07-13
 
 Phase 6 superseded the source-only venv installer described below with the
 owner-approved separate self-contained PyInstaller onedir component. The final
-packaged boundary, hash, measurements, and remaining publication gates are in
+packaged boundary, hash, measurements, publication, and download-back evidence are in
 [`final-release-closure.md`](final-release-closure.md). This Phase 5 handoff
 remains the historical full-track acquisition evidence; the Phase 6 handoff is
 also historical.

@@ -2,15 +2,14 @@
 
 Syncbox 0.2.2 supports macOS 14 or later on Apple Silicon. It is an ad-hoc
 signed application with no Developer ID signature, notarization, or automatic
-updater. Public availability and download-back evidence are recorded in the
+updater. Public availability and successful download-back evidence are recorded in the
 [release closure report](_handoffs/final-release-closure.md).
 
 ## Install and first launch
 
-1. Obtain `Syncbox-0.2.2-macos-arm64.zip` from the matching versioned
-   [GitHub Release](https://github.com/Adridot/syncbox/releases) only after the
-   release closure report records a successful public download-back, unzip it,
-   and move `Syncbox.app` to Applications if desired.
+1. Obtain `Syncbox-0.2.2-macos-arm64.zip` from the verified
+   [GitHub Release](https://github.com/Adridot/syncbox/releases/tag/v0.2.2),
+   unzip it, and move `Syncbox.app` to Applications if desired.
 2. Launch the app once. If macOS blocks an artifact you trust, open **System
    Settings → Privacy & Security**, select **Open Anyway**, then confirm
    **Open**. See Apple's current

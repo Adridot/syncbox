@@ -4,15 +4,13 @@ Date: 2026-07-15
 
 ## Current verdict
 
-**FINAL CANDIDATE VALIDATION IN PROGRESS — NOT YET PUBLISHED.**
+**RELEASED — ALL APPLICABLE MACOS V1 RELEASE GATES ARE CLOSED.**
 
 All source, real-Rekordbox, UI, Rust, lifecycle, bundle, identity, OAuth,
-license, artwork, controlled local packaging, two-root reproducibility, and
-exact-final-byte lifecycle gates listed below have executable evidence. The
-remaining gates are GitHub Release publication followed by public
-download-back validation.
-
-No pending gate is reported as passed.
+license, artwork, controlled local packaging, two-root reproducibility,
+exact-final-byte lifecycle, GitHub publication, and public download-back gates
+listed below have executable evidence. No applicable v1 release gate remains
+open.
 
 ## Supported release boundary
 
@@ -110,14 +108,15 @@ No pending gate is reported as passed.
 - This evidence is not legal advice and makes no claim beyond the assembled
   inventory, notices, source locations, and tested artifact boundaries.
 
-## Optional artwork candidate
+## Optional artwork artifact
 
-The exact local final candidate is not yet the published proof:
+The published optional asset is:
 
 ```text
 Name:    syncbox-deezer-component-0.2.2-macos-arm64.zip
 Bytes:   17,340,644
 SHA-256: 13976d4b49c345e241e0cac9a9465a06eeebafb97c36f246214b653785a7b9dd
+URL:     https://github.com/Adridot/syncbox/releases/download/v0.2.2/syncbox-deezer-component-0.2.2-macos-arm64.zip
 ```
 
 - Pillow 10.4.0 is pinned to the official CPython 3.13 macOS 11 arm64 wheel,
@@ -139,14 +138,15 @@ SHA-256: 13976d4b49c345e241e0cac9a9465a06eeebafb97c36f246214b653785a7b9dd
   rather than its import-time placeholder. Independent-root equality is
   proven below.
 
-## Base application candidate
+## Base application artifact
 
-The exact local final candidate is not yet the published proof:
+The published base asset is:
 
 ```text
 Name:    Syncbox-0.2.2-macos-arm64.zip
 Bytes:   29,296,019
 SHA-256: 296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c
+URL:     https://github.com/Adridot/syncbox/releases/download/v0.2.2/Syncbox-0.2.2-macos-arm64.zip
 ```
 
 - The strict scanner passes with 30 arm64 ad-hoc-signed Mach-O files,
@@ -221,7 +221,7 @@ SHA-256: 296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c
 ## Two-root artifact reproducibility
 
 - Two isolated source roots at different absolute paths contained the same
-  1,024-file release-source manifest. The final comparator output records its
+  1,025-file release-source manifest. The final comparator output records its
   digest without introducing a self-referential digest into that manifest.
 - Each root built and independently scanned the base and optional artifacts
   under the pinned release environment.
@@ -236,12 +236,45 @@ SHA-256: 296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c
 - The comparator reported no source, ZIP-entry, or unpacked-tree difference.
   No binary patch or mismatch exception was used.
 
-## Remaining release gates
+## GitHub Release and public download-back
 
-1. Commit and push the exact release source, create `v0.2.2` without replacing
-   any existing public asset, upload the validated bytes, publish, download
-   both assets through public HTTPS URLs, and repeat size, SHA-256, scanner,
-   installation, and live runtime validation on the downloaded bytes.
+- Commit `9f4c428910f11821da6e358899bb24c56f4afa87` was pushed without force,
+  annotated tag `v0.2.2` resolves to that commit, and the release was published
+  as Latest at 2026-07-15T12:42:55Z:
+  https://github.com/Adridot/syncbox/releases/tag/v0.2.2
+- `v0.2.1` was already public, so no existing tag or public asset was moved or
+  replaced. `v0.2.2` was created as an empty draft, both assets were uploaded
+  without `--clobber`, their GitHub size/digest/state records were checked,
+  and only then was the release published.
+- Unauthenticated HTTPS downloads of both public URLs are byte-for-byte equal
+  to the validated root-A streams. Their sizes and SHA-256 values are exactly
+  those recorded above.
+- The downloaded base ZIP extracted successfully. Its strict code signature,
+  30/30 ad-hoc-signed arm64 Mach-O files, macOS 14.0 effective minimum,
+  `e034f55644c9c4d2772c706ce59fc7ebe62b4ad46fe2c3a0ad3c0fd9390fa5c1`
+  app-tree digest, complete licenses, native coverage, secret scan, base
+  streamrip exclusion, and embedded optional manifest all passed again.
+- The downloaded optional ZIP passed its 28-file native/license scan and
+  packaged installation through the downloaded app. It required no external
+  Python, retained no credential, released its port, became ready in 1.00 s,
+  and completed in 30.94 s.
+- The downloaded app's embedded sidecar became ready in 0.40 s, respawned in
+  0.38 s, shut down over HTTP in 287 ms, and released the port after TERM in
+  178 ms and after KILL. Single-instance exit remained 0.13 s; foreign/stale
+  listener handling, five immediate failures, exact 1/2/4-second exhaustion,
+  `BACKEND_DOWN`, and manual recovery all passed.
+- The downloaded WKWebView displayed the six-route shell, Settings, the
+  disabled-by-default optional component, and version 0.2.2. A normal menu
+  quit produced the intentional shutdown handshake and left no shell,
+  sidecar, or listener on ports 8765/8766.
+- A second Spotify authorization was not requested because the downloaded ZIP
+  is byte-identical to the already OAuth-tested final ZIP. The downloaded app
+  did repeat its live UI, transport, storage-startup, and lifecycle checks
+  without reading or exporting a real token.
+- Repository-wide immutable releases remain disabled (`isImmutable=false`).
+  This release did not rely on immutability for its proof: no rewrite option
+  was used, and both public downloads were compared to the locally validated
+  byte streams. Future replacement must use a new version and tag.
 
 ## Material primary sources
 
@@ -258,6 +291,7 @@ SHA-256: 296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c
 - [uv locked sync](https://docs.astral.sh/uv/concepts/projects/sync/)
 - [Reproducible Builds `SOURCE_DATE_EPOCH`](https://reproducible-builds.org/docs/source-date-epoch/)
 - [GitHub Release assets](https://docs.github.com/en/rest/releases/assets)
+- [GitHub CLI release upload](https://cli.github.com/manual/gh_release_upload)
 - [GitHub immutable releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/immutable-releases)
 - [deezer-py 1.3.6 metadata](https://pypi.org/pypi/deezer-py/1.3.6/json)
 - [Python `os.replace`](https://docs.python.org/3/library/os.html#os.replace)

@@ -159,13 +159,13 @@ docstring says how to run it.
 
 ## Status & roadmap
 
-Current source version: **0.2.2**. A local macOS 14+ Apple Silicon release
-candidate passes its strict scanner, two isolated absolute source roots produce
+Current source version: **0.2.2**. The public macOS 14+ Apple Silicon release
+passes its strict scanner, two isolated absolute source roots produce
 byte-identical base and optional ZIPs and unpacked trees, and the exact source,
-frozen, installed, and packaged Deezer lanes embed real artwork. Public
-download-back is recorded only in the
-[release closure report](docs/_handoffs/final-release-closure.md). The app is
-ad-hoc signed without a Developer ID or notarization.
+frozen, installed, and packaged Deezer lanes embed real artwork. Both public
+assets passed download-back, scanner, installation, and runtime validation as
+recorded in the [release closure report](docs/_handoffs/final-release-closure.md).
+The app is ad-hoc signed without a Developer ID or notarization.
 
 - **Signing, notarization, and Keychain** — deferred; the v1 distribution uses
   a per-install encrypted SQLCipher secret store and never exports OAuth
@@ -176,9 +176,8 @@ ad-hoc signed without a Developer ID or notarization.
 - **Optional acquisition** — purchase links remain first. Deezer acquisition
   is explicit, disabled by default, requires a Premium credential stored only
   in the encrypted secret store. Local archive installation is validated; the
-  hash-pinned online component path remains unavailable until the exact GitHub
-  Release asset is published and downloaded back for verification. SoundCloud
-  and ffmpeg are not exposed.
+  hash-pinned online component path uses the verified `v0.2.2` GitHub Release
+  asset. SoundCloud and ffmpeg are not exposed.
 - **Later** — in-app audio preview, fingerprint-based duplicate detection
   (Chromaprint), ISRC enrichment.
 
