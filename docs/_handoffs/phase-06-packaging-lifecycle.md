@@ -296,7 +296,9 @@ Primary official sources:
 This document remains the historical Phase 6 record for version 0.2.1. The
 current 0.2.2 evidence, including re-enabled artwork, complete generated
 license inventories, the durable bundle identifier, CommonCrypto SQLCipher,
-real-Rekordbox automation, packaged OAuth, and the remaining final gates, is
+real-Rekordbox automation and manual disposable-copy checks, four-lane live
+artwork embedding, packaged OAuth, completed two-root equality, and the
+remaining publication/download-back gates, is
 recorded in
 [`final-release-closure.md`](final-release-closure.md). Do not use the old
 0.2.1 hashes, artwork-disabled statement, license gaps, identifier, or

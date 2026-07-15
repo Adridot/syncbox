@@ -1,5 +1,11 @@
 # Syncbox Phase 1 Baseline and Coverage Report
 
+> Historical baseline only. Every use of “current,” every version, measurement,
+> blocker, and verdict below describes the 2026-07-11 Phase 1 snapshot. The
+> current implementation and release evidence are authoritative in
+> [SPEC-UNIFIED.md](SPEC-UNIFIED.md) and
+> [_handoffs/final-release-closure.md](_handoffs/final-release-closure.md).
+
 Date: 2026-07-11  
 Target: Syncbox v1, macOS on Apple Silicon
 

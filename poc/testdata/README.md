@@ -128,9 +128,13 @@ Exit codes:
 - `4`: pytest did not report exactly one pass or the selected test was skipped;
 - any other non-zero code: pytest's failure code.
 
-The copied-fixture POC #9 node passed once with zero skips on 2026-07-13 and
-left every source unchanged. The required Rekordbox 7.2.16 manual checks passed
-on the disposable mutated copy on 2026-07-14. POC #9 is **GO**.
+The copied-fixture POC #9 node passed once with zero skips on 2026-07-15 and
+left every source unchanged. The required Rekordbox 7.2.16 CommonCrypto manual
+checks passed on the disposable mutated copy on 2026-07-15. POC #9 is **GO**.
+The final derived database was checkpointed and changed to SQLite DELETE
+journal mode through CommonCrypto SQLCipher after an empty persistent WAL was
+detected. Its `integrity_check` is `ok`; the final seven-file fixture therefore
+contains no inapplicable WAL, SHM, or journal sidecar.
 
 ## Disposable directories for manual Rekordbox checks
 
@@ -172,8 +176,8 @@ reviewed and explicitly approved immediately before that separate operation.
 ## Manual validation result
 
 The owner approved the exact swap and recovery procedure immediately before
-each operation. Rekordbox 7.2.16 was opened only against disposable copies and
-passed all required checks on 2026-07-14:
+the validation sequence. Rekordbox 7.2.16 was opened only against CommonCrypto
+disposable copies and passed all required checks on 2026-07-15:
 
 - reopen and playback;
 - cues, beatgrid, waveform, and analysis;
@@ -184,7 +188,7 @@ passed all required checks on 2026-07-14:
 
 The live Rekordbox directory was restored after validation. Its complete
 12,718-file snapshot matched the pre-operation snapshot with SHA-256
-`f11e7edd9e921638b9e7f519aebb778beb4869a1d9775616d6ba391d5f4c0c9f`, and
+`1b523e27bf96539f0d498a65a57240ff64eba7648c5d3810b107fee07042c074`, and
 the strict process guard confirmed that Rekordbox and `rekordboxAgent` were
 closed. All databases, XML, audio, ANLZ files, evidence JSON, and personal
 paths remain ignored local data.

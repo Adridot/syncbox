@@ -147,8 +147,8 @@ The base manifest for 0.2.2 pins the optional asset to:
 
 ```text
 Name:   syncbox-deezer-component-0.2.2-macos-arm64.zip
-Bytes:  17,340,517
-SHA-256: 37fb7375a357a0fb218709a2092632fd18d99c828c541c341645969eda1fb39c
+Bytes:  17,340,644
+SHA-256: 13976d4b49c345e241e0cac9a9465a06eeebafb97c36f246214b653785a7b9dd
 URL:    https://github.com/Adridot/syncbox/releases/download/v0.2.2/syncbox-deezer-component-0.2.2-macos-arm64.zip
 ```
 
@@ -158,14 +158,17 @@ repeat the size/hash and live installation checks. A differently rebuilt asset
 must receive a new manifest and a rebuilt base application; never replace the
 asset while retaining the old manifest.
 
-The current final-candidate base ZIP is 29,295,890 bytes with SHA-256
-`454043354c97b7de03b2858503c0e2b0754432a81bbaaa0dfdd015fef4482e4c`.
+The current final-candidate base ZIP is 29,296,019 bytes with SHA-256
+`296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c`.
 Its strict scanner passes. The base contains 30 arm64 Mach-O files, has an
 effective macOS 14.0 minimum, uses CommonCrypto for SQLCipher, and contains no
 streamrip. The optional artifact contains 28 arm64 Mach-O files, has an
 effective macOS 11.0 minimum, includes artwork-capable Pillow payloads, and
-exposes only the Deezer provider. These exact values are candidates until the final
-two-root build, live artwork gate, and public download-back all pass. The
+exposes only the Deezer provider. Real source, frozen, installed, and packaged
+lanes embedded the artwork in a full-length audio file produced by these exact
+optional bytes. Two isolated absolute source roots produced byte-identical
+ZIPs and unpacked trees for both artifacts. These exact values remain
+candidates until public download-back passes. The
 authoritative evolving evidence is
 [`docs/_handoffs/final-release-closure.md`](_handoffs/final-release-closure.md).
 
@@ -185,20 +188,20 @@ Publication is permitted only after all applicable gates are closed:
   and close any older Syncbox process before replacing it; the sidecar
   continues to use `~/Library/Application Support/Syncbox`, so the identifier
   change does not relocate the existing database or secret store;
-- require byte-identical base and optional artifacts from two clean absolute
-  source roots and pass the complete scanner independently in each root;
+- preserve the proven byte-identical base and optional artifacts from two
+  clean absolute source roots and the independent scanner pass in each root;
 - keep the completed packaged Spotify PKCE, refresh, forged-state, revocation,
   encrypted-storage, listener-shutdown, and port-release evidence green;
-- run real artwork embedding through the exact source, frozen, installed, and
-  packaged optional-component lanes with a one-shot local credential;
+- preserve the completed real artwork evidence through the exact source,
+  frozen, installed, and packaged optional-component lanes;
 - upload both exact validated byte streams and revalidate their public HTTPS
   downloads without silently replacing a published asset;
 - add Developer ID signing/notarization only if a frictionless public install
   becomes a requirement.
 
-The private automated Rekordbox fixtures pass with the CommonCrypto runtime.
-The recorded Rekordbox 7.2.16 manual walkthrough predates the provider switch;
-another disposable data-directory swap requires an immediately preceding owner
-confirmation. No legal-compliance, Gatekeeper-acceptance, notarization,
-two-root, or public-download claim is made until the final handoff records the
-corresponding executable evidence.
+The private automated Rekordbox fixtures and the owner-approved Rekordbox
+7.2.16 disposable-copy walkthrough pass with the CommonCrypto runtime. The
+untouched live directory was restored exactly after the Smart Fix and retained
+event checks. No legal-compliance, Gatekeeper-acceptance, notarization, or
+public-download claim is made until the final handoff records the corresponding
+executable evidence. The final handoff records the completed two-root proof.

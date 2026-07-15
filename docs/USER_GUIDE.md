@@ -176,6 +176,6 @@ Rekordbox metadata; they are not copies of your audio files.
 - optional Deezer acquisition requires the matching GitHub Release asset,
   explicit enablement, a Premium credential, and an ISRC;
 - no SoundCloud interface or ffmpeg support;
-- the private automated Rekordbox fixtures pass with CommonCrypto; the recorded
-  manual Rekordbox walkthrough predates that provider switch, and another
-  disposable data-directory swap requires immediate owner authorization.
+- the private automated Rekordbox fixtures and the owner-approved Rekordbox
+  7.2.16 disposable-copy walkthrough pass with CommonCrypto; the untouched
+  live data directory was restored exactly after the checks.

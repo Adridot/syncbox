@@ -176,6 +176,129 @@ EXPECTED_OPTIONAL_CRYPTODOME_BINARIES = {
     "Cryptodome/Cipher/_raw_ecb.abi3.so",
     "Cryptodome/Util/_cpuid_c.abi3.so",
 }
+PROJECT_NATIVE_ARTIFACTS = {
+    "base": {"Contents/MacOS/syncbox-shell"},
+    "optional": set(),
+}
+NATIVE_ARTIFACT_LICENSE_OWNERS = {
+    "base": {
+        "Contents/Resources/sidecar/syncbox-sidecar": ("pyinstaller-bootloader",),
+        "Contents/Resources/sidecar/_internal/libpython3.14.dylib": (
+            "python-build-standalone-cpython",
+        ),
+        "Contents/Resources/sidecar/_internal/_miniaudio.abi3.so": ("miniaudio",),
+        "Contents/Resources/sidecar/_internal/_cffi_backend.cpython-314-darwin.so": (
+            "cffi",
+        ),
+        "Contents/Resources/sidecar/_internal/sqlcipher3/_sqlite3.cpython-314-darwin.so": (
+            "sqlcipher3-wheels",
+            "SQLCipher Community Edition",
+        ),
+        "Contents/Resources/sidecar/_internal/psutil/_psutil_osx.abi3.so": (
+            "psutil",
+        ),
+        "Contents/Resources/sidecar/_internal/rapidfuzz/process_cpp_impl.cpython-314-darwin.so": (
+            "rapidfuzz",
+        ),
+        "Contents/Resources/sidecar/_internal/rapidfuzz/fuzz_cpp.cpython-314-darwin.so": (
+            "rapidfuzz",
+        ),
+        "Contents/Resources/sidecar/_internal/rapidfuzz/utils_cpp.cpython-314-darwin.so": (
+            "rapidfuzz",
+        ),
+        "Contents/Resources/sidecar/_internal/rapidfuzz/distance/_initialize_cpp.cpython-314-darwin.so": (
+            "rapidfuzz",
+        ),
+        "Contents/Resources/sidecar/_internal/rapidfuzz/distance/metrics_cpp.cpython-314-darwin.so": (
+            "rapidfuzz",
+        ),
+        **{
+            f"Contents/Resources/sidecar/_internal/{path}": (
+                "numpy",
+                "NumPy macOS Accelerate wheel native extensions",
+            )
+            for path in (
+                "numpy/linalg/_umath_linalg.cpython-314-darwin.so",
+                "numpy/_core/_multiarray_tests.cpython-314-darwin.so",
+                "numpy/_core/_multiarray_umath.cpython-314-darwin.so",
+                "numpy/fft/_pocketfft_umath.cpython-314-darwin.so",
+                "numpy/random/bit_generator.cpython-314-darwin.so",
+                "numpy/random/_mt19937.cpython-314-darwin.so",
+                "numpy/random/_philox.cpython-314-darwin.so",
+                "numpy/random/_bounded_integers.cpython-314-darwin.so",
+                "numpy/random/_pcg64.cpython-314-darwin.so",
+                "numpy/random/_sfc64.cpython-314-darwin.so",
+                "numpy/random/_common.cpython-314-darwin.so",
+                "numpy/random/mtrand.cpython-314-darwin.so",
+                "numpy/random/_generator.cpython-314-darwin.so",
+            )
+        },
+        **{
+            f"Contents/Resources/sidecar/_internal/sqlalchemy/cyextension/{name}.cpython-314-darwin.so": (
+                "sqlalchemy",
+            )
+            for name in ("util", "processors", "collections", "resultproxy", "immutabledict")
+        },
+    },
+    "optional": {
+        "syncbox-deezer-component": ("pyinstaller-bootloader",),
+        "_internal/ada92cb5d92a588d1b93__mypyc.cpython-313-darwin.so": (
+            "charset-normalizer",
+        ),
+        "_internal/libpython3.13.dylib": ("python-build-standalone-cpython",),
+        "_internal/_cffi_backend.cpython-313-darwin.so": ("cffi",),
+        "_internal/aiohttp/_http_writer.cpython-313-darwin.so": (
+            "aiohttp",
+            "llhttp",
+        ),
+        "_internal/aiohttp/_http_parser.cpython-313-darwin.so": (
+            "aiohttp",
+            "llhttp",
+        ),
+        "_internal/aiohttp/_websocket/mask.cpython-313-darwin.so": ("aiohttp",),
+        "_internal/aiohttp/_websocket/reader_c.cpython-313-darwin.so": ("aiohttp",),
+        "_internal/pycares/_cares.abi3.so": ("pycares", "c-ares"),
+        "_internal/propcache/_helpers_c.cpython-313-darwin.so": ("propcache",),
+        "_internal/frozenlist/_frozenlist.cpython-313-darwin.so": ("frozenlist",),
+        "_internal/charset_normalizer/cd.cpython-313-darwin.so": (
+            "charset-normalizer",
+        ),
+        "_internal/charset_normalizer/md.cpython-313-darwin.so": (
+            "charset-normalizer",
+        ),
+        "_internal/PIL/_imaging.cpython-313-darwin.so": (
+            "pillow",
+            "Pillow macOS arm64 wheel native libraries",
+        ),
+        "_internal/multidict/_multidict.cpython-313-darwin.so": ("multidict",),
+        "_internal/yarl/_quoting_c.cpython-313-darwin.so": ("yarl",),
+        **{
+            f"_internal/Cryptodome/{path}": ("pycryptodomex",)
+            for path in (
+                "Util/_cpuid_c.abi3.so",
+                "Cipher/_raw_cbc.abi3.so",
+                "Cipher/_raw_aes.abi3.so",
+                "Cipher/_raw_ecb.abi3.so",
+                "Cipher/_raw_blowfish.abi3.so",
+            )
+        },
+        **{
+            f"_internal/PIL/.dylibs/{filename}": (
+                "pillow",
+                component,
+            )
+            for filename, component in (
+                ("libxcb.1.1.0.dylib", "libxcb"),
+                ("libjpeg.62.4.0.dylib", "libjpeg-turbo"),
+                ("libXau.6.0.0.dylib", "libXau"),
+                ("libz.1.3.1.dylib", "zlib"),
+                ("libopenjp2.2.5.2.dylib", "OpenJPEG"),
+                ("liblzma.5.dylib", "XZ liblzma"),
+                ("libtiff.6.dylib", "libtiff"),
+            )
+        },
+    },
+}
 EXPECTED_STREAMRIP_METADATA = {
     "METADATA",
     "direct_url.json",
@@ -383,6 +506,42 @@ def bundled_items(entry: dict):
     for field in ("statically_linked_components", "bundled_components"):
         for component in entry.get(field, []):
             yield from bundled_items(component)
+
+
+def validate_native_license_coverage(
+    root: Path, target: str, native: list[Path], inventory: dict
+) -> dict[str, int]:
+    mapping = NATIVE_ARTIFACT_LICENSE_OWNERS[target]
+    project_paths = PROJECT_NATIVE_ARTIFACTS[target]
+    assert not project_paths.intersection(mapping)
+    for relative in (*project_paths, *mapping):
+        path = Path(relative)
+        assert not path.is_absolute() and ".." not in path.parts
+
+    actual = {path.relative_to(root).as_posix() for path in native}
+    expected = project_paths | set(mapping)
+    assert actual == expected, (
+        f"{target} native artifact/license mapping differs; "
+        f"missing={sorted(expected - actual)}, unexpected={sorted(actual - expected)}"
+    )
+
+    inventory_names = {
+        canonicalize_name(item["name"])
+        for entry in inventory["entries"]
+        for item in bundled_items(entry)
+    }
+    for relative, owners in mapping.items():
+        assert owners, f"native artifact has no license owner: {relative}"
+        missing = {
+            owner
+            for owner in owners
+            if canonicalize_name(owner) not in inventory_names
+        }
+        assert not missing, f"unknown native license owners for {relative}: {sorted(missing)}"
+    return {
+        "inventory_mapped": len(mapping),
+        "project_owned": len(project_paths),
+    }
 
 
 def source_tree_sha256(root: Path) -> str:
@@ -840,6 +999,9 @@ def validate_optional_component(archive: Path, manifest_path: Path) -> dict:
 
             native = list(mach_o_files(root))
             assert native, "optional component has no Mach-O files"
+            native_license_coverage = validate_native_license_coverage(
+                root, "optional", native, license_inventory
+            )
             targets = []
             for path in native:
                 validate_arm64(path)
@@ -899,6 +1061,7 @@ def validate_optional_component(archive: Path, manifest_path: Path) -> dict:
                 "installed_check": check,
                 "mach_o_files": len(native),
                 "adhoc_signed_mach_o_files": len(native),
+                "native_license_coverage": native_license_coverage,
                 "effective_minimum_macos": ".".join(map(str, effective_minimum)),
                 "streamrip_license_present": True,
                 "streamrip_metadata": sorted(EXPECTED_STREAMRIP_METADATA),
@@ -952,6 +1115,9 @@ def validate(
     ):
         assert required.exists(), f"missing packaged resource: {required}"
     license_bundle = validate_license_bundle(legal_root, "base")
+    license_inventory = json.loads(
+        (legal_root / "dependency-inventory.json").read_text()
+    )
     validate_project_assets(app, license_bundle["project_assets"])
     assert embedded_manifest.read_bytes() == component_manifest.resolve(strict=True).read_bytes()
     component_name = json.loads(embedded_manifest.read_text())["component"]
@@ -967,6 +1133,9 @@ def validate(
 
     native = list(mach_o_files(app))
     assert native, "no Mach-O files found"
+    native_license_coverage = validate_native_license_coverage(
+        app, "base", native, license_inventory
+    )
     deployment_targets = []
     for path in native:
         validate_arm64(path)
@@ -1066,6 +1235,7 @@ def validate(
         "effective_minimum_macos": ".".join(map(str, effective_minimum)),
         "mach_o_files": len(native),
         "adhoc_signed_mach_o_files": len(native),
+        "native_license_coverage": native_license_coverage,
         "runtime_packages": runtime["packages"],
         "base_library_modules": base_library_modules,
         "app_bytes": sum(

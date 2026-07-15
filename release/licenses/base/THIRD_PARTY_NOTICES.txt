@@ -1,0 +1,370 @@
+Syncbox base distribution third-party notices
+
+This reviewed inventory records the exact dependency versions and source
+locations used for the release. The accompanying license files preserve
+upstream notices. This evidence does not constitute legal advice or a claim
+of compliance beyond the material included here.
+
+Owner-approved review licenses
+
+- bidict: MPL-2.0 (owner-approved for Syncbox v1 distribution)
+- certifi: MPL-2.0 (owner-approved for Syncbox v1 distribution)
+- cssparser: MPL-2.0 (owner-approved for Syncbox v1 distribution)
+- cssparser-macros: MPL-2.0 (owner-approved for Syncbox v1 distribution)
+- dtoa-short: MPL-2.0 (owner-approved for Syncbox v1 distribution)
+- mutagen: GPL-2.0-or-later (owner-approved for Syncbox v1 distribution)
+- option-ext: MPL-2.0 (owner-approved for Syncbox v1 distribution)
+- pyinstaller-bootloader: GPL-2.0-or-later WITH Bootloader-exception (owner-approved for Syncbox v1 distribution)
+- selectors: MPL-2.0 (owner-approved for Syncbox v1 distribution)
+
+Recorded upstream metadata discrepancy
+
+- sqlcipher3 0.6.2 declares MIT in its PyPI core metadata, while
+  the source distribution ships a Zlib LICENSE. The Syncbox fork
+  preserves that exact Zlib text and records both facts without
+  asserting an invented composite license expression.
+
+Dependency inventory
+
+- [bundled-native] miniaudio 0.11.25 — MIT — https://github.com/mackron/miniaudio/tree/0.11.25
+- [bundled-native] NumPy macOS Accelerate wheel native extensions 2.5.1 — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 — https://files.pythonhosted.org/packages/b5/59/2b844c7a6e9deff69b404a66221e1542937734f65d5e6e39411876053862/numpy-2.5.1-cp314-cp314-macosx_14_0_arm64.whl
+- [bundled-native] SQLCipher Community Edition 4.12.0 — BSD-3-Clause — https://github.com/sqlcipher/sqlcipher/tree/v4.12.0
+  - SQLite 3.51.1 — LicenseRef-SQLite-Public-Domain — https://www.sqlite.org/2025/sqlite-src-3510100.zip
+- [font-asset] geist-mono 5.2.8 — OFL-1.1 — https://registry.npmjs.org/@fontsource/geist-mono/-/geist-mono-5.2.8.tgz
+- [font-asset] geist-sans 5.2.5 — OFL-1.1 — https://registry.npmjs.org/@fontsource/geist-sans/-/geist-sans-5.2.5.tgz
+- [javascript] @babel/helper-string-parser 7.29.7 — MIT — https://registry.npmjs.org/@babel/helper-string-parser/-/helper-string-parser-7.29.7.tgz
+- [javascript] @babel/helper-validator-identifier 7.29.7 — MIT — https://registry.npmjs.org/@babel/helper-validator-identifier/-/helper-validator-identifier-7.29.7.tgz
+- [javascript] @babel/parser 7.29.7 — MIT — https://registry.npmjs.org/@babel/parser/-/parser-7.29.7.tgz
+- [javascript] @babel/types 7.29.7 — MIT — https://registry.npmjs.org/@babel/types/-/types-7.29.7.tgz
+- [javascript] @fontsource/geist-mono 5.2.8 — OFL-1.1 — https://registry.npmjs.org/@fontsource/geist-mono/-/geist-mono-5.2.8.tgz
+- [javascript] @fontsource/geist-sans 5.2.5 — OFL-1.1 — https://registry.npmjs.org/@fontsource/geist-sans/-/geist-sans-5.2.5.tgz
+- [javascript] @intlify/core-base 11.4.6 — MIT — https://registry.npmjs.org/@intlify/core-base/-/core-base-11.4.6.tgz
+- [javascript] @intlify/devtools-types 11.4.6 — MIT — https://registry.npmjs.org/@intlify/devtools-types/-/devtools-types-11.4.6.tgz
+- [javascript] @intlify/message-compiler 11.4.6 — MIT — https://registry.npmjs.org/@intlify/message-compiler/-/message-compiler-11.4.6.tgz
+- [javascript] @intlify/shared 11.4.6 — MIT — https://registry.npmjs.org/@intlify/shared/-/shared-11.4.6.tgz
+- [javascript] @jridgewell/sourcemap-codec 1.5.5 — MIT — https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz
+- [javascript] @tauri-apps/api 2.11.1 — Apache-2.0 OR MIT — https://registry.npmjs.org/@tauri-apps/api/-/api-2.11.1.tgz
+- [javascript] @tauri-apps/plugin-dialog 2.7.1 — MIT OR Apache-2.0 — https://registry.npmjs.org/@tauri-apps/plugin-dialog/-/plugin-dialog-2.7.1.tgz
+- [javascript] @tauri-apps/plugin-opener 2.5.4 — MIT OR Apache-2.0 — https://registry.npmjs.org/@tauri-apps/plugin-opener/-/plugin-opener-2.5.4.tgz
+- [javascript] @vue/compiler-core 3.5.39 — MIT — https://registry.npmjs.org/@vue/compiler-core/-/compiler-core-3.5.39.tgz
+- [javascript] @vue/compiler-dom 3.5.39 — MIT — https://registry.npmjs.org/@vue/compiler-dom/-/compiler-dom-3.5.39.tgz
+- [javascript] @vue/compiler-sfc 3.5.39 — MIT — https://registry.npmjs.org/@vue/compiler-sfc/-/compiler-sfc-3.5.39.tgz
+- [javascript] @vue/compiler-ssr 3.5.39 — MIT — https://registry.npmjs.org/@vue/compiler-ssr/-/compiler-ssr-3.5.39.tgz
+- [javascript] @vue/devtools-api 6.6.4 — MIT — https://registry.npmjs.org/@vue/devtools-api/-/devtools-api-6.6.4.tgz
+- [javascript] @vue/devtools-api 7.7.10 — MIT — https://registry.npmjs.org/@vue/devtools-api/-/devtools-api-7.7.10.tgz
+- [javascript] @vue/devtools-kit 7.7.10 — MIT — https://registry.npmjs.org/@vue/devtools-kit/-/devtools-kit-7.7.10.tgz
+- [javascript] @vue/devtools-shared 7.7.10 — MIT — https://registry.npmjs.org/@vue/devtools-shared/-/devtools-shared-7.7.10.tgz
+- [javascript] @vue/reactivity 3.5.39 — MIT — https://registry.npmjs.org/@vue/reactivity/-/reactivity-3.5.39.tgz
+- [javascript] @vue/runtime-core 3.5.39 — MIT — https://registry.npmjs.org/@vue/runtime-core/-/runtime-core-3.5.39.tgz
+- [javascript] @vue/runtime-dom 3.5.39 — MIT — https://registry.npmjs.org/@vue/runtime-dom/-/runtime-dom-3.5.39.tgz
+- [javascript] @vue/server-renderer 3.5.39 — MIT — https://registry.npmjs.org/@vue/server-renderer/-/server-renderer-3.5.39.tgz
+- [javascript] @vue/shared 3.5.39 — MIT — https://registry.npmjs.org/@vue/shared/-/shared-3.5.39.tgz
+- [javascript] birpc 2.9.0 — MIT — https://registry.npmjs.org/birpc/-/birpc-2.9.0.tgz
+- [javascript] copy-anything 4.0.5 — MIT — https://registry.npmjs.org/copy-anything/-/copy-anything-4.0.5.tgz
+- [javascript] csstype 3.2.3 — MIT — https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz
+- [javascript] entities 7.0.1 — BSD-2-Clause — https://registry.npmjs.org/entities/-/entities-7.0.1.tgz
+- [javascript] estree-walker 2.0.2 — MIT — https://registry.npmjs.org/estree-walker/-/estree-walker-2.0.2.tgz
+- [javascript] hookable 5.5.3 — MIT — https://registry.npmjs.org/hookable/-/hookable-5.5.3.tgz
+- [javascript] is-what 5.5.0 — MIT — https://registry.npmjs.org/is-what/-/is-what-5.5.0.tgz
+- [javascript] magic-string 0.30.21 — MIT — https://registry.npmjs.org/magic-string/-/magic-string-0.30.21.tgz
+- [javascript] mitt 3.0.1 — MIT — https://registry.npmjs.org/mitt/-/mitt-3.0.1.tgz
+- [javascript] nanoid 3.3.15 — MIT — https://registry.npmjs.org/nanoid/-/nanoid-3.3.15.tgz
+- [javascript] perfect-debounce 1.0.0 — MIT — https://registry.npmjs.org/perfect-debounce/-/perfect-debounce-1.0.0.tgz
+- [javascript] picocolors 1.1.1 — ISC — https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz
+- [javascript] pinia 3.0.4 — MIT — https://registry.npmjs.org/pinia/-/pinia-3.0.4.tgz
+- [javascript] postcss 8.5.16 — MIT — https://registry.npmjs.org/postcss/-/postcss-8.5.16.tgz
+- [javascript] rfdc 1.4.1 — MIT — https://registry.npmjs.org/rfdc/-/rfdc-1.4.1.tgz
+- [javascript] source-map-js 1.2.1 — BSD-3-Clause — https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz
+- [javascript] speakingurl 14.0.1 — BSD-3-Clause — https://registry.npmjs.org/speakingurl/-/speakingurl-14.0.1.tgz
+- [javascript] superjson 2.2.6 — MIT — https://registry.npmjs.org/superjson/-/superjson-2.2.6.tgz
+- [javascript] typescript 5.8.3 — Apache-2.0 — https://registry.npmjs.org/typescript/-/typescript-5.8.3.tgz
+- [javascript] vue 3.5.39 — MIT — https://registry.npmjs.org/vue/-/vue-3.5.39.tgz
+- [javascript] vue-i18n 11.4.6 — MIT — https://registry.npmjs.org/vue-i18n/-/vue-i18n-11.4.6.tgz
+- [javascript] vue-router 4.6.4 — MIT — https://registry.npmjs.org/vue-router/-/vue-router-4.6.4.tgz
+- [native-runtime] pyinstaller-bootloader 6.21.0 — GPL-2.0-or-later WITH Bootloader-exception — https://github.com/pyinstaller/pyinstaller/tree/v6.21.0
+- [native-runtime] python-build-standalone-cpython 3.14.2+20260127 — LicenseRef-CPython-and-Statically-Linked-Components — https://github.com/astral-sh/python-build-standalone/releases/tag/20260127
+  - CPython 3.14.2 — LicenseRef-CPython-Composite — https://www.python.org/ftp/python/3.14.2/Python-3.14.2.tar.xz
+  - bzip2 1.0.8 — bzip2-1.0.6 — https://astral-sh.github.io/mirror/files/bzip2-1.0.8.tar.gz
+  - Expat 2.6.3 — MIT — https://github.com/libexpat/libexpat/releases/download/R_2_6_3/expat-2.6.3.tar.xz
+  - libffi 3.4.6 — MIT — https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
+  - XZ liblzma 5.8.1 — ISC — https://github.com/tukaani-project/xz/releases/download/v5.8.1/xz-5.8.1.tar.gz
+  - libuuid 1.0.3 — BSD-3-Clause — https://sourceforge.net/projects/libuuid/files/libuuid-1.0.3.tar.gz
+  - mpdecimal 4.0.0 — BSD-2-Clause — https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-4.0.0.tar.gz
+  - OpenSSL 3.5.5 — Apache-2.0 — https://github.com/openssl/openssl/releases/download/openssl-3.5.5/openssl-3.5.5.tar.gz
+  - SQLite 3.50.4 — LicenseRef-SQLite-Public-Domain — https://www.sqlite.org/2025/sqlite-autoconf-3500400.tar.gz
+  - Zstandard 1.5.7 — BSD-3-Clause — https://github.com/python/cpython-source-deps/archive/refs/tags/zstd-1.5.7.tar.gz
+- [python] anyio 4.14.2 — MIT — https://files.pythonhosted.org/packages/61/cc/a381afa6efea9f496eff839d4a6a1aed3bfafc7b3ab4b0d1b243a12573dd/anyio-4.14.2.tar.gz
+- [python] bidict 0.23.1 — MPL-2.0 — https://files.pythonhosted.org/packages/9a/6e/026678aa5a830e07cd9498a05d3e7e650a4f56a42f267a53d22bcda1bdc9/bidict-0.23.1.tar.gz
+- [python] certifi 2026.6.17 — MPL-2.0 — https://files.pythonhosted.org/packages/c9/c7/424b75da314c1045981bd9777432fad05a9e0c69daa4ed7e308bbaffe405/certifi-2026.6.17.tar.gz
+- [python] cffi 2.1.0 — MIT-0 — https://files.pythonhosted.org/packages/57/5f/ff100cae70ebe9d8df1c01a00e510e45d9adb5c1fdda84791b199141de97/cffi-2.1.0.tar.gz
+- [python] click 8.4.2 — BSD-3-Clause — https://files.pythonhosted.org/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz
+- [python] construct 2.10.70 — MIT — https://files.pythonhosted.org/packages/02/77/8c84b98eca70d245a2a956452f21d57930d22ab88cbeed9290ca630cf03f/construct-2.10.70.tar.gz
+- [python] h11 0.16.0 — MIT — https://files.pythonhosted.org/packages/01/ee/02a2c011bdab74c6fb3c75474d40b3052059d95df7e73351460c8588d963/h11-0.16.0.tar.gz
+- [python] idna 3.18 — BSD-3-Clause — https://files.pythonhosted.org/packages/cd/63/9496c57188a2ee585e0f1db071d75089a11e98aa86eb99d9d7618fc1edce/idna-3.18.tar.gz
+- [python] miniaudio 1.71 — MIT — https://files.pythonhosted.org/packages/d8/d5/e5439dc08561f73656bfeb3340fc64ab63163e101426593d8fb9a025ff1e/miniaudio-1.71.tar.gz
+- [python] mutagen 1.48.1 — GPL-2.0-or-later — https://files.pythonhosted.org/packages/df/70/1675da133ea92227da41bf5b24e1c66be597ff736a1533ade41da986852f/mutagen-1.48.1.tar.gz
+- [python] numpy 2.5.1 — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 — https://files.pythonhosted.org/packages/22/fd/89965aa4ac08c74998539fcbf24fa3540f3e15237fbeb6bcf9c908f4aade/numpy-2.5.1.tar.gz
+- [python] packaging 26.2 — Apache-2.0 OR BSD-2-Clause — https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz
+- [python] psutil 7.2.2 — BSD-3-Clause — https://files.pythonhosted.org/packages/aa/c6/d1ddf4abb55e93cebc4f2ed8b5d6dbad109ecb8d63748dd2b20ab5e57ebe/psutil-7.2.2.tar.gz
+- [python] pycparser 3.0 — BSD-3-Clause — https://files.pythonhosted.org/packages/1b/7d/92392ff7815c21062bea51aa7b87d45576f649f16458d78b7cf94b9ab2e6/pycparser-3.0.tar.gz
+- [python] pyrekordbox 0.4.4 — MIT — https://files.pythonhosted.org/packages/39/8b/8fb7f21f4eb676df35c53214129ad33624634e2b678069abbf6a88509c6b/pyrekordbox-0.4.4.tar.gz
+- [python] python-dateutil 2.9.0.post0 — Apache-2.0 OR BSD-3-Clause — https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz
+- [python] rapidfuzz 3.14.5 — MIT — https://files.pythonhosted.org/packages/2c/21/ef6157213316e85790041254259907eb722e00b03480256c0545d98acd33/rapidfuzz-3.14.5.tar.gz
+- [python] send2trash 2.1.0 — BSD-3-Clause — https://files.pythonhosted.org/packages/c5/f0/184b4b5f8d00f2a92cf96eec8967a3d550b52cf94362dad1100df9e48d57/send2trash-2.1.0.tar.gz
+- [python] six 1.17.0 — MIT — https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz
+- [python] sqlalchemy 2.0.51 — MIT — https://files.pythonhosted.org/packages/02/f1/a7a892f18d4d224e6b26f706531eafccc41e37594d37d304786969ee13cb/sqlalchemy-2.0.51.tar.gz
+- [python] sqlcipher3-wheels 0.6.2+syncbox.commoncrypto.1 — Zlib — https://github.com/Adridot/syncbox/tree/v0.2.2/sidecar/vendor/sqlcipher3-commoncrypto
+- [python] sse-starlette 3.4.5 — BSD-3-Clause — https://files.pythonhosted.org/packages/d2/1b/bc9e3e7a72dcdad7dc7888758f5d00f56f8909ed5cfdff822bd72bb4c520/sse_starlette-3.4.5.tar.gz
+- [python] starlette 1.3.1 — BSD-3-Clause — https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d854328ebfa884e62cb3f3d8549ddfd37c7814f42afa/starlette-1.3.1.tar.gz
+- [python] typing-extensions 4.16.0 — PSF-2.0 — https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz
+- [python] uvicorn 0.51.0 — BSD-3-Clause — https://files.pythonhosted.org/packages/a2/65/b7c6c443ccc58678c91e1e973bbe2a878591538655d6e1d47f24ba1c51f3/uvicorn-0.51.0.tar.gz
+- [python-build] altgraph 0.17.5 — MIT — https://files.pythonhosted.org/packages/7e/f8/97fdf103f38fed6792a1601dbc16cc8aac56e7459a9fff08c812d8ae177a/altgraph-0.17.5.tar.gz
+- [python-build] httpcore2 2.5.0 — BSD-3-Clause — https://files.pythonhosted.org/packages/47/06/5c12df521b5322fb1114a83d46911b2fbcb8855ddb3a635f11c01a214af5/httpcore2-2.5.0.tar.gz
+- [python-build] httpx2 2.5.0 — BSD-3-Clause — https://files.pythonhosted.org/packages/d0/e2/b5dedc0cf35aa65de5f541ccd30d2bc1fd7f1d43c9ab09f8ed9a7342317b/httpx2-2.5.0.tar.gz
+- [python-build] iniconfig 2.3.0 — MIT — https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz
+- [python-build] macholib 1.16.4 — MIT — https://files.pythonhosted.org/packages/10/2f/97589876ea967487978071c9042518d28b958d87b17dceb7cdc1d881f963/macholib-1.16.4.tar.gz
+- [python-build] pluggy 1.6.0 — MIT — https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz
+- [python-build] pygments 2.20.0 — BSD-2-Clause — https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz
+- [python-build] pyinstaller 6.21.0 — GPL-2.0-or-later WITH Bootloader-exception — https://files.pythonhosted.org/packages/d5/4d/ec706c3fcf39e26888c35b39615ff4d5865d184069666c47492cff1fbe50/pyinstaller-6.21.0.tar.gz
+- [python-build] pyinstaller-hooks-contrib 2026.6 — GPL-2.0-or-later AND Apache-2.0 — https://files.pythonhosted.org/packages/94/5b/c9fe0db5e83ee1c39b2258fa21d23b15e1a60786b6c5990ee5074ead8bb6/pyinstaller_hooks_contrib-2026.6.tar.gz
+- [python-build] pytest 9.1.1 — MIT — https://files.pythonhosted.org/packages/e4/47/b9efed96c114afcfa3c9d3fe98a76a1d14c74a9e266d397cf6eb64be5e01/pytest-9.1.1.tar.gz
+- [python-build] setuptools 83.0.0 — MIT — https://files.pythonhosted.org/packages/34/26/f5d29e25ffdb535afef2d35cdb55b325298f96debd670da4c325e08d70f4/setuptools-83.0.0.tar.gz
+- [python-build] truststore 0.10.4 — MIT — https://files.pythonhosted.org/packages/53/a3/1585216310e344e8102c22482f6060c7a6ea0322b63e026372e6dcefcfd6/truststore-0.10.4.tar.gz
+- [rust] adler2 2.0.1 — 0BSD OR MIT OR Apache-2.0 — https://crates.io/crates/adler2/2.0.1
+- [rust] aho-corasick 1.1.4 — Unlicense OR MIT — https://crates.io/crates/aho-corasick/1.1.4
+- [rust] alloc-no-stdlib 2.0.4 — BSD-3-Clause — https://crates.io/crates/alloc-no-stdlib/2.0.4
+- [rust] alloc-stdlib 0.2.4 — BSD-3-Clause — https://crates.io/crates/alloc-stdlib/0.2.4
+- [rust] anyhow 1.0.103 — MIT OR Apache-2.0 — https://crates.io/crates/anyhow/1.0.103
+- [rust] base64 0.21.7 — MIT OR Apache-2.0 — https://crates.io/crates/base64/0.21.7
+- [rust] base64 0.22.1 — MIT OR Apache-2.0 — https://crates.io/crates/base64/0.22.1
+- [rust] bit-set 0.8.0 — Apache-2.0 OR MIT — https://crates.io/crates/bit-set/0.8.0
+- [rust] bit-vec 0.8.0 — Apache-2.0 OR MIT — https://crates.io/crates/bit-vec/0.8.0
+- [rust] bitflags 1.3.2 — MIT OR Apache-2.0 — https://crates.io/crates/bitflags/1.3.2
+- [rust] bitflags 2.13.0 — MIT OR Apache-2.0 — https://crates.io/crates/bitflags/2.13.0
+- [rust] block-buffer 0.10.4 — MIT OR Apache-2.0 — https://crates.io/crates/block-buffer/0.10.4
+- [rust] block2 0.6.2 — MIT — https://crates.io/crates/block2/0.6.2
+- [rust] brotli 8.0.4 — BSD-3-Clause AND MIT — https://crates.io/crates/brotli/8.0.4
+- [rust] brotli-decompressor 5.0.3 — BSD-3-Clause OR MIT — https://crates.io/crates/brotli-decompressor/5.0.3
+- [rust] byteorder 1.5.0 — Unlicense OR MIT — https://crates.io/crates/byteorder/1.5.0
+- [rust] bytes 1.12.0 — MIT — https://crates.io/crates/bytes/1.12.0
+- [rust] camino 1.2.4 — MIT OR Apache-2.0 — https://crates.io/crates/camino/1.2.4
+- [rust] cargo-platform 0.1.9 — MIT OR Apache-2.0 — https://crates.io/crates/cargo-platform/0.1.9
+- [rust] cargo_metadata 0.19.2 — MIT — https://crates.io/crates/cargo_metadata/0.19.2
+- [rust] cfb 0.7.3 — MIT — https://crates.io/crates/cfb/0.7.3
+- [rust] cfg-if 1.0.4 — MIT OR Apache-2.0 — https://crates.io/crates/cfg-if/1.0.4
+- [rust] cookie 0.18.1 — MIT OR Apache-2.0 — https://crates.io/crates/cookie/0.18.1
+- [rust] core-foundation 0.10.1 — MIT OR Apache-2.0 — https://crates.io/crates/core-foundation/0.10.1
+- [rust] core-foundation-sys 0.8.7 — MIT OR Apache-2.0 — https://crates.io/crates/core-foundation-sys/0.8.7
+- [rust] core-graphics 0.25.0 — MIT OR Apache-2.0 — https://crates.io/crates/core-graphics/0.25.0
+- [rust] core-graphics-types 0.2.0 — MIT OR Apache-2.0 — https://crates.io/crates/core-graphics-types/0.2.0
+- [rust] cpufeatures 0.2.17 — MIT OR Apache-2.0 — https://crates.io/crates/cpufeatures/0.2.17
+- [rust] crc32fast 1.5.0 — MIT OR Apache-2.0 — https://crates.io/crates/crc32fast/1.5.0
+- [rust] crossbeam-channel 0.5.15 — MIT OR Apache-2.0 — https://crates.io/crates/crossbeam-channel/0.5.15
+- [rust] crossbeam-utils 0.8.21 — MIT OR Apache-2.0 — https://crates.io/crates/crossbeam-utils/0.8.21
+- [rust] crypto-common 0.1.7 — MIT OR Apache-2.0 — https://crates.io/crates/crypto-common/0.1.7
+- [rust] cssparser 0.36.0 — MPL-2.0 — https://crates.io/crates/cssparser/0.36.0
+- [rust] cssparser-macros 0.6.1 — MPL-2.0 — https://crates.io/crates/cssparser-macros/0.6.1
+- [rust] ctor 0.8.0 — Apache-2.0 OR MIT — https://crates.io/crates/ctor/0.8.0
+- [rust] ctor-proc-macro 0.0.7 — Apache-2.0 OR MIT — https://crates.io/crates/ctor-proc-macro/0.0.7
+- [rust] darling 0.23.0 — MIT — https://crates.io/crates/darling/0.23.0
+- [rust] darling_core 0.23.0 — MIT — https://crates.io/crates/darling_core/0.23.0
+- [rust] darling_macro 0.23.0 — MIT — https://crates.io/crates/darling_macro/0.23.0
+- [rust] deranged 0.5.8 — MIT OR Apache-2.0 — https://crates.io/crates/deranged/0.5.8
+- [rust] derive_more 2.1.1 — MIT — https://crates.io/crates/derive_more/2.1.1
+- [rust] derive_more-impl 2.1.1 — MIT — https://crates.io/crates/derive_more-impl/2.1.1
+- [rust] digest 0.10.7 — MIT OR Apache-2.0 — https://crates.io/crates/digest/0.10.7
+- [rust] dirs 6.0.0 — MIT OR Apache-2.0 — https://crates.io/crates/dirs/6.0.0
+- [rust] dirs-sys 0.5.0 — MIT OR Apache-2.0 — https://crates.io/crates/dirs-sys/0.5.0
+- [rust] dispatch2 0.3.1 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/dispatch2/0.3.1
+- [rust] displaydoc 0.2.6 — MIT OR Apache-2.0 — https://crates.io/crates/displaydoc/0.2.6
+- [rust] dom_query 0.27.0 — MIT — https://crates.io/crates/dom_query/0.27.0
+- [rust] dpi 0.1.2 — Apache-2.0 AND MIT — https://crates.io/crates/dpi/0.1.2
+- [rust] dtoa 1.0.11 — MIT OR Apache-2.0 — https://crates.io/crates/dtoa/1.0.11
+- [rust] dtoa-short 0.3.5 — MPL-2.0 — https://crates.io/crates/dtoa-short/0.3.5
+- [rust] dunce 1.0.5 — CC0-1.0 OR MIT-0 OR Apache-2.0 — https://crates.io/crates/dunce/1.0.5
+- [rust] dyn-clone 1.0.20 — MIT OR Apache-2.0 — https://crates.io/crates/dyn-clone/1.0.20
+- [rust] embed_plist 1.2.2 — MIT OR Apache-2.0 — https://crates.io/crates/embed_plist/1.2.2
+- [rust] equivalent 1.0.2 — Apache-2.0 OR MIT — https://crates.io/crates/equivalent/1.0.2
+- [rust] erased-serde 0.4.10 — MIT OR Apache-2.0 — https://crates.io/crates/erased-serde/0.4.10
+- [rust] fastrand 2.4.1 — Apache-2.0 OR MIT — https://crates.io/crates/fastrand/2.4.1
+- [rust] fdeflate 0.3.7 — MIT OR Apache-2.0 — https://crates.io/crates/fdeflate/0.3.7
+- [rust] flate2 1.1.9 — MIT OR Apache-2.0 — https://crates.io/crates/flate2/1.1.9
+- [rust] fnv 1.0.7 — Apache-2.0 OR MIT — https://crates.io/crates/fnv/1.0.7
+- [rust] foldhash 0.2.0 — Zlib — https://crates.io/crates/foldhash/0.2.0
+- [rust] foreign-types 0.5.0 — MIT OR Apache-2.0 — https://crates.io/crates/foreign-types/0.5.0
+- [rust] foreign-types-macros 0.2.3 — MIT OR Apache-2.0 — https://crates.io/crates/foreign-types-macros/0.2.3
+- [rust] foreign-types-shared 0.3.1 — MIT OR Apache-2.0 — https://crates.io/crates/foreign-types-shared/0.3.1
+- [rust] form_urlencoded 1.2.2 — MIT OR Apache-2.0 — https://crates.io/crates/form_urlencoded/1.2.2
+- [rust] generic-array 0.14.7 — MIT — https://crates.io/crates/generic-array/0.14.7
+- [rust] getrandom 0.3.4 — MIT OR Apache-2.0 — https://crates.io/crates/getrandom/0.3.4
+- [rust] getrandom 0.4.3 — MIT OR Apache-2.0 — https://crates.io/crates/getrandom/0.4.3
+- [rust] glob 0.3.3 — MIT OR Apache-2.0 — https://crates.io/crates/glob/0.3.3
+- [rust] hashbrown 0.12.3 — MIT OR Apache-2.0 — https://crates.io/crates/hashbrown/0.12.3
+- [rust] hashbrown 0.17.1 — MIT OR Apache-2.0 — https://crates.io/crates/hashbrown/0.17.1
+- [rust] heck 0.5.0 — MIT OR Apache-2.0 — https://crates.io/crates/heck/0.5.0
+- [rust] html5ever 0.38.0 — MIT OR Apache-2.0 — https://crates.io/crates/html5ever/0.38.0
+- [rust] http 1.4.2 — MIT OR Apache-2.0 — https://crates.io/crates/http/1.4.2
+- [rust] ico 0.5.0 — MIT — https://crates.io/crates/ico/0.5.0
+- [rust] icu_collections 2.2.0 — Unicode-3.0 — https://crates.io/crates/icu_collections/2.2.0
+- [rust] icu_locale_core 2.2.0 — Unicode-3.0 — https://crates.io/crates/icu_locale_core/2.2.0
+- [rust] icu_normalizer 2.2.0 — Unicode-3.0 — https://crates.io/crates/icu_normalizer/2.2.0
+- [rust] icu_normalizer_data 2.2.0 — Unicode-3.0 — https://crates.io/crates/icu_normalizer_data/2.2.0
+- [rust] icu_properties 2.2.0 — Unicode-3.0 — https://crates.io/crates/icu_properties/2.2.0
+- [rust] icu_properties_data 2.2.0 — Unicode-3.0 — https://crates.io/crates/icu_properties_data/2.2.0
+- [rust] icu_provider 2.2.0 — Unicode-3.0 — https://crates.io/crates/icu_provider/2.2.0
+- [rust] ident_case 1.0.1 — MIT OR Apache-2.0 — https://crates.io/crates/ident_case/1.0.1
+- [rust] idna 1.1.0 — MIT OR Apache-2.0 — https://crates.io/crates/idna/1.1.0
+- [rust] idna_adapter 1.2.2 — Apache-2.0 OR MIT — https://crates.io/crates/idna_adapter/1.2.2
+- [rust] indexmap 1.9.3 — Apache-2.0 OR MIT — https://crates.io/crates/indexmap/1.9.3
+- [rust] indexmap 2.14.0 — Apache-2.0 OR MIT — https://crates.io/crates/indexmap/2.14.0
+- [rust] infer 0.19.0 — MIT — https://crates.io/crates/infer/0.19.0
+- [rust] itoa 1.0.18 — MIT OR Apache-2.0 — https://crates.io/crates/itoa/1.0.18
+- [rust] json-patch 3.0.1 — MIT OR Apache-2.0 — https://crates.io/crates/json-patch/3.0.1
+- [rust] jsonptr 0.6.3 — MIT OR Apache-2.0 — https://crates.io/crates/jsonptr/0.6.3
+- [rust] keyboard-types 0.7.0 — MIT OR Apache-2.0 — https://crates.io/crates/keyboard-types/0.7.0
+- [rust] libc 0.2.186 — MIT OR Apache-2.0 — https://crates.io/crates/libc/0.2.186
+- [rust] litemap 0.8.2 — Unicode-3.0 — https://crates.io/crates/litemap/0.8.2
+- [rust] lock_api 0.4.14 — MIT OR Apache-2.0 — https://crates.io/crates/lock_api/0.4.14
+- [rust] log 0.4.33 — MIT OR Apache-2.0 — https://crates.io/crates/log/0.4.33
+- [rust] markup5ever 0.38.0 — MIT OR Apache-2.0 — https://crates.io/crates/markup5ever/0.38.0
+- [rust] memchr 2.8.2 — Unlicense OR MIT — https://crates.io/crates/memchr/2.8.2
+- [rust] mime 0.3.17 — MIT OR Apache-2.0 — https://crates.io/crates/mime/0.3.17
+- [rust] miniz_oxide 0.8.9 — MIT OR Zlib OR Apache-2.0 — https://crates.io/crates/miniz_oxide/0.8.9
+- [rust] muda 0.19.3 — Apache-2.0 OR MIT — https://crates.io/crates/muda/0.19.3
+- [rust] new_debug_unreachable 1.0.6 — MIT — https://crates.io/crates/new_debug_unreachable/1.0.6
+- [rust] num-conv 0.2.2 — MIT OR Apache-2.0 — https://crates.io/crates/num-conv/0.2.2
+- [rust] objc2 0.6.4 — MIT — https://crates.io/crates/objc2/0.6.4
+- [rust] objc2-app-kit 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-app-kit/0.3.2
+- [rust] objc2-cloud-kit 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-cloud-kit/0.3.2
+- [rust] objc2-core-data 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-core-data/0.3.2
+- [rust] objc2-core-foundation 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-core-foundation/0.3.2
+- [rust] objc2-core-graphics 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-core-graphics/0.3.2
+- [rust] objc2-core-image 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-core-image/0.3.2
+- [rust] objc2-core-text 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-core-text/0.3.2
+- [rust] objc2-core-video 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-core-video/0.3.2
+- [rust] objc2-encode 4.1.0 — MIT — https://crates.io/crates/objc2-encode/4.1.0
+- [rust] objc2-exception-helper 0.1.1 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-exception-helper/0.1.1
+- [rust] objc2-foundation 0.3.2 — MIT — https://crates.io/crates/objc2-foundation/0.3.2
+- [rust] objc2-quartz-core 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-quartz-core/0.3.2
+- [rust] objc2-web-kit 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://crates.io/crates/objc2-web-kit/0.3.2
+- [rust] once_cell 1.21.4 — MIT OR Apache-2.0 — https://crates.io/crates/once_cell/1.21.4
+- [rust] open 5.3.6 — MIT — https://crates.io/crates/open/5.3.6
+- [rust] option-ext 0.2.0 — MPL-2.0 — https://crates.io/crates/option-ext/0.2.0
+- [rust] parking_lot 0.12.5 — MIT OR Apache-2.0 — https://crates.io/crates/parking_lot/0.12.5
+- [rust] parking_lot_core 0.9.12 — MIT OR Apache-2.0 — https://crates.io/crates/parking_lot_core/0.9.12
+- [rust] percent-encoding 2.3.2 — MIT OR Apache-2.0 — https://crates.io/crates/percent-encoding/2.3.2
+- [rust] phf 0.13.1 — MIT — https://crates.io/crates/phf/0.13.1
+- [rust] phf_generator 0.13.1 — MIT — https://crates.io/crates/phf_generator/0.13.1
+- [rust] phf_macros 0.13.1 — MIT — https://crates.io/crates/phf_macros/0.13.1
+- [rust] phf_shared 0.13.1 — MIT — https://crates.io/crates/phf_shared/0.13.1
+- [rust] pin-project-lite 0.2.17 — Apache-2.0 OR MIT — https://crates.io/crates/pin-project-lite/0.2.17
+- [rust] plist 1.9.0 — MIT — https://crates.io/crates/plist/1.9.0
+- [rust] png 0.17.16 — MIT OR Apache-2.0 — https://crates.io/crates/png/0.17.16
+- [rust] png 0.18.1 — MIT OR Apache-2.0 — https://crates.io/crates/png/0.18.1
+- [rust] potential_utf 0.1.5 — Unicode-3.0 — https://crates.io/crates/potential_utf/0.1.5
+- [rust] powerfmt 0.2.0 — MIT OR Apache-2.0 — https://crates.io/crates/powerfmt/0.2.0
+- [rust] precomputed-hash 0.1.1 — MIT — https://crates.io/crates/precomputed-hash/0.1.1
+- [rust] proc-macro2 1.0.106 — MIT OR Apache-2.0 — https://crates.io/crates/proc-macro2/1.0.106
+- [rust] quick-xml 0.39.4 — MIT — https://crates.io/crates/quick-xml/0.39.4
+- [rust] quote 1.0.46 — MIT OR Apache-2.0 — https://crates.io/crates/quote/1.0.46
+- [rust] raw-window-handle 0.6.2 — MIT OR Apache-2.0 OR Zlib — https://crates.io/crates/raw-window-handle/0.6.2
+- [rust] regex 1.12.4 — MIT OR Apache-2.0 — https://crates.io/crates/regex/1.12.4
+- [rust] regex-automata 0.4.14 — MIT OR Apache-2.0 — https://crates.io/crates/regex-automata/0.4.14
+- [rust] regex-syntax 0.8.11 — MIT OR Apache-2.0 — https://crates.io/crates/regex-syntax/0.8.11
+- [rust] rfd 0.16.0 — MIT — https://crates.io/crates/rfd/0.16.0
+- [rust] rustc-hash 2.1.3 — Apache-2.0 OR MIT — https://crates.io/crates/rustc-hash/2.1.3
+- [rust] same-file 1.0.6 — Unlicense OR MIT — https://crates.io/crates/same-file/1.0.6
+- [rust] schemars 0.8.22 — MIT — https://crates.io/crates/schemars/0.8.22
+- [rust] schemars_derive 0.8.22 — MIT — https://crates.io/crates/schemars_derive/0.8.22
+- [rust] scopeguard 1.2.0 — MIT OR Apache-2.0 — https://crates.io/crates/scopeguard/1.2.0
+- [rust] selectors 0.36.1 — MPL-2.0 — https://crates.io/crates/selectors/0.36.1
+- [rust] semver 1.0.28 — MIT OR Apache-2.0 — https://crates.io/crates/semver/1.0.28
+- [rust] serde 1.0.228 — MIT OR Apache-2.0 — https://crates.io/crates/serde/1.0.228
+- [rust] serde-untagged 0.1.9 — MIT OR Apache-2.0 — https://crates.io/crates/serde-untagged/0.1.9
+- [rust] serde_core 1.0.228 — MIT OR Apache-2.0 — https://crates.io/crates/serde_core/1.0.228
+- [rust] serde_derive 1.0.228 — MIT OR Apache-2.0 — https://crates.io/crates/serde_derive/1.0.228
+- [rust] serde_derive_internals 0.29.1 — MIT OR Apache-2.0 — https://crates.io/crates/serde_derive_internals/0.29.1
+- [rust] serde_json 1.0.150 — MIT OR Apache-2.0 — https://crates.io/crates/serde_json/1.0.150
+- [rust] serde_repr 0.1.20 — MIT OR Apache-2.0 — https://crates.io/crates/serde_repr/0.1.20
+- [rust] serde_spanned 1.1.1 — MIT OR Apache-2.0 — https://crates.io/crates/serde_spanned/1.1.1
+- [rust] serde_with 3.21.0 — MIT OR Apache-2.0 — https://crates.io/crates/serde_with/3.21.0
+- [rust] serde_with_macros 3.21.0 — MIT OR Apache-2.0 — https://crates.io/crates/serde_with_macros/3.21.0
+- [rust] serialize-to-javascript 0.1.2 — MIT OR Apache-2.0 — https://crates.io/crates/serialize-to-javascript/0.1.2
+- [rust] serialize-to-javascript-impl 0.1.2 — MIT OR Apache-2.0 — https://crates.io/crates/serialize-to-javascript-impl/0.1.2
+- [rust] servo_arc 0.4.3 — MIT OR Apache-2.0 — https://crates.io/crates/servo_arc/0.4.3
+- [rust] sha2 0.10.9 — MIT OR Apache-2.0 — https://crates.io/crates/sha2/0.10.9
+- [rust] simd-adler32 0.3.9 — MIT — https://crates.io/crates/simd-adler32/0.3.9
+- [rust] siphasher 1.0.3 — MIT OR Apache-2.0 — https://crates.io/crates/siphasher/1.0.3
+- [rust] smallvec 1.15.2 — MIT OR Apache-2.0 — https://crates.io/crates/smallvec/1.15.2
+- [rust] stable_deref_trait 1.2.1 — MIT OR Apache-2.0 — https://crates.io/crates/stable_deref_trait/1.2.1
+- [rust] string_cache 0.9.0 — MIT OR Apache-2.0 — https://crates.io/crates/string_cache/0.9.0
+- [rust] strsim 0.11.1 — MIT — https://crates.io/crates/strsim/0.11.1
+- [rust] swift-rs 1.0.7 — MIT OR Apache-2.0 — https://crates.io/crates/swift-rs/1.0.7
+- [rust] syn 2.0.118 — MIT OR Apache-2.0 — https://crates.io/crates/syn/2.0.118
+- [rust] synstructure 0.13.2 — MIT — https://crates.io/crates/synstructure/0.13.2
+- [rust] tao 0.35.3 — Apache-2.0 — https://crates.io/crates/tao/0.35.3
+- [rust] tauri 2.11.5 — Apache-2.0 OR MIT — https://crates.io/crates/tauri/2.11.5
+- [rust] tauri-codegen 2.6.3 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-codegen/2.6.3
+- [rust] tauri-macros 2.6.3 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-macros/2.6.3
+- [rust] tauri-plugin-dialog 2.7.1 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-plugin-dialog/2.7.1
+- [rust] tauri-plugin-fs 2.5.1 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-plugin-fs/2.5.1
+- [rust] tauri-plugin-opener 2.5.4 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-plugin-opener/2.5.4
+- [rust] tauri-plugin-single-instance 2.4.2 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-plugin-single-instance/2.4.2
+- [rust] tauri-runtime 2.11.3 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-runtime/2.11.3
+- [rust] tauri-runtime-wry 2.11.4 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-runtime-wry/2.11.4
+- [rust] tauri-utils 2.9.3 — Apache-2.0 OR MIT — https://crates.io/crates/tauri-utils/2.9.3
+- [rust] tendril 0.5.0 — MIT OR Apache-2.0 — https://crates.io/crates/tendril/0.5.0
+- [rust] thiserror 1.0.69 — MIT OR Apache-2.0 — https://crates.io/crates/thiserror/1.0.69
+- [rust] thiserror 2.0.18 — MIT OR Apache-2.0 — https://crates.io/crates/thiserror/2.0.18
+- [rust] thiserror-impl 1.0.69 — MIT OR Apache-2.0 — https://crates.io/crates/thiserror-impl/1.0.69
+- [rust] thiserror-impl 2.0.18 — MIT OR Apache-2.0 — https://crates.io/crates/thiserror-impl/2.0.18
+- [rust] time 0.3.53 — MIT OR Apache-2.0 — https://crates.io/crates/time/0.3.53
+- [rust] time-core 0.1.9 — MIT OR Apache-2.0 — https://crates.io/crates/time-core/0.1.9
+- [rust] time-macros 0.2.31 — MIT OR Apache-2.0 — https://crates.io/crates/time-macros/0.2.31
+- [rust] tinystr 0.8.3 — Unicode-3.0 — https://crates.io/crates/tinystr/0.8.3
+- [rust] tokio 1.52.3 — MIT — https://crates.io/crates/tokio/1.52.3
+- [rust] toml 1.1.2+spec-1.1.0 — MIT OR Apache-2.0 — https://crates.io/crates/toml/1.1.2+spec-1.1.0
+- [rust] toml_datetime 1.1.1+spec-1.1.0 — MIT OR Apache-2.0 — https://crates.io/crates/toml_datetime/1.1.1+spec-1.1.0
+- [rust] toml_parser 1.1.2+spec-1.1.0 — MIT OR Apache-2.0 — https://crates.io/crates/toml_parser/1.1.2+spec-1.1.0
+- [rust] toml_writer 1.1.1+spec-1.1.0 — MIT OR Apache-2.0 — https://crates.io/crates/toml_writer/1.1.1+spec-1.1.0
+- [rust] tracing 0.1.44 — MIT — https://crates.io/crates/tracing/0.1.44
+- [rust] tracing-attributes 0.1.31 — MIT — https://crates.io/crates/tracing-attributes/0.1.31
+- [rust] tracing-core 0.1.36 — MIT — https://crates.io/crates/tracing-core/0.1.36
+- [rust] typeid 1.0.3 — MIT OR Apache-2.0 — https://crates.io/crates/typeid/1.0.3
+- [rust] typenum 1.20.1 — MIT OR Apache-2.0 — https://crates.io/crates/typenum/1.20.1
+- [rust] unic-char-property 0.9.0 — MIT OR Apache-2.0 — https://crates.io/crates/unic-char-property/0.9.0
+- [rust] unic-char-range 0.9.0 — MIT OR Apache-2.0 — https://crates.io/crates/unic-char-range/0.9.0
+- [rust] unic-common 0.9.0 — MIT OR Apache-2.0 — https://crates.io/crates/unic-common/0.9.0
+- [rust] unic-ucd-ident 0.9.0 — MIT OR Apache-2.0 — https://crates.io/crates/unic-ucd-ident/0.9.0
+- [rust] unic-ucd-version 0.9.0 — MIT OR Apache-2.0 — https://crates.io/crates/unic-ucd-version/0.9.0
+- [rust] unicode-ident 1.0.24 — (MIT OR Apache-2.0) AND Unicode-3.0 — https://crates.io/crates/unicode-ident/1.0.24
+- [rust] unicode-segmentation 1.13.3 — MIT OR Apache-2.0 — https://crates.io/crates/unicode-segmentation/1.13.3
+- [rust] url 2.5.8 — MIT OR Apache-2.0 — https://crates.io/crates/url/2.5.8
+- [rust] urlpattern 0.3.0 — MIT — https://crates.io/crates/urlpattern/0.3.0
+- [rust] utf-8 0.7.6 — MIT OR Apache-2.0 — https://crates.io/crates/utf-8/0.7.6
+- [rust] utf8_iter 1.0.4 — Apache-2.0 OR MIT — https://crates.io/crates/utf8_iter/1.0.4
+- [rust] uuid 1.23.4 — Apache-2.0 OR MIT — https://crates.io/crates/uuid/1.23.4
+- [rust] walkdir 2.5.0 — Unlicense OR MIT — https://crates.io/crates/walkdir/2.5.0
+- [rust] web_atoms 0.2.5 — MIT OR Apache-2.0 — https://crates.io/crates/web_atoms/0.2.5
+- [rust] window-vibrancy 0.6.0 — Apache-2.0 OR MIT — https://crates.io/crates/window-vibrancy/0.6.0
+- [rust] winnow 1.0.3 — MIT — https://crates.io/crates/winnow/1.0.3
+- [rust] writeable 0.6.3 — Unicode-3.0 — https://crates.io/crates/writeable/0.6.3
+- [rust] wry 0.55.1 — Apache-2.0 OR MIT — https://crates.io/crates/wry/0.55.1
+- [rust] yoke 0.8.3 — Unicode-3.0 — https://crates.io/crates/yoke/0.8.3
+- [rust] yoke-derive 0.8.2 — Unicode-3.0 — https://crates.io/crates/yoke-derive/0.8.2
+- [rust] zerofrom 0.1.8 — Unicode-3.0 — https://crates.io/crates/zerofrom/0.1.8
+- [rust] zerofrom-derive 0.1.7 — Unicode-3.0 — https://crates.io/crates/zerofrom-derive/0.1.7
+- [rust] zerotrie 0.2.4 — Unicode-3.0 — https://crates.io/crates/zerotrie/0.2.4
+- [rust] zerovec 0.11.6 — Unicode-3.0 — https://crates.io/crates/zerovec/0.11.6
+- [rust] zerovec-derive 0.11.3 — Unicode-3.0 — https://crates.io/crates/zerovec-derive/0.11.3
+- [rust] zmij 1.0.21 — MIT — https://crates.io/crates/zmij/1.0.21
+
+Copyleft source availability
+
+The machine-readable inventory records the source URL and immutable hash
+or commit for each locked Python package. This includes mutagen and, in
+the optional distribution, deezer-py and streamrip. The streamrip source
+is pinned to commit 189acda489927719aa8591f6acdd7d67aecf929b.
+The publisher must retain these exact sources and make them available for
+as long as the corresponding binaries are offered; source requests may be
+made through https://github.com/Adridot/syncbox/issues.

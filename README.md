@@ -86,10 +86,11 @@ Syncbox write goes through a single guarded pipeline:
 The bundle and lifecycle harnesses are validated on Apple Silicon. The ignored
 private Rekordbox 7 fixtures pass the exact 10-node harness, the retained-event
 migration node, and the Smart Fixes copied-fixture node with zero skips and
-unchanged sources. Rekordbox 7.2.16 manual checks on disposable mutated copies
-also passed for reopen, playback, cues, beatgrid, analysis, MyTags, playlists,
-Smart Fix metadata, volume-relative paths, and ANLZ PPTH readability. App data
-lives in
+unchanged sources. Rekordbox 7.2.16 manual checks on CommonCrypto disposable
+copies also passed for reopen, playback, cues, beatgrid, analysis, MyTags,
+playlists, Smart Fix metadata, volume-relative paths, and ANLZ PPTH
+readability. The untouched live data directory was restored exactly after the
+approved swap. App data lives in
 `~/Library/Application Support/Syncbox`; database backups under
 `<storage root>/_syncbox/backups`.
 
@@ -159,8 +160,10 @@ docstring says how to run it.
 ## Status & roadmap
 
 Current source version: **0.2.2**. A local macOS 14+ Apple Silicon release
-candidate passes its strict scanner. Final independent-root equality, live
-artwork embedding, and public download-back are recorded only in the
+candidate passes its strict scanner, two isolated absolute source roots produce
+byte-identical base and optional ZIPs and unpacked trees, and the exact source,
+frozen, installed, and packaged Deezer lanes embed real artwork. Public
+download-back is recorded only in the
 [release closure report](docs/_handoffs/final-release-closure.md). The app is
 ad-hoc signed without a Developer ID or notarization.
 
@@ -173,7 +176,7 @@ ad-hoc signed without a Developer ID or notarization.
 - **Optional acquisition** — purchase links remain first. Deezer acquisition
   is explicit, disabled by default, requires a Premium credential stored only
   in the encrypted secret store. Local archive installation is validated; the
-  hash-pinned online component path remains blocked until the exact GitHub
+  hash-pinned online component path remains unavailable until the exact GitHub
   Release asset is published and downloaded back for verification. SoundCloud
   and ffmpeg are not exposed.
 - **Later** — in-app audio preview, fingerprint-based duplicate detection

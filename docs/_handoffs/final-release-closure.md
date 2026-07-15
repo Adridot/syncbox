@@ -7,11 +7,10 @@ Date: 2026-07-15
 **FINAL CANDIDATE VALIDATION IN PROGRESS — NOT YET PUBLISHED.**
 
 All source, real-Rekordbox, UI, Rust, lifecycle, bundle, identity, OAuth,
-license, and deterministic-packaging gates listed below have executable
-evidence. The remaining gates are the final two-root rebuild, live Deezer
-artwork embedding on those exact optional bytes, the post-CommonCrypto manual
-Rekordbox walkthrough if the owner authorizes another disposable swap, and
-GitHub Release publication followed by public download-back validation.
+license, artwork, controlled local packaging, two-root reproducibility, and
+exact-final-byte lifecycle gates listed below have executable evidence. The
+remaining gates are GitHub Release publication followed by public
+download-back validation.
 
 No pending gate is reported as passed.
 
@@ -34,7 +33,7 @@ No pending gate is reported as passed.
 - `uv lock --check` passes for the base and optional projects.
 - Clean locked syncs pass with managed CPython 3.14.2 and 3.13.11.
 - `uv pip check` passes for 37 base and 42 optional installed packages.
-- The complete Python suite passes: `580 passed, 1 skipped`. The sole skip is
+- The complete Python suite passes: `582 passed, 1 skipped`. The sole skip is
   the raw retained-event test when no private fixture is configured; its
   dedicated private harness passes separately with zero skips.
 - UI: 22 Vitest files and 78 tests pass; typecheck passes; production build
@@ -53,17 +52,25 @@ No pending gate is reported as passed.
   tracked.
 - `poc/run_real_rekordbox_tests.py`: exactly 10 passed, zero skips, all three
   source fixtures unchanged by size, timestamps, and SHA-256.
-- `poc/run_event_migration_tests.py`: exactly 1 passed, zero skips, all eight
-  declared source files unchanged.
+- `poc/run_event_migration_tests.py`: exactly 1 passed, zero skips, all seven
+  declared source files unchanged. The derived fixture was checkpointed and
+  canonicalized to SQLite DELETE journal mode through CommonCrypto SQLCipher;
+  no empty or inapplicable WAL/SHM file is retained.
 - The ten-node run includes the real Smart Fix copied-fixture node. Every
   previewed value matched the copied database, execution was idempotent, and
   the next preview was empty.
-- Rekordbox 7.2.16 previously passed the approved disposable-copy walkthrough:
-  reopen, playback, cues, beatgrid, waveform and analysis, MyTags, playlists,
-  Smart Fix metadata, volume-relative paths, and ANLZ PPTH readability. That
-  walkthrough predates the switch to CommonCrypto; a new data-directory swap
-  requires a fresh exact procedure and owner confirmation immediately before
-  it is attempted.
+- After an immediately preceding owner authorization, Rekordbox 7.2.16 passed
+  the CommonCrypto disposable-copy walkthrough. The Smart Fix copy displayed
+  the exact corrected metadata and preserved playback, cues, beatgrid,
+  waveform, analysis, MyTags, and playlists. The retained-event copy preserved
+  playback, cue, beatgrid, waveform, analysis, its non-event MyTag and playlist
+  membership, the volume path, and ANLZ PPTH readability.
+- The original live data directory was held untouched during both checks. Its
+  12,718-file manifest had SHA-256
+  `1b523e27bf96539f0d498a65a57240ff64eba7648c5d3810b107fee07042c074`
+  before the swap and after restoration. The strict guard was closed before
+  and after every transition, the hold directory was removed by the atomic
+  restore, and the private test volume was detached.
 
 ## Identity and data compatibility
 
@@ -96,17 +103,21 @@ No pending gate is reported as passed.
 - The policy still fails closed on any unlisted non-permissive license.
 - The scanner aligns every frozen Python distribution in both artifacts with
   its locked runtime graph and embedded license inventory.
+- Native coverage is exhaustive and fail-closed: all 30 base Mach-O files map
+  to 29 inventoried third-party/license owners plus one project-owned shell,
+  and all 28 optional Mach-O files map to inventoried owners. Any additional,
+  removed, or renamed native artifact fails the scanner.
 - This evidence is not legal advice and makes no claim beyond the assembled
   inventory, notices, source locations, and tested artifact boundaries.
 
 ## Optional artwork candidate
 
-The exact final candidate is not yet the published proof:
+The exact local final candidate is not yet the published proof:
 
 ```text
 Name:    syncbox-deezer-component-0.2.2-macos-arm64.zip
-Bytes:   17,340,517
-SHA-256: 37fb7375a357a0fb218709a2092632fd18d99c828c541c341645969eda1fb39c
+Bytes:   17,340,644
+SHA-256: 13976d4b49c345e241e0cac9a9465a06eeebafb97c36f246214b653785a7b9dd
 ```
 
 - Pillow 10.4.0 is pinned to the official CPython 3.13 macOS 11 arm64 wheel,
@@ -116,25 +127,33 @@ SHA-256: 37fb7375a357a0fb218709a2092632fd18d99c828c541c341645969eda1fb39c
   payloads, certifi TLS, and Deezer-only provider exposure.
 - The artifact contains no SoundCloud, Qobuz, Tidal, generic streamrip CLI,
   ffmpeg, streamrip database, generated `config.toml`, credential, or token.
-- Two consecutive clean freezes in the same controlled root produced the exact
-  candidate bytes above. Independent-root equality and live artwork embedding
-  remain required.
+- A real one-shot-credential run passed through source, the exact frozen
+  component, installation through the base boundary, and the packaged app.
+  Every lane resolved ISRC `USQX91300105` to Deezer track `67238732`, returned
+  `track.download_path`, produced a 337.56-second 13,540,687-byte MP3, and
+  verified an embedded 500x500 JPEG cover in ID3 APIC metadata. The output,
+  one-shot credential, encrypted-store test value, and temporary case data
+  were deleted; no generated streamrip configuration or database remained.
+- The frozen runner now verifies that streamrip artwork uses the actual
+  `BasicDownloadable` implementation loaded by the constrained component
+  rather than its import-time placeholder. Independent-root equality is
+  proven below.
 
 ## Base application candidate
 
-The exact final candidate is not yet the published proof:
+The exact local final candidate is not yet the published proof:
 
 ```text
 Name:    Syncbox-0.2.2-macos-arm64.zip
-Bytes:   29,295,890
-SHA-256: 454043354c97b7de03b2858503c0e2b0754432a81bbaaa0dfdd015fef4482e4c
+Bytes:   29,296,019
+SHA-256: 296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c
 ```
 
 - The strict scanner passes with 30 arm64 ad-hoc-signed Mach-O files,
   effective minimum macOS 14.0, 155 sorted base-library modules, 23 frozen
   runtime distributions, CommonCrypto SQLCipher, and exact app/ZIP equality.
-- The scanned application tree is 59,244,723 bytes with normalized digest
-  `7eff8bc22eefacffb7967dd76523d9ee11aa44a9e777bcfa77fcb0231f514d7c`.
+- The scanned application tree is 59,245,018 bytes with normalized digest
+  `e034f55644c9c4d2772c706ce59fc7ebe62b4ad46fe2c3a0ad3c0fd9390fa5c1`.
 - The base imports and contains no streamrip, Deezer acquisition runtime,
   external Python dependency, secret, local installation metadata, or legacy
   bundle identifier.
@@ -176,14 +195,14 @@ SHA-256: 454043354c97b7de03b2858503c0e2b0754432a81bbaaa0dfdd015fef4482e4c
 
 ## Lifecycle evidence
 
-- Source: ready 0.67 s; respawn 0.40 s; HTTP shutdown 292 ms; TERM 238 ms;
+- Source: ready 4.21 s; respawn 0.39 s; HTTP shutdown 289 ms; TERM 186 ms;
   KILL released the port; no child or orphan remained.
-- Frozen: ready 5.82 s; respawn 0.38 s; HTTP shutdown 291 ms; TERM 186 ms;
+- Frozen: ready 5.90 s; respawn 0.38 s; HTTP shutdown 351 ms; TERM 180 ms;
   KILL released the port.
-- App-embedded sidecar: ready 0.56 s; respawn 0.39 s; HTTP shutdown 289 ms;
-  TERM 181 ms; KILL released the port.
+- App-embedded sidecar: ready 0.55 s; respawn 0.39 s; HTTP shutdown 289 ms;
+  TERM 173 ms; KILL released the port.
 - Optional source/frozen/packaged installation lanes pass. Ready/install
-  measurements are 0.56 s/5.95 s, 0.44 s/5.44 s, and 1.32 s/31.11 s.
+  measurements are 0.45 s/8.81 s, 0.45 s/5.75 s, and 1.32 s/30.94 s.
 - A second packaged launch exits 0 in 0.13 s and leaves one sidecar.
 - Foreign listeners are preserved, stale listeners are reaped and replaced,
   five immediate failures leave no listener, and supervisor backoff is exactly
@@ -192,19 +211,34 @@ SHA-256: 454043354c97b7de03b2858503c0e2b0754432a81bbaaa0dfdd015fef4482e4c
   8766. SSE completion and reconnect pass in the UI suite.
 - The packaged WKWebView walkthrough covered onboarding, Settings, Library,
   the connected Spotify state and playlist list, and displayed version 0.2.2.
+  The exact final bundle rerun additionally covered all six routes, the five
+  Collection Health tabs, Spotify and optional-Deezer settings, and a normal
+  menu quit with an intentional sidecar handshake and no remaining process or
+  listener.
+- The post-runtime strict scanner and `codesign --verify --deep --strict`
+  remain green on the exact reproducible bytes.
+
+## Two-root artifact reproducibility
+
+- Two isolated source roots at different absolute paths contained the same
+  1,024-file release-source manifest. The final comparator output records its
+  digest without introducing a self-referential digest into that manifest.
+- Each root built and independently scanned the base and optional artifacts
+  under the pinned release environment.
+- Both base ZIPs are byte-identical at 29,296,019 bytes with SHA-256
+  `296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c`.
+  Their unpacked trees are identical with normalized digest
+  `2d5b36a6113fa61f8693dcd6318bcb793373d3219583521095dd6a2da662fb0d`.
+- Both optional ZIPs are byte-identical at 17,340,644 bytes with SHA-256
+  `13976d4b49c345e241e0cac9a9465a06eeebafb97c36f246214b653785a7b9dd`.
+  Their unpacked trees are identical with normalized digest
+  `21e62e890ee4e86317d82a56b7cee14faecb26d48ad452499ae177c925103810`.
+- The comparator reported no source, ZIP-entry, or unpacked-tree difference.
+  No binary patch or mismatch exception was used.
 
 ## Remaining release gates
 
-1. Build the exact frozen source from two clean, different absolute roots;
-   require identical base and optional ZIP bytes and unpacked trees, and run
-   the complete scanner independently in both roots.
-2. Run real full-track Deezer acquisition with a local one-shot credential
-   through source, frozen, installed, and packaged lanes; prove the artwork is
-   embedded in the resulting audio and no credential/config/database remains.
-3. If the owner authorizes it immediately beforehand, repeat the exact safe
-   disposable Rekordbox data-directory swap and manual walkthrough with the
-   CommonCrypto candidate.
-4. Commit and push the exact release source, create `v0.2.2` without replacing
+1. Commit and push the exact release source, create `v0.2.2` without replacing
    any existing public asset, upload the validated bytes, publish, download
    both assets through public HTTPS URLs, and repeat size, SHA-256, scanner,
    installation, and live runtime validation on the downloaded bytes.
@@ -226,6 +260,13 @@ SHA-256: 454043354c97b7de03b2858503c0e2b0754432a81bbaaa0dfdd015fef4482e4c
 - [GitHub Release assets](https://docs.github.com/en/rest/releases/assets)
 - [GitHub immutable releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/immutable-releases)
 - [deezer-py 1.3.6 metadata](https://pypi.org/pypi/deezer-py/1.3.6/json)
+- [Python `os.replace`](https://docs.python.org/3/library/os.html#os.replace)
+- [Python `shutil.copy2`](https://docs.python.org/3/library/shutil.html#shutil.copy2)
+- [Rekordbox 7.2.14 manual: backup and restore](https://cdn.rekordbox.com/files/20260409151936/rekordbox7.214_manual_EN.pdf)
+- [streamrip pinned artwork implementation](https://github.com/nathom/streamrip/blob/189acda489927719aa8591f6acdd7d67aecf929b/streamrip/media/artwork.py)
+- [Pillow installation guidance](https://pillow.readthedocs.io/en/stable/installation/index.html)
+- [SQLite write-ahead logging](https://sqlite.org/wal.html)
+- [SPDX package/file relationships](https://spdx.github.io/spdx-spec/v2.3/relationships-between-SPDX-elements/)
 
 Exact source URLs and immutable hashes for every inventoried dependency and
 bundled native library are stored in the two dependency inventories.

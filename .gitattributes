@@ -1,0 +1,3 @@
+# Preserve verbatim upstream license texts; their whitespace is inventory data.
+release/licenses/base/texts/** -text -whitespace
+release/licenses/optional/texts/** -text -whitespace

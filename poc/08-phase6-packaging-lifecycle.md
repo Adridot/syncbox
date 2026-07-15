@@ -363,14 +363,16 @@ Primary sources:
 
 This POC remains the historical Phase 6 evidence for version 0.2.1 and its
 measured lifecycle baseline. It is not the current artifact manifest. The
-final-candidate optional 0.2.2 ZIP is 17,340,517 bytes with SHA-256
-`37fb7375a357a0fb218709a2092632fd18d99c828c541c341645969eda1fb39c`.
+final-candidate optional 0.2.2 ZIP is 17,340,644 bytes with SHA-256
+`13976d4b49c345e241e0cac9a9465a06eeebafb97c36f246214b653785a7b9dd`.
 It includes scanner-verified Pillow artwork support, frozen-runtime license
-alignment, and complete generated redistribution material. The final-candidate base
-0.2.2 ZIP is 29,295,890 bytes with SHA-256
-`454043354c97b7de03b2858503c0e2b0754432a81bbaaa0dfdd015fef4482e4c`.
-Clean locked environments, every lifecycle edge, and real packaged Spotify
-PKCE/refresh/recovery now pass. Independent-root equality, final artwork
-embedding, any owner-approved post-provider manual Rekordbox walkthrough, and
-public Release download-back remain pending as listed in
+alignment, and complete generated redistribution material. The final-candidate
+base 0.2.2 ZIP is 29,296,019 bytes with SHA-256
+`296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c`.
+Clean locked environments, every lifecycle edge on the exact final bytes, and
+real packaged Spotify PKCE/refresh/recovery pass. The exact source, frozen, installed, and
+packaged optional lanes embedded real JPEG artwork, and the owner-approved
+CommonCrypto Rekordbox walkthrough passed before an exact live-directory
+restore. Two isolated absolute roots produced byte-identical base and optional
+ZIPs and unpacked trees. Public Release download-back remains pending as listed in
 `docs/_handoffs/final-release-closure.md`.

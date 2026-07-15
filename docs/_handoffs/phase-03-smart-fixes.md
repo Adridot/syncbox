@@ -354,13 +354,14 @@ Therefore:
 No A3/B2 validation, B1 acquisition, packaging, Windows, signing, Keychain, or
 deferred v2 work was performed.
 
-## Final release closure update — 2026-07-14
+## Final release closure update — 2026-07-15
 
 The historical fixture and manual blockers above are closed. The private
 ten-node Rekordbox harness, including
 `tests/test_rb_write.py::test_smartfixes_runner_end_to_end`, passed with zero
 skips and unchanged source fixtures. Every planned field matched the copied
 database and the next preview was empty. Rekordbox 7.2.16 then displayed the
-expected title, artist, and remixer values on the approved disposable copy.
+expected title, artist, and remixer values on the approved CommonCrypto
+disposable copy. The untouched live data directory was restored exactly.
 POC #8 is **GO**; the original Phase 3 test counts and blocked verdict above
 remain the historical implementation handoff.

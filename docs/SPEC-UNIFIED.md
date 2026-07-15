@@ -17,7 +17,7 @@
 | Project magnitude | **Decided** — rewrite *from scratch* |
 | Forks A, B, C, D | **Resolved** (§7.1). Tauri and the separate streamrip component are validated for local macOS Apple Silicon artifacts. Developer ID signing and notarization are explicitly deferred; they are not v1 POC gates. |
 | Questions §10.1–§10.8 | **Decided** (§7.2), sourced + verified (Phase 2 adversarial review) |
-| Questions §10.9 (UI/UX) & §10.10 (configurable matching) | **Delegated to design phase** (§9) — that is the decision |
+| Questions §10.9 (UI/UX) & §10.10 (configurable matching) | **Implemented and tested** (§9): six routed destinations, deep-linked Health/Missing views, guided onboarding, and bounded advanced matching settings |
 | Decisions D1–D25 | **Integrated** (§7.3) |
 | SPEC-01 §9 non-negotiables | **Preserved** (§3), with reframing of the test contract |
 | Product scope (OVERHAUL-01, 2026-06-16) | **Integrated** (§4, §5.11–§5.13, §6.5, §6.12, §7.4, §8). macOS v1 includes A1 Smart Fixes, the conservative A3 spectral fallback, optional B1 Deezer/streamrip acquisition, and B2 legal Track Matcher. Full A3 classification is `NO-GO`: the fallback reports `ok` or `incertain` and never penalizes keeper selection. B1 returned `GO` on 2026-07-13 after a real full-track Deezer POC. A2/Chromaprint and SoundCloud/ffmpeg remain deferred to v2. |
@@ -127,7 +127,11 @@ Entities that survive regardless of the technology (details SPEC-01 §6):
 
 > These are the business rules, invariants, and edge cases that **must survive** regardless of technology. SPEC-01 §3 preserves historical detail; the current source and executable tests are authoritative evidence.
 >
-> The **numeric constants** cited below (weights, buckets, thresholds) are **carried over from SPEC-01 §3**: SPEC-01 remains the **canonical source** in case of divergence, and their potential **exposure/configurability** is a design decision (§10.10).
+> The **numeric constants** cited below (weights, buckets, thresholds) are the
+> defaults carried over from SPEC-01 §3. Advanced Settings exposes the
+> confidence threshold, ambiguity margin, weights, and guarded ISRC policy with
+> bounded controls and reset-to-default behavior. ISRC-first ordering, D19
+> normalization, and duration buckets remain locked invariants (§9).
 
 **5.1 Rekordbox safety** — see §3.1. The mutation guard strictly re-filters the process (path contains `/rekordbox.app/`·`/rekordboxagent.app/` or ends with `/rekordbox`·`/rekordboxagent` on macOS; `rekordbox.exe`·`rekordboxAgent.exe` on Windows). `rekordboxAgent` survives window closure → always checked. Backup before mutation, N rotation, same-second collision → suffix. Restore validates name (rejects paths outside backups root), snapshots first, requires RB closed.
 
@@ -158,7 +162,7 @@ Entities that survive regardless of the technology (details SPEC-01 §6):
 **5.9 Spotify (auth and reads).** **D3: PKCE OAuth only** (S256), with the read-only `playlist-read-private` and `playlist-read-collaborative` scopes. No app-only mode, client secret, username flow, or Basic-auth branch exists. Refresh preserves the stored `refresh_token` when Spotify omits a replacement. Retry is bounded to four attempts: 429 waits `Retry-After + attempt`; 401 forces one refresh only on the first attempt; 204 returns `{}`; errors preserve the upstream status. A private or inaccessible playlist returns an actionable connection message. **Callback:** see §6.10; the exact `127.0.0.1:8765` listener is temporary, while API/SSE remains on 8766. No deprecated audio-features or recommendations endpoint is required. Playlist access remains a monitored platform risk, not a claim of permanent Spotify availability.
 
 **5.10 Settings, persistence, and backup/restore.** Settings are persisted in SQLite and are **never re-saved at startup**; defaults are applied when reading so stored credentials cannot be blanked. **Blank protection:** a credential update with an empty value preserves the stored value. Rekordbox and storage paths are validated. Settings JSON exports and all-data SQLite exports **exclude OAuth tokens entirely**; encryption at rest does not make a readable export safe. All-data export uses `VACUUM INTO` for one coherent file, and import validates and migrates a staged copy before atomic replacement while preserving a safety backup of the current database. The UI reads one canonical settings store.
-- **Doctor (F9, KEEP v1)**: diagnostics center exposing the **list / restore / N rotation of backups** (§4, §5.1) and access to **logs**. The **mechanics** live here (§5.1/§5.10, already specified); only the **UI surface** is delegated to design (§9, “Collection health” hub). No collection analysis (orphans/never-played) in v1 — deferred to v2 (§7.4).
+- **Doctor (F9, KEEP v1)**: diagnostics center exposing the **list / restore / N rotation of backups** (§4, §5.1) and access to **logs**. The mechanics live here (§5.1/§5.10); the implemented UI surface is the Backups tab in the Collection Health hub (§9). No collection analysis (orphans/never-played) in v1 — deferred to v2 (§7.4).
 
 **Decided cross-cutting bug fixes** (D14–D25, already integrated above or below): **D16** bulk tags as **delta add/remove** (never overwrite by union, fixes B3); **D17** distinct “applied with warnings” state (not red/error, fixes B8); **D22** restore `unignore` restores the **previous status** (not `new`, fixes B9); **D24** no auto-update (consistent with memory `no-auto-build-release`); **D25** remove dead tables/fields (`event_playlists`, `ProposalType.*_to_spotify`, unused tones); **D21** global reversibility preserved (soft-delete + backups + restore), **extended** to file trash (§6.9).
 
@@ -245,13 +249,13 @@ The v1 distribution contract uses ad-hoc signing only. Developer ID signing, har
 
 **Acquisition library = streamrip, Deezer-only.** The exact upstream source and commit are recorded in the component inventory and Phase 5 handoff.
 - **streamrip component**: pin git **v2.2.0** at exact commit `189acda489927719aa8591f6acdd7d67aecf929b` — **NOT PyPI 2.1.0**. The dedicated runner uses the proven API path `Config.defaults()` per job → `client.login()` → `PendingSingle.resolve()` → `track.rip()` → **`track.download_path`** (D18 without filename reconstruction). `Config` per job ⇒ **zero global state** (fixes F2/F3). ARL is passed through an encrypted secret to a one-shot `0600` temp file consumed by the runner, then cleared from memory as soon as practical. **Hard TLS clause (testable, mirror §3.6)**: certifi is pinned and TLS verification must remain enabled.
-- **Artwork**: Pillow 10.4.0 is pinned to its official CPython 3.13 macOS arm64 wheel and packaged only with the optional component. The component enables streamrip artwork handling and verifies that cover art is embedded in the resulting audio metadata. Source, frozen, installed-component, and packaged-host lanes are required; a real one-shot-credential rerun must validate the exact release bytes before publication.
+- **Artwork**: Pillow 10.4.0 is pinned to its official CPython 3.13 macOS arm64 wheel and packaged only with the optional component. The component enables streamrip artwork handling and verifies that cover art is embedded in the resulting audio metadata. A real one-shot-credential rerun passed in the source, exact frozen component, installed-component, and packaged-host lanes; each lane verified the embedded JPEG through Mutagen and Pillow.
 - **Generic streamrip CLI remains excluded**: Syncbox does not call the human CLI output. It calls the dedicated JSON runner so the real output path comes from streamrip internals instead of reconstructed filenames.
 - **deemix-fork (vietsman) = documented fallback only if streamrip breaks later**: no v1 implementation unless streamrip becomes unmaintainable or fails a future bump POC. **Dominant risk**: the streamrip internal API is fragile to upgrades → **strict commit pin + integration tests surviving a bump** (maintainability guardrail §2).
 
 **SoundCloud → v2/B4**: it serves HLS MP3 and **requires external ffmpeg** (+40-80 MB/platform, cross-OS packaging §3.7), which would almost double the sidecar (§2 lightness). Deezer (direct-served FLAC/MP3) **does not require ffmpeg** → v1 stays light. SoundCloud should ideally return as a **downloadable plugin outside the base sidecar**.
 
-**Validated gate (POC #5).** The Phase 5 rerun proved a full-track Deezer download on macOS Apple Silicon with a real Premium ARL: ISRC `USQX91300105`, Deezer track id `67238732`, catalogue duration `337 s`, measured duration `337.56 s`, `track.download_path` source, `13,520,081` bytes, and output cleanup. B1 downloads by numeric Deezer ID resolved from ISRC, never by short URL (#865). Packaging validates the self-contained optional component in source, frozen, installed, and Tauri-host lanes; the base contains no streamrip distribution, Deezer runtime, Pillow, or real ARL. The exact final artifact still requires the live artwork-embedding rerun before publication.
+**Validated gate (POC #5).** The Phase 5 rerun proved a full-track Deezer download on macOS Apple Silicon with a real Premium ARL. The final-candidate rerun resolved ISRC `USQX91300105` to Deezer track id `67238732`, matched the `337 s` catalogue duration with a measured duration of `337.56 s`, used the real `track.download_path`, produced a `13,540,687`-byte MP3, and verified an embedded 500x500 JPEG cover in every source/frozen/installed/Tauri-host lane before cleanup. B1 downloads by numeric Deezer ID resolved from ISRC, never by short URL (#865). The base contains no streamrip distribution, Deezer runtime, Pillow, or real ARL.
 
 ### 6.6 Lifecycle & Supervision (§10.8)
 
@@ -312,22 +316,22 @@ Three v1 additions live **in the Python sidecar**, without a new shell or servic
 | **A — RB write** | **`master.db` in place, without XML mode** (the former double-meaning “A2” is abandoned) | **Decided** | §6.4 |
 | **B — Shell** | **Tauri v2** for macOS Apple Silicon; Electron is not an active fallback | **Validated locally**; Developer ID/notarization deferred | §6.2 |
 | **C — Transport** | **Keep localhost HTTP + SSE** (Starlette+sse-starlette, uvicorn 1 worker); **reject JSON-RPC stdio** | **Decided** | §6.3 |
-| **D — Acquisition** | **Optional module, OFF by default**, with B2 purchase links kept primary. streamrip is a separately distributed component pinned to v2.2.0 and an exact commit; the Syncbox interface is Deezer-only. Deemix remains a documented fallback only; SoundCloud and ffmpeg are deferred beyond v1. | **Resolved** (full-track and packaged-boundary gates pass; notices are complete; exact final artwork and public download-back remain release gates) | §6.5 |
+| **D — Acquisition** | **Optional module, OFF by default**, with B2 purchase links kept primary. streamrip is a separately distributed component pinned to v2.2.0 and an exact commit; the Syncbox interface is Deezer-only. Deemix remains a documented fallback only; SoundCloud and ffmpeg are deferred beyond v1. | **Resolved** (full-track, artwork, packaged-boundary, and notice gates pass; public download-back remains a release gate) | §6.5 |
 
 ### 7.2 Answers to the 10 §10 Questions
 
 | § | Question | Decided answer |
 |---|---|---|
 | 10.1 | Target stack | Tauri v2 + Vue UI + Python sidecar (Starlette HTTP+SSE) + pyrekordbox. §6 |
-| 10.2 | Deezer acquisition | Optional module, **OFF by default**; streamrip is a separate self-contained component pinned to v2.2.0 and the exact commit. Full-track, source/frozen/installed/packaged lifecycle, base-exclusion, license, and deterministic packaging gates pass. Exact final live artwork and public download-back remain. §6.5 |
+| 10.2 | Deezer acquisition | Optional module, **OFF by default**; streamrip is a separate self-contained component pinned to v2.2.0 and the exact commit. Full-track, source/frozen/installed/packaged artwork, lifecycle, base-exclusion, license, controlled local archive/scanner, and exact two-root equality gates pass. Public download-back remains. §6.5 |
 | 10.3 | Data layer / source of truth | **Convergence**: one UI cache layer + one canonical SSE stream + one settings store. §6.3, §5.10 |
 | 10.4 | Secrets at rest | Owner-selected SQLCipher store using Apple CommonCrypto for unsigned v1; Keychain deferred. §6.7 |
 | 10.5 | Schema migration | `PRAGMA user_version` + stdlib SQL scripts; seed = migration 0001. §6.8 |
 | 10.6 | Multi-OS abstraction | `psutil` (process) + `send2trash` (trash, deletion+warning fallback) + stdlib (paths). §6.9 |
 | 10.7 | OAuth callback | Exact temporary `127.0.0.1:8765/callback`, hard-coded redirect URI, PKCE; permanent API/SSE on 8766. §6.10 |
 | 10.8 | Robustness / supervision | Homegrown Tauri supervisor (bounded restart + `backend-down`), critical tree-kill, single-instance. §6.6 |
-| 10.9 | UI/UX | **Delegated to design phase** (§9) — this is the answer. |
-| 10.10 | Configurable matching | **Delegated to design phase** (§9); algorithm invariants (§5.3) preserved; D19 single normalization. |
+| 10.9 | UI/UX | **Implemented and tested**: six hash-routed destinations, deep-linked Health/Missing views, dashboard-first fallback, five Health tabs, and ten-step onboarding. §9 |
+| 10.10 | Configurable matching | **Implemented and tested**: bounded threshold, ambiguity-margin, weight, and ISRC-policy controls with reset; ISRC-first ordering, D19 normalization, and duration buckets stay locked. §9 |
 
 ### 7.3 Decisions D1–D25 — Integration
 
@@ -381,22 +385,31 @@ Three v1 additions live **in the Python sidecar**, without a new shell or servic
 2. **Process lifecycle** — `GO`: source, frozen, embedded, and packaged lanes validate process-group termination, clean SQLCipher shutdown, 1/2/4-second restart exhaustion, manual recovery, single instance, foreign/stale listeners, no orphan, and release of ports 8766 and 8765.
 3. **Real bundle size + cold start** — measured with PyInstaller `onedir`, CommonCrypto SQLCipher, and the complete A3 runtime. Exact final sizes belong to the final release handoff; packager replacement is not justified.
 4. **Packaged WKWebView/SSE** — `GO` on the 0.2.2 candidate. WebView2 remains deferred with Windows v2.
-5. **Real Rekordbox fidelity** — `GO`: the ten-node private harness, retained-event migration harness, and Smart Fix copied-fixture node pass with zero skips and unchanged sources. The required Rekordbox 7.2.16 disposable-copy walkthrough also passed; a post-CommonCrypto repeat requires a new owner-authorized swap.
-6. **Acquisition B1** — `GO` for the full-track and packaged boundary. Exact final live artwork embedding remains a release gate. SoundCloud and ffmpeg remain outside v1.
+5. **Real Rekordbox fidelity** — `GO`: the ten-node private harness, retained-event migration harness, and Smart Fix copied-fixture node pass with zero skips and unchanged sources. The owner-approved Rekordbox 7.2.16 CommonCrypto disposable-copy walkthrough also passed and the untouched live directory was restored exactly.
+6. **Acquisition B1** — `GO` for the full-track, artwork, and packaged boundary. Source, exact frozen, installed, and packaged lanes verify the embedded cover. SoundCloud and ffmpeg remain outside v1.
 7. **A3** — full classifier `NO-GO`; conservative read-only fallback `GO`, deterministic and keeper-neutral.
 8. **B2 purchase links** — `GO` for browser-only Beatport/Bandcamp templates and the removed-store fallback. A2 fingerprint dedup remains deferred to v2.
 9. **A1 Smart Fixes** — `GO`: dry-run equals the executed payload, fixed composition is deterministic and idempotent, ownership is neutral, `_mutate` is mandatory, and stale snapshots abort before writing.
 
 ---
 
-## 9. Out of Scope for This Spec — Delegated to Design Phase
+## 9. Implemented Design Decisions
 
-In accordance with the Gate 1 decision (“decide infra, delegate design”), **two topics remain open by choice** and will be designed in the design phase, outside heavy research:
+The design phase closed the two questions that Gate 1 delegated:
 
-- **§10.9 — UI/UX.** Screen structure, navigation (router/deep-link? groupings §8.2 of SPEC-01: unified acquisition center, “Collection health” hub; guided flows/onboarding). The existing app (9 screens, state-based navigation) and the identified inconsistencies (SPEC-01 §8) are the input; nothing is frozen.
-- **§10.10 — Configurable matching.** Whether to expose thresholds (confidence 82, margin 6, weights) to the user; ISRC collision unification policy. The **algorithm invariants** (§5.3) and **single normalization** (D19) are preserved; only **exposure/configurability** is a design decision.
-
-> Minimal-design note: do not freeze UI/UX or a matching settings panel now — YAGNI until design has decided the flows. Behavior invariants (§5) hold regardless of design.
+- **§10.9 — UI/UX.** Vue uses a hash router with six destinations:
+  Dashboard, Library, Events, Collection Health, Missing, and Settings.
+  Collection Health deep-links its Duplicates, Missing, Untagged, Smart Fixes,
+  and Backups tabs; Missing deep-links library, event, and collection scopes.
+  Unknown routes return to Dashboard, and the ten-step onboarding remains
+  replayable from Settings. The UI suite covers routing, core screens,
+  onboarding, FR/EN parity, and guarded mutation dialogs.
+- **§10.10 — Configurable matching.** The collapsed Advanced Settings section
+  exposes bounded confidence-threshold, ambiguity-margin, title/artist/duration
+  weights, and ISRC-policy controls with validation and reset. ISRC-first
+  ordering, shared D19 normalization, duration buckets, and all write-safety
+  invariants remain locked. These design choices are implemented behavior, not
+  remaining release gates.
 
 ---
 
@@ -404,4 +417,4 @@ In accordance with the Gate 1 decision (“decide infra, delegate design”), **
 
 - **Current implementation and test authority**: [PROMPT-05](PROMPT-05-implementation.md), [Phase 1 report](PHASE-1-REPORT.md), the phase handoffs in [_handoffs/](_handoffs/), and the executable POCs indexed by [poc/README.md](../poc/README.md).
 - **Material official and upstream sources**: recorded with URLs and access dates in the phase handoffs and [final release closure](_handoffs/final-release-closure.md). Historical `_research` and `_analysis` paths referenced by older prompts are not present in the current workspace and are not release inputs.
-- **Remaining release gates**: exact two-root byte equality, live artwork embedding with the exact optional bytes, the owner-authorized post-CommonCrypto Rekordbox walkthrough if performed, GitHub Release publication, and validation of every publicly downloaded byte. Windows packaging and any evidence that could justify A2 belong to v2.
+- **Remaining release gates**: GitHub Release publication and validation of every publicly downloaded byte. Windows packaging and any evidence that could justify A2 belong to v2.

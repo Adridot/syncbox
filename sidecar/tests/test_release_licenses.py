@@ -433,6 +433,39 @@ def test_base_native_builds_are_exact_and_use_apple_system_crypto():
     )
 
 
+@pytest.mark.parametrize(
+    ("target", "mapped", "project_owned"),
+    [("base", 29, 1), ("optional", 28, 0)],
+)
+def test_every_native_artifact_maps_to_inventoried_license_owners(
+    target, mapped, project_owned
+):
+    scanner = _load_scanner()
+    root = Path("/artifact")
+    paths = (
+        scanner.PROJECT_NATIVE_ARTIFACTS[target]
+        | set(scanner.NATIVE_ARTIFACT_LICENSE_OWNERS[target])
+    )
+    result = scanner.validate_native_license_coverage(
+        root,
+        target,
+        [root / path for path in paths],
+        _inventory(target),
+    )
+
+    assert result == {
+        "inventory_mapped": mapped,
+        "project_owned": project_owned,
+    }
+    with pytest.raises(AssertionError, match="unexpected=.*unlicensed"):
+        scanner.validate_native_license_coverage(
+            root,
+            target,
+            [*(root / path for path in paths), root / "unlicensed.dylib"],
+            _inventory(target),
+        )
+
+
 def test_optional_pillow_native_inventory_matches_packaged_payload():
     pillow = next(
         entry
