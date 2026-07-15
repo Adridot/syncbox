@@ -5,11 +5,11 @@ Run with the project venv python (builds nothing - build the shell first):
     (cd shell/src-tauri && cargo build)
     sidecar/.venv/bin/python shell/harness/test_single_instance.py
 
-Asserts, against target/debug/syncbox-shell on the production port 8765:
+Asserts, against target/debug/syncbox-shell on the production port 8766:
   - launch 1 spawns exactly one sidecar (SIDECAR_SPAWNED, /health OK)
   - launch 2 exits quickly on its own, reaches no setup, spawns nothing
   - SINGLE_INSTANCE_CALLBACK fires in the FIRST instance's pid
-  - during the overlap window exactly one sidecar / one :8765 listener
+  - during the overlap window exactly one sidecar / one :8766 listener
   - primary's timed exit runs the full handshake (SHUTDOWN intent=true),
     port released, no processes left
 """
@@ -29,7 +29,7 @@ SHELL_BIN = os.environ.get("SYNCBOX_SHELL_BIN") or os.path.join(
     REPO, "shell/src-tauri/target/debug/syncbox-shell"
 )
 LOG = os.path.join(HERE, "build/single-instance.log")
-PORT = 8765
+PORT = 8766
 def log_lines():
     if not os.path.exists(LOG):
         return []

@@ -8,7 +8,7 @@ Set SYNCBOX_SHELL_BIN to the packaged app executable to repeat the same
 checks against the embedded frozen sidecar.
 
 Validates:
-- a foreign listener on port 8765 is identified, preserved, and never sent
+- a foreign listener on port 8766 is identified, preserved, and never sent
   POST /shutdown;
 - an exact Syncbox protocol listener left by an earlier shell is reaped,
   replaced, and then stopped cleanly;
@@ -36,7 +36,7 @@ SHELL_BIN = (
     if SHELL_OVERRIDE
     else REPO / "shell/src-tauri/target/debug/syncbox-shell"
 )
-PORT = 8765
+PORT = 8766
 
 
 def wait_for(predicate, deadline_s, what):
@@ -133,7 +133,7 @@ def test_foreign_listener_is_preserved():
         result = run_shell(2)
         stderr = result.stderr.decode(errors="replace")
         assert result.returncode == 0, stderr
-        assert "PORT_COLLISION 127.0.0.1:8765" in stderr
+        assert "PORT_COLLISION 127.0.0.1:8766" in stderr
         assert "SIDECAR_SPAWNED" not in stderr
         assert ForeignHandler.shutdown_requests == 0
         assert port_accepting()

@@ -17,12 +17,12 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-PORT = 8765
+PORT = 8766
 SOURCE_PYTHON = REPO / "sidecar/.venv/bin/python"
 SOURCE_CWD = REPO / "sidecar"
 DEFAULT_ARCHIVE = (
     REPO
-    / "optional-component/dist/syncbox-deezer-component-0.2.1-macos-arm64.zip"
+    / "optional-component/dist/syncbox-deezer-component-0.2.2-macos-arm64.zip"
 )
 
 
@@ -102,11 +102,18 @@ def main():
                 start_new_session=mode != "packaged",
             )
             try:
-                ready = wait_for(
-                    lambda: request("/health", timeout=0.3).get("ok"),
-                    20,
-                    "sidecar health",
-                )
+                try:
+                    ready = wait_for(
+                        lambda: request("/health", timeout=0.3).get("ok"),
+                        20,
+                        "sidecar health",
+                    )
+                except AssertionError as error:
+                    output.flush()
+                    host_log = log_path.read_text(errors="replace")
+                    raise AssertionError(
+                        f"{error}; host rc={process.poll()}; log={host_log!r}"
+                    ) from error
                 request(
                     "/api/settings",
                     method="PUT",

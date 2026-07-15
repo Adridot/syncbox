@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -17,16 +18,23 @@ from pathlib import Path, PurePosixPath
 
 REPO = Path(__file__).resolve().parents[1]
 SIDECAR = REPO / "sidecar"
+SIDECAR_SRC = SIDECAR / "src"
 PYTHON = SIDECAR / ".venv" / "bin" / "python"
 TESTDATA = REPO / "poc" / "testdata"
 MANIFEST = TESTDATA / "event-migration.json"
 FIXTURE_ENV = "SYNCBOX_EVENT_MIGRATION_FIXTURE"
+STORAGE_ENV = "SYNCBOX_EVENT_MIGRATION_STORAGE_ROOT"
 NODE_ID = "tests/test_events_service.py::test_retained_track_migration_on_real_db"
+MANUAL_VOLUME = Path("/Volumes/SyncboxPOC")
 
 REQUIRED_NAMES = ("master.db", "masterPlaylists6.xml")
 OPTIONAL_NAMES = ("master.db-wal", "master.db-shm", "master.db-journal")
 MANIFEST_KEYS = {"schema_version", "content_id", "staging_audio", "anlz_files"}
 ANLZ_SUFFIXES = {".DAT", ".EXT", ".2EX"}
+
+sys.path.insert(0, str(SIDECAR_SRC))
+
+from syncbox.safety.process_guard import assert_mutation_ready  # noqa: E402
 
 
 def _digest(path: Path) -> str:
@@ -154,7 +162,9 @@ def _copy_fixtures(paths: tuple[Path, ...], destination: Path) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target, follow_symlinks=False)
         target.chmod(target.stat().st_mode | 0o200)
-    return destination / MANIFEST.name
+    # macOS exposes /var through /private/var. Pass the canonical spelling so
+    # strict Path equality matches the resolved ANLZ paths returned downstream.
+    return (destination / MANIFEST.name).resolve(strict=True)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -164,7 +174,58 @@ def _parse_args() -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--list", action="store_true", help="list the selected node ID")
     mode.add_argument("--check", action="store_true", help="validate fixtures only")
+    parser.add_argument(
+        "--retain",
+        type=Path,
+        help=(
+            "retain the mutated manual fixture below poc/testdata; requires the "
+            "dedicated /Volumes/SyncboxPOC test volume"
+        ),
+    )
     return parser.parse_args()
+
+
+def _retained_output(raw: Path) -> Path:
+    output = raw.expanduser().absolute()
+    root = TESTDATA.absolute()
+    try:
+        relative = output.relative_to(root)
+    except ValueError as error:
+        raise ValueError("retained output must stay below poc/testdata") from error
+    if not relative.parts:
+        raise ValueError("retained output cannot replace poc/testdata")
+
+    current = root
+    for part in relative.parts[:-1]:
+        current /= part
+        if current.is_symlink():
+            raise ValueError("retained output must not traverse a symlink")
+    if output.exists() or output.is_symlink():
+        raise ValueError("retained output already exists")
+    if not output.parent.is_dir() or output.parent.is_symlink():
+        raise ValueError("retained output parent must be a real directory")
+    return output
+
+
+def _manual_volume() -> Path:
+    volume = MANUAL_VOLUME
+    if volume.is_symlink() or not volume.is_dir():
+        raise ValueError("the dedicated /Volumes/SyncboxPOC test volume is not mounted")
+    for name in ("_syncbox", "rekordbox"):
+        if (volume / name).exists() or (volume / name).is_symlink():
+            raise ValueError(f"the dedicated test volume already contains {name}")
+    return volume
+
+
+@contextmanager
+def _runtime(retain: Path | None):
+    if retain is None:
+        with tempfile.TemporaryDirectory(prefix="syncbox-event-migration-") as raw:
+            yield Path(raw)
+        return
+    output = _retained_output(retain)
+    output.mkdir()
+    yield output
 
 
 def _clean_env() -> dict[str, str]:
@@ -176,6 +237,7 @@ def _clean_env() -> dict[str, str]:
         "PYTHONPATH",
         "SYNCBOX_DATA_DIR",
         FIXTURE_ENV,
+        STORAGE_ENV,
     ):
         env.pop(name, None)
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
@@ -184,6 +246,9 @@ def _clean_env() -> dict[str, str]:
 
 def main() -> int:
     args = _parse_args()
+    if args.retain is not None and (args.list or args.check):
+        print("--retain cannot be combined with --list or --check", file=sys.stderr)
+        return 2
     if args.list:
         print(NODE_ID)
         return 0
@@ -224,13 +289,19 @@ def main() -> int:
     if args.check:
         return 0
 
+    manual_volume = None
+    if args.retain is not None:
+        try:
+            assert_mutation_ready(TESTDATA / "master.db")
+            manual_volume = _manual_volume()
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"Manual retention preflight failed: {error}", file=sys.stderr)
+            return 2
+
     result = None
     run_error = None
     try:
-        with tempfile.TemporaryDirectory(
-            prefix="syncbox-event-migration-"
-        ) as base_temp:
-            runtime = Path(base_temp)
+        with _runtime(args.retain) as runtime:
             fixture_copy = _copy_fixtures(paths, runtime / "fixture")
             process_temp = runtime / "tmp"
             process_temp.mkdir()
@@ -241,6 +312,8 @@ def main() -> int:
                 "TMP": str(process_temp),
                 "TEMP": str(process_temp),
             }
+            if manual_volume is not None:
+                run_env[STORAGE_ENV] = str(manual_volume)
             command = [
                 str(PYTHON),
                 "-m",

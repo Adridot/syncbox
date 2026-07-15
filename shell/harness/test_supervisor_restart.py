@@ -26,7 +26,7 @@ SHELL_BIN = os.environ.get("SYNCBOX_SHELL_BIN") or os.path.join(
     REPO, "shell/src-tauri/target/debug/syncbox-shell"
 )
 LOG = os.path.join(HERE, "build/supervisor-restart.log")
-PORT = 8765
+PORT = 8766
 
 
 def log_lines():
