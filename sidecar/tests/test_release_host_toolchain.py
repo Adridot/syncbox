@@ -9,7 +9,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = REPO / "poc" / "build_macos_release.py"
+    path = REPO / "scripts" / "build_macos_release.py"
     spec = importlib.util.spec_from_file_location("build_macos_release", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

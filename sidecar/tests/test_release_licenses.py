@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _load_scanner():
-    path = REPO / "poc/run_phase6_packaging.py"
+    path = REPO / "scripts/run_phase6_packaging.py"
     spec = importlib.util.spec_from_file_location("run_phase6_packaging", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -53,7 +53,7 @@ def _source_tree_sha256(root: Path) -> str:
 
 def test_generated_license_material_is_current():
     subprocess.run(
-        [sys.executable, REPO / "poc/generate_release_licenses.py", "--check"],
+        [sys.executable, REPO / "scripts/generate_release_licenses.py", "--check"],
         cwd=REPO,
         check=True,
     )
@@ -61,7 +61,7 @@ def test_generated_license_material_is_current():
 
 def test_release_scanner_rejects_python_optimization():
     result = subprocess.run(
-        [sys.executable, "-O", REPO / "poc/run_phase6_packaging.py", "--help"],
+        [sys.executable, "-O", REPO / "scripts/run_phase6_packaging.py", "--help"],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -164,7 +164,7 @@ def test_optional_frozen_license_probe_uses_its_locked_python(monkeypatch, tmp_p
     assert calls == [
         (
             str(python),
-            str(REPO / "poc/run_phase6_packaging.py"),
+            str(REPO / "scripts/run_phase6_packaging.py"),
             "--frozen-license-probe",
             str(executable),
         )

@@ -1,4 +1,4 @@
-"""Tests for the Rekordbox write helpers (SPEC-01 1.1/1.6/1.7, poc/05).
+"""Tests for the Rekordbox write helpers (SPEC-01 1.1/1.6/1.7, POC 05).
 
 signed32/smartlist tests are pure; the integration flow needs the real
 fixture and runs the FULL mutate unit-of-work on a copy.
@@ -13,7 +13,7 @@ from syncbox import rb
 from syncbox.rb_write import add_content, migrate_content_path, signed32, smartlist_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TESTDATA = REPO_ROOT / "poc" / "testdata"
+TESTDATA = REPO_ROOT / "sidecar" / "tests" / "testdata"
 FIXTURE = TESTDATA / "master.db"
 
 needs_fixture = pytest.mark.skipif(
@@ -25,7 +25,7 @@ needs_fixture = pytest.mark.skipif(
 
 
 def test_signed32_is_conditional_not_unconditional():
-    # Spec example (SPEC-01 1.7) verified against real RB data in poc/05
+    # Spec example (SPEC-01 1.7) verified against real RB data in POC 05
     assert signed32(2662450573) == -1632516723
     # IDs < 2^31 STAY POSITIVE - pyrekordbox's unconditional shift is the
     # #110-family quirk Syncbox must not reproduce

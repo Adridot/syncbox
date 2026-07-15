@@ -11,11 +11,11 @@
     "dev": "pnpm --dir ../ui dev",
     "build": "pnpm --dir ../ui build",
     "tauri": "tauri",
-    "freeze:component": "cd ../optional-component && uv run --locked --exact --managed-python pyinstaller --noconfirm --clean syncbox-deezer-component.spec && uv run --locked --exact --managed-python python ../poc/package_optional_component.py",
+    "freeze:component": "cd ../optional-component && uv run --locked --exact --managed-python pyinstaller --noconfirm --clean syncbox-deezer-component.spec && uv run --locked --exact --managed-python python ../scripts/package_optional_component.py",
     "freeze:base": "cd ../sidecar && uv run --locked --exact --managed-python pyinstaller --noconfirm --clean sidecar.spec",
     "freeze": "pnpm freeze:component && pnpm freeze:base",
-    "bundle:macos": "python3 ../poc/build_macos_release.py",
-    "dmg:macos": "python3 ../poc/package_base_dmg.py"
+    "bundle:macos": "python3 ../scripts/build_macos_release.py",
+    "dmg:macos": "python3 ../scripts/package_base_dmg.py"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0"

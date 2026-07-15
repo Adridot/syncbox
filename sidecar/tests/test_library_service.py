@@ -14,7 +14,7 @@ from syncbox.library_service import ConflictError, apply_to_rekordbox, sync_one_
 from syncbox.spotify import SpotifyAuth, SpotifyClient
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TESTDATA = REPO_ROOT / "poc" / "testdata"
+TESTDATA = REPO_ROOT / "sidecar" / "tests" / "testdata"
 FIXTURE = TESTDATA / "master.db"
 PLAYLIST_ID = "37i9dQZF1DXcBWIGoYBM5M"
 

@@ -78,14 +78,14 @@ def _source_records(root: Path) -> dict[str, dict[str, object]]:
     records = {}
     for current, directories, files in os.walk(root, topdown=True):
         current_path = Path(current)
-        if current_path == root / "poc" / "testdata":
+        if current_path == root / "sidecar" / "tests" / "testdata":
             directories[:] = []
             files = [name for name in files if name == "README.md"]
         directories[:] = sorted(
             name
             for name in directories
             if name not in SOURCE_EXCLUDED_DIRECTORIES
-            and (name != "testdata" or current_path == root / "poc")
+            and (name != "testdata" or current_path == root / "sidecar" / "tests")
         )
         for name in sorted(files):
             if name in SOURCE_EXCLUDED_FILES:

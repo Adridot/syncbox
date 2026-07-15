@@ -1,5 +1,5 @@
 """Sidecar lifecycle / tree-kill regression harness - PRODUCTION targets
-(retargeted from poc/02-lifecycle-treekill/driver_lifecycle.py; M4-PLAN 1.2).
+(retargeted from the POC lifecycle/tree-kill harness archived in git history; M4-PLAN 1.2).
 
 Assert-based script. Run with the project venv python:
     sidecar/.venv/bin/python shell/harness/driver_lifecycle.py

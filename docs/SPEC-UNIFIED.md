@@ -57,7 +57,7 @@ This subsection is authoritative for Syncbox v1 and overrides conflicting text i
 - The universal track-level `protected` rule is removed. File ownership is classified as `app_managed` (Syncbox working directories), `permanent_library` (`<storage_root>/rekordbox/`), or `external` (all other user-owned locations).
 - Safety follows the operation: event deletion may remove app-managed event artifacts; `permanent_library` and `external` audio survive event deletion; duplicate resolution may operate on any ownership class after exact per-group confirmation; keeper selection is path-neutral; untagged removal remains a reversible Rekordbox soft-delete and never deletes audio; missing-file removal may soft-delete the Rekordbox row regardless of its former location; Smart Fixes do not filter by file location.
 - When an event is deleted, an app-managed staging track with another active MyTag other than the event MyTag is migrated to `<storage_root>/rekordbox/Collection/` before event cleanup. This is the only intentional v1 file-move exception.
-- Windows validation, Developer ID signing, notarization, and Chromaprint are deferred rather than failed POCs. The authoritative nine-item v1 POC index is maintained in `poc/README.md`.
+- Windows validation, Developer ID signing, notarization, and Chromaprint are deferred rather than failed POCs. The authoritative nine-item v1 POC index is maintained in `docs/POC-EVIDENCE.md`.
 - B1 Deezer/streamrip acquisition is included in macOS v1 after the 2026-07-13 Phase 5 `GO`. It is optional, OFF by default, Deezer-only, subordinate to B2 purchase links, and installed as a separate pinned component after explicit enablement. Artwork support and Pillow exist only in this component. The base artifact must remain fully functional without any Deezer runtime and must not import or bundle streamrip at application boot.
 - SoundCloud acquisition, ffmpeg bundling, AcoustID/MusicBrainz enrichment, automatic cues, beatgrid editing, a cloud backend, and a mobile app are deferred beyond v1.
 - Ponytail remains an implementation discipline, not an annotation system. No new Ponytail rationale markers may be added, and executable source must have zero such markers at overall completion.
@@ -371,7 +371,7 @@ Three v1 additions live **in the Python sidecar**, without a new shell or servic
 | A2 fingerprint dedup (Chromaprint) | **DEFERRED to v2** (narrow residual + native binary, no v1 integration) | §4, §6.12 |
 | A3 fake-320/FLAC detection | **CONSERVATIVE FALLBACK v1**; full classification `NO-GO`, only keeper-neutral `ok`/`incertain` | §4, §5.12, §6.12 |
 | B1 streamrip backend (Deezer-only) | **ADD v1** after Phase 5 `GO`: optional OFF by default, exact pinned component, artwork support, encrypted one-shot ARL, and no Deezer runtime in the base. SoundCloud → v2/B4 | §5.5, §6.5, §7.1, _handoffs/phase-05-b1-acquisition.md (archived) |
-| B2 Legal Track Matcher (ISRC purchase links) | **ADD v1** | §4, §5.13, §6.5/§6.12, [POC evidence](../poc/07-b2-purchase-links.md) |
+| B2 Legal Track Matcher (ISRC purchase links) | **ADD v1** | §4, §5.13, §6.5/§6.12, POC evidence archived in git history, indexed in [POC-EVIDENCE.md](POC-EVIDENCE.md) |
 | D7 structural + configurable untagged | already decided (KEEP-BUT-FIX) | §5.8 |
 
 > **Unchanged KEEP v1 corpus** (OVERHAUL-01 §7.2: F1 Spotify sync, F2 ISRC+fuzzy Match, F4 simplified Events, F5 Duplicates, F6 Missing Files, F7 Untagged/D7, **F8 Safety/Backup** (OVERHAUL verdict “cover ANLZ” **corrected Gate-1** → documented ANLZ limit, §3.1/§5.1), **F9 Doctor** — diagnostics + backup management/rotation + logs, mechanics §5.1/§5.10, UI surface §9 —, F10 Settings/i18n) — carried by §3/§5, not re-debated here. (**F3 Acquisition = B2 primary + optional B1 Deezer in macOS v1** after the Phase 5 `GO`.)
@@ -415,6 +415,6 @@ The design phase closed the two questions that Gate 1 delegated:
 
 ## 10. Appendices
 
-- **Current implementation and test authority**: PROMPT-05, the Phase 1 report, and the phase handoffs (all archived in git history), plus the executable POCs indexed by [poc/README.md](../poc/README.md).
+- **Current implementation and test authority**: PROMPT-05, the Phase 1 report, and the phase handoffs (all archived in git history), plus the executable POCs indexed by [docs/POC-EVIDENCE.md](POC-EVIDENCE.md).
 - **Material official and upstream sources**: recorded with URLs and access dates in the phase handoffs and final release closure (archived in git history). Historical `_research` and `_analysis` paths referenced by older prompts are not present in the current workspace and are not release inputs.
 - **Release closure**: every applicable macOS v1 gate, including GitHub publication and public download-back, is closed for 0.2.2. Windows packaging and any evidence that could justify A2 belong to v2.

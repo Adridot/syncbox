@@ -1,4 +1,4 @@
-"""Tests for timestamped backup / rotation / restore (SPEC-01 1.3, poc/09).
+"""Tests for timestamped backup / rotation / restore (SPEC-01 1.3, POC 09).
 
 All tests run on dummy files in tmp dirs; none requires the real fixture.
 """
@@ -90,7 +90,7 @@ class TestCreateBackup:
         assert not backups_root.exists()
 
     def test_same_second_collision_gets_numeric_suffix(self, db, backups_root, monkeypatch):
-        # poc/09 measured this really happens within one wall-clock second.
+        # POC 09 measured this really happens within one wall-clock second.
         freeze_timestamp(monkeypatch, "20260702-120000")
         first = backup.create_backup(db, backups_root)
         second = backup.create_backup(db, backups_root)

@@ -31,8 +31,8 @@ datas += copy_metadata("certifi")
 datas += [("../release/licenses/optional", "licenses")]
 
 a = Analysis(
-    ["../poc/run_b1_deezer_acquisition.py"],
-    pathex=["../poc"],
+    ["../scripts/run_b1_deezer_acquisition.py"],
+    pathex=["../scripts"],
     binaries=[],
     datas=datas,
     hiddenimports=[

@@ -32,7 +32,7 @@ from syncbox.events_service import (
 from syncbox.safety.paths import stored_form
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TESTDATA = REPO_ROOT / "poc" / "testdata"
+TESTDATA = REPO_ROOT / "sidecar" / "tests" / "testdata"
 FIXTURE = TESTDATA / "master.db"
 
 needs_fixture = pytest.mark.skipif(

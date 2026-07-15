@@ -1,5 +1,5 @@
 """Single-instance regression harness - PRODUCTION shell + sidecar
-(retargeted from poc/02-lifecycle-treekill/test_single_instance.py; M4-PLAN 1.2).
+(retargeted from the POC lifecycle/tree-kill harness archived in git history; M4-PLAN 1.2).
 
 Run with the project venv python (builds nothing - build the shell first):
     (cd shell/src-tauri && cargo build)

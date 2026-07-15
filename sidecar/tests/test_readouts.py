@@ -42,7 +42,7 @@ def test_keys_analyzed_pct():
 
 
 def test_never_played_handles_varchar_counts():
-    # pyrekordbox maps DJPlayCount as VARCHAR on some rows (poc/05 caveat 5)
+    # pyrekordbox maps DJPlayCount as VARCHAR on some rows (POC 05 caveat 5)
     rows = [
         {"play_count": None},
         {"play_count": 0},

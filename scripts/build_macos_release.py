@@ -349,7 +349,7 @@ def main() -> int:
                 "--exact",
                 "--managed-python",
                 "python",
-                "../poc/generate_release_licenses.py",
+                "../scripts/generate_release_licenses.py",
                 "--check",
             ],
             REPO / "sidecar",
@@ -375,7 +375,7 @@ def main() -> int:
                 "--exact",
                 "--managed-python",
                 "python",
-                "../poc/run_phase6_packaging.py",
+                "../scripts/run_phase6_packaging.py",
                 "--component-only",
                 "--component-archive",
                 str(component_archive),
@@ -409,7 +409,7 @@ def main() -> int:
                 "--exact",
                 "--managed-python",
                 "python",
-                "../poc/package_base_app.py",
+                "../scripts/package_base_app.py",
             ],
             REPO / "sidecar",
             environment,
@@ -427,7 +427,7 @@ def main() -> int:
                 "--exact",
                 "--managed-python",
                 "python",
-                "../poc/run_phase6_packaging.py",
+                "../scripts/run_phase6_packaging.py",
                 str(app),
                 "--archive",
                 str(base_archive),
@@ -439,7 +439,7 @@ def main() -> int:
         )
         # Convenience drag-to-Applications installer, built after the scanner
         # passes. Not part of the reproducible/scanned contract; the ZIP is.
-        _run(["python3", "../poc/package_base_dmg.py"], SHELL, environment)
+        _run(["python3", "../scripts/package_base_dmg.py"], SHELL, environment)
         return 0
     finally:
         _clean_local_build_products()

@@ -77,7 +77,7 @@ class TestIsSoftDeleted:
         assert not statuses.is_soft_deleted({"rb_local_deleted": None})
 
     def test_string_typed_column_values(self):
-        # poc/05 caveat 5: some int columns read back through pyrekordbox's
+        # POC 05 caveat 5: some int columns read back through pyrekordbox's
         # VARCHAR mappings; the predicate must not truth-test raw strings.
         assert not statuses.is_soft_deleted({"rb_local_deleted": "0"})
         assert statuses.is_soft_deleted({"rb_local_deleted": "1"})

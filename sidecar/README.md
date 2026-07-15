@@ -40,9 +40,9 @@ dist/syncbox-sidecar/syncbox-sidecar --packaging-check
 That check imports the packaged CA bundle, audio/native stack, Rekordbox
 reader, Trash integration, and the local SQLCipher CommonCrypto extension,
 then opens an in-memory encrypted database and reports the provider/status.
-The release scanner in `poc/run_phase6_packaging.py`
+The release scanner in `scripts/run_phase6_packaging.py`
 performs the complementary app-tree, lock, license, architecture, signature,
 secret, and archive checks.
 
-Rekordbox-integration tests skip unless `poc/testdata/master.db` exists
+Rekordbox-integration tests skip unless `sidecar/tests/testdata/master.db` exists
 (a real Rekordbox 7 database, not committed).

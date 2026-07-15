@@ -298,7 +298,7 @@ def _xml_snapshot(db_path: Path, staging_dir):
     """Snapshot masterPlaylists6.xml (next to master.db) BEFORE mutating.
 
     pyrekordbox rewrites the xml at commit; Rekordbox itself reconciles it
-    from the db (poc/05: real-world fixture drift proves it is not
+    from the db (POC 05: real-world fixture drift proves it is not
     load-bearing), so the byte-identical restore after commit is safe. The
     on-disk .bak inside the staging dir only covers the crash window
     between commit and restore; event delete cleans it up (T8/T12).

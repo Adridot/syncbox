@@ -2,7 +2,7 @@
 
 Authoritative index date: 2026-07-15 (final release closure)
 
-This index follows the nine-item macOS v1 order in `docs/PROMPT-05-implementation.md` (archived in git history). Earlier POC numbers mentioned in source comments are historical claims, not evidence.
+This index follows the nine-item macOS v1 order in `docs/PROMPT-05-implementation.md` (archived in git history). POC numbers cited in source comments (e.g. "POC 05", "POC 09") follow an earlier numbering; they are historical claims, not rows of this index.
 
 Status meanings:
 
@@ -28,9 +28,11 @@ missing-track path; B1 is optional and disabled by default.
 | 8 | Smart Fixes exact payload and idempotence | Synthetic coverage and the copied-real CommonCrypto node pass. Every previewed field matches the copied database, the second preview is empty, and all source fixtures remain unchanged. | **GO** | Keep exact payload, deterministic order, freshness, safety, and idempotence green. | Do not release Smart Fixes after any exact-payload, guard, or manual regression. |
 | 9 | Retained-event-track migration with ANLZ preservation | The CommonCrypto copied-fixture harness passes once with zero skips across seven declared files; all sources remain unchanged. The derived database uses DELETE journal mode, so no empty or inapplicable WAL/SHM is retained. The owner-approved Rekordbox 7.2.16 CommonCrypto walkthrough passed playback, cues, beatgrid, analysis, non-event MyTags, playlists, volume path, and ANLZ PPTH on the disposable migrated copy. | **GO** | Keep the exact migration, source-integrity, and manual assertions green. | Keep deletion of affected retained staging tracks blocked after any regression; never weaken the guard. |
 
-## Evidence README contract
+## Evidence README contract (historical)
 
-Create a POC evidence directory only when the POC is actually executed. Its English README must contain:
+The executed POC evidence directories are archived in git history. Each one
+was created only when the POC was actually executed, with an English README
+containing:
 
 1. objective;
 2. risk being tested;
@@ -48,15 +50,15 @@ Do not commit real Rekordbox databases, user audio, ANLZ files, credentials, tok
 
 ## POC #4 real-Rekordbox harness
 
-From the repository root:
+The dedicated runner (`run_real_rekordbox_tests.py`) is archived in git
+history; the gated tests now run through the regular sidecar suite and skip
+without the private fixtures:
 
 ```sh
-sidecar/.venv/bin/python poc/run_real_rekordbox_tests.py --list
-sidecar/.venv/bin/python poc/run_real_rekordbox_tests.py --check
-sidecar/.venv/bin/python poc/run_real_rekordbox_tests.py
+cd sidecar && uv run --locked pytest -q -rs
 ```
 
-Fixture preparation is documented in `poc/testdata/README.md`. On 2026-07-15,
+Fixture preparation is documented in `sidecar/tests/testdata/README.md`. On 2026-07-15,
 the exact ten-node run passed with zero skips and unchanged fixture sources.
 Rekordbox 7.2.16 subsequently passed the complete CommonCrypto manual checklist
 on the disposable Smart Fix and retained-event copies. The original 12,718-file
@@ -84,29 +86,23 @@ The real mutation gate is the existing selected node:
 tests/test_rb_write.py::test_smartfixes_runner_end_to_end
 ```
 
-It runs only on a copied `poc/testdata/master.db` through
-`poc/run_real_rekordbox_tests.py`. It now compares every previewed field to the
-value read back from the copied database and requires the next preview to be
-empty. The node passed once with zero skips on 2026-07-15 and the source
+It runs only on a copy of `sidecar/tests/testdata/master.db` that the test
+itself makes in a temporary directory. It compares every previewed field to
+the value read back from the copied database and requires the next preview to
+be empty. The node passed once with zero skips on 2026-07-15 and the source
 fixture was unchanged. Rekordbox 7.2.16 displayed the expected Smart Fix
 values on the CommonCrypto disposable mutated copy. POC #8 is **GO**.
 
 ## POC #9 retained-track migration harness
 
-This harness is separate so the POC #4 runner remains an exact ten-test contract:
-
-```sh
-sidecar/.venv/bin/python poc/run_event_migration_tests.py --list
-sidecar/.venv/bin/python poc/run_event_migration_tests.py --check
-sidecar/.venv/bin/python poc/run_event_migration_tests.py
-```
-
-The runner validates and copies the declared local fixtures into a temporary
-directory, points the selected test at the copied `event-migration.json` through
-`SYNCBOX_EVENT_MIGRATION_FIXTURE`, disables inherited pytest customization, and
-checks source hashes and metadata again after the run. A skipped test is a
-failure. The source fixture layout and manifest schema are documented in
-`poc/testdata/README.md`.
+The dedicated runner (`run_event_migration_tests.py`) is archived in git
+history. It validated and copied the declared local fixtures into a temporary
+directory, pointed the selected test at the copied `event-migration.json`
+through `SYNCBOX_EVENT_MIGRATION_FIXTURE`, disabled inherited pytest
+customization, and checked source hashes and metadata again after the run. A
+skipped test was a failure. The source fixture layout, manifest schema, and
+the current manual invocation are documented in
+`sidecar/tests/testdata/README.md`.
 
 The real fixture test passed once with zero skips on 2026-07-15 and all
 declared sources were unchanged. Rekordbox 7.2.16 passed the required playback,

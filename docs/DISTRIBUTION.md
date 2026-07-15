@@ -87,8 +87,8 @@ shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
 shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.2-macos-arm64.zip
 ```
 
-`poc/package_base_app.py` creates the base ZIP as the final step of
-`bundle:macos`. Both release ZIPs use `poc/reproducible_archive.py`; do not
+`scripts/package_base_app.py` creates the base ZIP as the final step of
+`bundle:macos`. Both release ZIPs use `scripts/reproducible_archive.py`; do not
 recreate either archive with the system `zip` command because that would
 discard the controlled entry order, modes, and `SOURCE_DATE_EPOCH` timestamps.
 
@@ -125,7 +125,7 @@ COMPONENT_ZIP=optional-component/dist/syncbox-deezer-component-0.2.2-macos-arm64
 
 codesign --verify --deep --strict "$APP"
 PYI_ARCHIVE_VIEWER=sidecar/.venv/bin/pyi-archive_viewer \
-  sidecar/.venv/bin/python poc/run_phase6_packaging.py \
+  sidecar/.venv/bin/python scripts/run_phase6_packaging.py \
   "$APP" --archive "$APP_ZIP" --component-archive "$COMPONENT_ZIP"
 ```
 
@@ -151,9 +151,9 @@ GPL-licensed dependency.
 
 Run the source, frozen, packaged lifecycle, single-instance, supervisor, and
 optional-component harnesses documented in `shell/README.md` and
-`shell/harness/`. The Phase 7 release rerun is summarized in `poc/README.md`;
+`shell/harness/`. The Phase 7 release rerun is summarized in `docs/POC-EVIDENCE.md`;
 the baseline commands and detailed measurements are recorded in
-`poc/08-phase6-packaging-lifecycle.md`.
+the phase 6 packaging-lifecycle evidence archived in git history.
 
 The supervised API/SSE service owns `127.0.0.1:8766`. Spotify authorization
 pre-binds only the exact `http://127.0.0.1:8765/callback` listener and releases

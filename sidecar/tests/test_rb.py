@@ -11,7 +11,7 @@ from syncbox.rb import SnapshotCache
 from syncbox.safety.mutate import StaleSnapshotError, fingerprint
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = REPO_ROOT / "poc" / "testdata" / "master.db"
+FIXTURE = REPO_ROOT / "sidecar" / "tests" / "testdata" / "master.db"
 
 needs_fixture = pytest.mark.skipif(
     not FIXTURE.is_file(), reason="real master.db fixture not present"
@@ -195,7 +195,7 @@ def test_snapshot_reads_real_db_readonly(tmp_path):
     assert "remixer" in sample
     assert sample["ownership"] in {"app_managed", "permanent_library", "external"}
     assert "protected" not in sample
-    # 11.3 readout fields present on real data (poc/05 verified they exist)
+    # 11.3 readout fields present on real data (POC 05 verified they exist)
     assert any(r["play_count"] not in (None, 0, "0") for r in rows)
     assert any(r["stock_date"] for r in rows)
     # original fixture untouched (mode=ro + copy discipline)
@@ -216,4 +216,4 @@ def test_snapshot_filters_soft_deleted(tmp_path):
     conn.close()
     rows = rb.load_snapshot(db, tmp_path / "storage")
     assert len(rows) == active
-    assert soft_deleted >= 0  # fixture has 29 soft-deleted rows (poc/05)
+    assert soft_deleted >= 0  # fixture has 29 soft-deleted rows (POC 05)

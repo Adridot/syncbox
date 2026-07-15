@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "poc"))
+sys.path.insert(0, str(REPO / "scripts"))
 
 from reproducible_archive import write_tree_archive  # noqa: E402
 
@@ -53,7 +53,7 @@ def test_local_sqlcipher_frozen_metadata_excludes_installation_path():
     assert '"sqlcipher3-wheels",\n)' not in spec
     assert 'not entry[0].endswith(".dist-info/RECORD")' in spec
     assert 'app.rglob("direct_url.json")' in (
-        REPO / "poc/run_phase6_packaging.py"
+        REPO / "scripts/run_phase6_packaging.py"
     ).read_text()
 
 
@@ -66,7 +66,7 @@ def test_pyinstaller_base_library_inputs_are_sorted():
 
 
 def _load_release_builder():
-    path = REPO / "poc" / "build_macos_release.py"
+    path = REPO / "scripts" / "build_macos_release.py"
     spec = importlib.util.spec_from_file_location("build_macos_release", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -94,7 +94,7 @@ def test_release_builder_removes_only_local_sqlcipher_build_products(
 
 
 def _load_packaging_scanner():
-    path = REPO / "poc" / "run_phase6_packaging.py"
+    path = REPO / "scripts" / "run_phase6_packaging.py"
     spec = importlib.util.spec_from_file_location("run_phase6_packaging", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -103,7 +103,7 @@ def _load_packaging_scanner():
 
 
 def _load_artifact_comparator():
-    path = REPO / "poc" / "compare_release_artifacts.py"
+    path = REPO / "scripts" / "compare_release_artifacts.py"
     spec = importlib.util.spec_from_file_location("compare_release_artifacts", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -303,13 +303,13 @@ def test_release_build_finalizes_component_before_base_bundle():
     assert config["build"]["beforeBuildCommand"] == (
         "pnpm build && pnpm freeze:base"
     )
-    source = (REPO / "poc/build_macos_release.py").read_text()
+    source = (REPO / "scripts/build_macos_release.py").read_text()
     shell_package = json.loads((REPO / "shell/package.json").read_text())
     component = source.index('["pnpm", "freeze:component"]')
     component_scan = source.index('"--component-only"', component)
     tauri = source.index('"tauri",', component_scan)
-    package_base = source.index('"../poc/package_base_app.py"', tauri)
-    full_scan = source.index('"../poc/run_phase6_packaging.py"', package_base)
+    package_base = source.index('"../scripts/package_base_app.py"', tauri)
+    full_scan = source.index('"../scripts/run_phase6_packaging.py"', package_base)
     assert component < component_scan < tauri < package_base < full_scan
     assert source.count('"--exact"') == 6
     assert "uv run --locked --exact --managed-python" in shell_package["scripts"][
@@ -449,21 +449,21 @@ def test_source_comparator_ignores_only_generated_and_private_trees(tmp_path):
     for root in (first, second):
         (root / "src").mkdir(parents=True)
         (root / "src/app.py").write_text("print('same')\n")
-        (root / "poc/testdata").mkdir(parents=True)
-        (root / "poc/testdata/README.md").write_text("fixture instructions\n")
-        (root / "poc/testdata/private.db").write_bytes(b"different private data")
+        (root / "sidecar/tests/testdata").mkdir(parents=True)
+        (root / "sidecar/tests/testdata/README.md").write_text("fixture instructions\n")
+        (root / "sidecar/tests/testdata/private.db").write_bytes(b"different private data")
         (root / "sidecar/dist").mkdir(parents=True)
         (root / "sidecar/dist/generated").write_bytes(b"different build data")
-    (second / "poc/testdata/private.db").write_bytes(b"other private data")
+    (second / "sidecar/tests/testdata/private.db").write_bytes(b"other private data")
     (second / "sidecar/dist/generated").write_bytes(b"other build data")
 
     first_records = comparator._source_records(first)
     second_records = comparator._source_records(second)
 
     assert first_records == second_records
-    assert list(first_records) == ["poc/testdata/README.md", "src/app.py"]
+    assert list(first_records) == ["sidecar/tests/testdata/README.md", "src/app.py"]
 
-    (second / "poc/testdata/README.md").write_text("changed instructions\n")
+    (second / "sidecar/tests/testdata/README.md").write_text("changed instructions\n")
     assert comparator._source_records(first) != comparator._source_records(second)
 
 

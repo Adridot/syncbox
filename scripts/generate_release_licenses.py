@@ -21,7 +21,7 @@ from packaging.markers import Marker, default_environment
 REPO = Path(__file__).resolve().parents[1]
 OUTPUT = REPO / "release" / "licenses"
 PYTHON_RUNTIME_LICENSES = (
-    REPO / "poc/license-overrides/python-build-standalone-20260127"
+    REPO / "release/license-overrides/python-build-standalone-20260127"
 )
 LICENSE_NAMES = re.compile(
     r"^(?:licen[cs]e|copying|notice|copyright|authors|unlicense)", re.IGNORECASE
@@ -45,10 +45,10 @@ LICENSE_OVERRIDES = {
 }
 NPM_LICENSE_OVERRIDES = {
     ("@vue/devtools-api", "6.6.4"): (
-        REPO / "poc/license-overrides/vue-devtools-api-6.6.4-LICENSE"
+        REPO / "release/license-overrides/vue-devtools-api-6.6.4-LICENSE"
     )
 }
-RUST_LICENSE_OVERRIDE_DIR = REPO / "poc/license-overrides/rust"
+RUST_LICENSE_OVERRIDE_DIR = REPO / "release/license-overrides/rust"
 RUST_LICENSE_OVERRIDE_GROUPS = {
     "alloc-stdlib": ("alloc-stdlib-LICENSE",),
     "block2": ("objc2-LICENSE.md", "SPDX-3.28.0-MIT.txt"),
@@ -861,7 +861,7 @@ def entry_license_files(entries: list[dict], ecosystem: str, name: str) -> list[
 def native_override_files(output: Path, name: str, filenames: tuple[str, ...]) -> list[dict]:
     return [
         copy_file(
-            REPO / "poc/license-overrides/native" / filename,
+            REPO / "release/license-overrides/native" / filename,
             output / "texts/bundled-native" / name / filename,
         )
         for filename in filenames

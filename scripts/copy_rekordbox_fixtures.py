@@ -15,7 +15,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SIDECAR_SRC = REPO / "sidecar" / "src"
-TESTDATA = REPO / "poc" / "testdata"
+TESTDATA = REPO / "sidecar" / "tests" / "testdata"
 SOURCE_NAMES = (
     "master.db",
     "masterPlaylists6.xml",
@@ -85,7 +85,7 @@ def copy_fixtures(source_dir: Path, *, backup_confirmed: bool) -> dict[str, obje
     sources = _source_files(source_dir)
 
     if TESTDATA.is_symlink() or not TESTDATA.is_dir():
-        raise ValueError("poc/testdata must be a real directory")
+        raise ValueError("sidecar/tests/testdata must be a real directory")
     collisions = [path.name for path in sources if (TESTDATA / path.name).exists()]
     if collisions:
         raise ValueError(f"private fixture already exists: {', '.join(collisions)}")

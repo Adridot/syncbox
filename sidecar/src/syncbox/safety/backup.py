@@ -64,7 +64,7 @@ def _extra_sources(db_path: Path, extra_files) -> list[tuple[Path, Path]]:
 def create_backup(db_path, backups_root, retention: int = 15, *, extra_files=()) -> Path:
     """Copy master.db, SQLite sidecars, and selected Rekordbox support files.
 
-    Same-second collisions get a ``-<n>`` suffix starting at 2 (poc/09
+    Same-second collisions get a ``-<n>`` suffix starting at 2 (POC 09
     measured that this really happens). Keeps the ``retention`` most
     recent backups (0 = unlimited); the backup just created is never
     rotated away.

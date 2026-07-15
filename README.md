@@ -117,7 +117,7 @@ approved swap. App data lives in
 The full functional specification lives in
 [docs/SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md). See the
 [user guide](docs/USER_GUIDE.md), [distribution contract](docs/DISTRIBUTION.md),
-and [POC evidence index](poc/README.md) for the current implementation state.
+and [POC evidence index](docs/POC-EVIDENCE.md) for the current implementation state.
 
 ## Build from source
 
@@ -153,8 +153,9 @@ docstring says how to run it.
 | `optional-component/` | Separately distributed pinned Deezer/streamrip runner |
 | `ui/` | Vue 3 front end |
 | `shell/` | Tauri shell (Rust supervisor) + packaging harnesses |
-| `docs/` | Specification, plans, owner decisions, dated research |
-| `poc/` | De-risking proofs-of-concept with their verdicts |
+| `docs/` | Specification, user guide, distribution contract, POC evidence index |
+| `scripts/` | Release build, packaging, license generation, and fixture tooling |
+| `release/` | License inventories and notice bundles shipped with the released apps |
 
 ## Status & roadmap
 

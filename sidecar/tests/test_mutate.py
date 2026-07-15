@@ -1,8 +1,8 @@
 """Tests for the single mutation unit-of-work (SPEC-UNIFIED 3.1/5.1,
-SPEC-01 1.2, poc/09 verdict).
+SPEC-01 1.2, POC 09 verdict).
 
 Unit tests use fake handles and dummy files; the final integration test
-needs the real poc/testdata/master.db fixture and is skipped without it.
+needs the real sidecar/tests/testdata/master.db fixture and is skipped without it.
 """
 
 import os
@@ -18,7 +18,7 @@ from syncbox.safety import statuses
 from syncbox.safety.mutate import StaleSnapshotError, fingerprint, mutate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TESTDATA = REPO_ROOT / "poc" / "testdata"
+TESTDATA = REPO_ROOT / "sidecar" / "tests" / "testdata"
 FIXTURE = TESTDATA / "master.db"
 
 
@@ -82,7 +82,7 @@ def backup_dirs(backups_root):
     return sorted(backups_root.glob("rekordbox-db-*"))
 
 
-# --- fingerprint (poc/09 normalized APFS wal rule) --------------------------
+# --- fingerprint (POC 09 normalized APFS wal rule) --------------------------
 
 
 class TestFingerprint:
@@ -98,7 +98,7 @@ class TestFingerprint:
         assert tuple(tuple(part) for part in json.loads(json.dumps(fp))) == fp
 
     def test_wal_absent_equals_wal_empty(self, db):
-        # poc/09: a bare mode=ro open recreates a 0-byte wal; the fingerprint
+        # POC 09: a bare mode=ro open recreates a 0-byte wal; the fingerprint
         # must not change for it, or every mutate spuriously aborts.
         before = fingerprint(db)
         db.with_name("master.db-wal").write_bytes(b"")
@@ -328,10 +328,10 @@ class TestMutateFailurePaths:
         assert log == ["body", "commit", "close"]
 
 
-# --- integration: real master.db round-trip (mirrors poc/05 verification) ---
+# --- integration: real master.db round-trip (mirrors POC 05 verification) ---
 
 
-@pytest.mark.skipif(not FIXTURE.is_file(), reason="poc/testdata/master.db fixture absent")
+@pytest.mark.skipif(not FIXTURE.is_file(), reason="sidecar/tests/testdata/master.db fixture absent")
 def test_integration_soft_delete_round_trip_on_real_db(tmp_path, monkeypatch):
     install_fake_guard(monkeypatch)
     sqlcipher3 = pytest.importorskip("sqlcipher3")
@@ -356,7 +356,7 @@ def test_integration_soft_delete_round_trip_on_real_db(tmp_path, monkeypatch):
         )
 
     def on_disk_tuple(content_id):
-        """Independent sqlcipher read, as in poc/05: never trust the ORM view."""
+        """Independent sqlcipher read, as in POC 05: never trust the ORM view."""
         con = sqlcipher3.connect(str(db))
         try:
             con.execute(f"PRAGMA key = '{key}'")

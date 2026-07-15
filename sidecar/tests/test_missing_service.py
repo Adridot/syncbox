@@ -15,7 +15,7 @@ from syncbox.missing_service import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TESTDATA = REPO_ROOT / "poc" / "testdata"
+TESTDATA = REPO_ROOT / "sidecar" / "tests" / "testdata"
 FIXTURE = TESTDATA / "master.db"
 PLAYLIST_ID = "37i9dQZF1DXcBWIGoYBM5M"
 

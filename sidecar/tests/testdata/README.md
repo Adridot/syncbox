@@ -34,20 +34,16 @@ The database must be a representative Rekordbox 7.x collection. Current assertio
 
 ### Commands
 
-From the repository root:
+The dedicated runner (`run_real_rekordbox_tests.py`, exit-code contract
+included) is archived in git history. The gated tests now run through the
+regular suite; each one copies the consumed fixtures into an isolated
+temporary directory before any write:
 
 ```sh
-sidecar/.venv/bin/python poc/run_real_rekordbox_tests.py --check
-sidecar/.venv/bin/python poc/run_real_rekordbox_tests.py
+cd sidecar && uv run --locked pytest -q -rs
 ```
 
-Exit codes:
-
-- `0`: all ten tests passed, none skipped, fixtures unchanged;
-- `2`: fixture or environment preflight failed;
-- `3`: a source fixture changed;
-- `4`: pytest did not report exactly ten passes or at least one selected test was skipped;
-- any other non-zero code: pytest's failure code.
+Without the fixtures present, the gated tests skip and report the reason.
 
 ## POC #9 retained-track migration fixture
 
@@ -55,7 +51,7 @@ POC #9 uses the same `master.db`, `masterPlaylists6.xml`, and optional database
 sidecars, plus this local-only layout:
 
 ```text
-poc/testdata/
+sidecar/tests/testdata/
 ├── event-migration.json
 ├── master.db
 ├── masterPlaylists6.xml
@@ -103,30 +99,27 @@ absolute paths, `..`, backslashes, duplicates, empty files, and symlinks in any
 path component are rejected. ANLZ entries must match
 `share/**/ANLZ*.{DAT,EXT,2EX}`.
 
-The runner copies only the fixed database files and files declared by this
-manifest. It then sets `SYNCBOX_EVENT_MIGRATION_FIXTURE` to the copied manifest
-path. The selected pytest test resolves `master.db`, `masterPlaylists6.xml`,
-audio, and ANLZ paths relative to that manifest's parent. Never point this
-environment variable at a live Rekordbox directory or run the test directly
-against the source manifest.
+The selected pytest test resolves `master.db`, `masterPlaylists6.xml`, audio,
+and ANLZ paths relative to the parent of the manifest named by
+`SYNCBOX_EVENT_MIGRATION_FIXTURE`. Never point this environment variable at a
+live Rekordbox directory or at this source directory.
 
 ### Commands
 
-From the repository root:
+The dedicated runner (`run_event_migration_tests.py`, exit-code contract
+included) is archived in git history. It validated the manifest, copied the
+fixed database files and every declared file into an isolated temporary
+directory, exported `SYNCBOX_EVENT_MIGRATION_FIXTURE` to the copied manifest,
+and re-hashed every source afterwards. To rerun the selected test, reproduce
+that isolation manually: copy the complete fixture set to a disposable
+directory, then
 
 ```sh
-sidecar/.venv/bin/python poc/run_event_migration_tests.py --list
-sidecar/.venv/bin/python poc/run_event_migration_tests.py --check
-sidecar/.venv/bin/python poc/run_event_migration_tests.py
+cd sidecar && SYNCBOX_EVENT_MIGRATION_FIXTURE=/path/to/copy/event-migration.json \
+  uv run --locked pytest -q tests/test_events_service.py
 ```
 
-Exit codes:
-
-- `0`: fixture preflight passed, or the selected test passed once with zero skips and sources unchanged;
-- `2`: fixture, manifest, or environment preflight failed;
-- `3`: a source fixture changed;
-- `4`: pytest did not report exactly one pass or the selected test was skipped;
-- any other non-zero code: pytest's failure code.
+Without the environment variable, the selected test skips.
 
 The copied-fixture POC #9 node passed once with zero skips on 2026-07-15 and
 left every source unchanged. The required Rekordbox 7.2.16 CommonCrypto manual
@@ -138,33 +131,12 @@ contains no inapplicable WAL, SHM, or journal sidecar.
 
 ## Disposable directories for manual Rekordbox checks
 
-The manual preparers require a confirmed complete backup and the same strict
-Rekordbox/process-agent guard as production writes. They copy regular files
-only, keep every output below this ignored directory, and verify every source
-file before and after copying.
-
-Prepare the exact Smart Fix mutation first:
-
-```sh
-sidecar/.venv/bin/python poc/prepare_manual_smartfix_fixture.py \
-  --backup-confirmed \
-  --output poc/testdata/manual-validation-20260715/smartfix-final
-```
-
-Retain the event-migration result on the dedicated local test volume:
-
-```sh
-sidecar/.venv/bin/python poc/run_event_migration_tests.py \
-  --retain poc/testdata/manual-validation-20260715/event-canonical-final
-```
-
-Finally, build complete disposable Rekordbox data directories without writing
-to or renaming the live directory:
-
-```sh
-sidecar/.venv/bin/python poc/prepare_manual_rekordbox_sandboxes.py \
-  --backup-confirmed
-```
+The manual preparers (`prepare_manual_smartfix_fixture.py`,
+`prepare_manual_rekordbox_sandboxes.py`, and the `--retain` mode of the
+event-migration runner) are archived in git history. They required a confirmed
+complete backup and the same strict Rekordbox/process-agent guard as
+production writes, copied regular files only, kept every output below this
+ignored directory, and verified every source file before and after copying.
 
 The resulting ignored `rekordbox-sandboxes-final/` directory contains
 `smartfix-sandbox/`, `event-sandbox/`, and `sandbox-evidence.json`. It is

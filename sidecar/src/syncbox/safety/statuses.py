@@ -3,7 +3,7 @@
 These integers carry the Rekordbox 6/7 sync semantics and must be
 reproduced byte-identically, or the user's Rekordbox sync corrupts:
 256 = active content row, 258 = soft-deleted content row. Verified
-on-disk against a real RB 7.x master.db in poc/05.
+on-disk against a real RB 7.x master.db in POC 05.
 
 Dependency-free on purpose: every Rekordbox read elsewhere filters
 through :func:`is_soft_deleted`.
@@ -46,10 +46,10 @@ def _read(row, field):
 def is_soft_deleted(row) -> bool:
     """True when the row is soft-deleted; accepts ORM rows and mappings.
 
-    pyrekordbox's own getters do NOT filter soft-deleted rows (poc/05
+    pyrekordbox's own getters do NOT filter soft-deleted rows (POC 05
     caveat 3), so this predicate is the mandatory Syncbox-side filter.
     The value is coerced through int() because pyrekordbox maps some
-    integer columns as VARCHAR (poc/05 caveat 5): bool("0") would lie.
+    integer columns as VARCHAR (POC 05 caveat 5): bool("0") would lie.
     """
     value = _read(row, "rb_local_deleted")
     if value is None:

@@ -11,7 +11,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _load_copier():
-    path = REPO / "poc" / "copy_rekordbox_fixtures.py"
+    path = REPO / "scripts" / "copy_rekordbox_fixtures.py"
     spec = importlib.util.spec_from_file_location("copy_rekordbox_fixtures", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

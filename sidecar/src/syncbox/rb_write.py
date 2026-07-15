@@ -1,14 +1,14 @@
 """Rekordbox write helpers (SPEC-UNIFIED 5.7, SPEC-01 1.1/1.6/1.7,
-poc/05 verdict).
+POC 05 verdict).
 
 Every function here operates on the pyrekordbox handle YIELDED BY
 safety.mutate() - there is no other write path (3.1: no escape hatch).
 Load-bearing mechanics owned by Syncbox, not pyrekordbox:
 - signed32() is CONDITIONAL (x - 2^32 only when x >= 2^31): pyrekordbox
   0.4.4 SmartList.to_xml()/parse() shift unconditionally (#110-family
-  quirk, measured in poc/05) and would corrupt NODE Ids < 2^31;
+  quirk, measured in POC 05) and would corrupt NODE Ids < 2^31;
 - new rows always use STRING IDs (mixed int+string PKs are a latent
-  identity hazard: SQLite TEXT affinity silently coerces, poc/05 caveat 2);
+  identity hazard: SQLite TEXT affinity silently coerces, POC 05 caveat 2);
 - soft-delete integer tuples come from safety.statuses, byte-identical;
 - an existing smart playlist / MyTag is REPAIRED, never duplicated (11.2);
 - a soft-deleted artist found by name is self-healed (reactivated, 1.6).
@@ -184,7 +184,7 @@ def apply_tag_delta(db, content_id: str, add_tag_ids=(), remove_tag_ids=()) -> N
 
 def smartlist_payload(playlist_id: str, tag_id: str) -> str:
     """SmartList XML: operator 8 (contains) on the MyTag, with the
-    spec-conformant CONDITIONAL signed-32 NODE Id and ValueLeft (poc/05:
+    spec-conformant CONDITIONAL signed-32 NODE Id and ValueLeft (POC 05:
     byte-shape-identical to rows Rekordbox 7 itself writes)."""
     sl = SmartList(logical_operator=LogicalOperator.ALL, auto_update=0)
     sl.playlist_id = str(playlist_id)
@@ -284,7 +284,7 @@ _FILE_TYPE_BY_EXT = {
 
 
 def add_content(db, staging_path, metadata: dict, *, storage_root):
-    """New content row for a staged event file (SPEC-01 1.6, the poc/05
+    """New content row for a staged event file (SPEC-01 1.6, the POC 05
     phase-4 pattern verified on a real RB 7.x master.db).
 
     Load-bearing: STRING primary key with ID = MasterSongID = rb_file_id;

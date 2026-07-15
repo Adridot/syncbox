@@ -21,19 +21,12 @@ node_modules/
 ui/node_modules/
 ui/dist/
 
-# POC scratch data (disposable; keep only documented evidence)
-poc/**/build/
-poc/**/dist/
-
 # Local Rekordbox fixtures, including database sidecars, ANLZ, and audio
-poc/testdata/**
-!poc/testdata/README.md
+sidecar/tests/testdata/**
+!sidecar/tests/testdata/README.md
 
 # OS
 .DS_Store
 
 # Local agent tooling artifacts
 .playwright-mcp/
-
-# POC cargo shells
-poc/**/target/

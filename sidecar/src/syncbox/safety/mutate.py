@@ -1,5 +1,5 @@
 """The single Rekordbox mutation path (SPEC-UNIFIED 3.1/5.1, SPEC-01 1.2,
-poc/09 verdict).
+POC 09 verdict).
 
 Every write to master.db goes through :func:`mutate` - no escape hatch:
 guard (Rekordbox closed, optional snapshot freshness) -> timestamped
@@ -42,7 +42,7 @@ def fingerprint(db_path) -> tuple:
     stat = db_path.stat()
     parts = ((str(stat.st_mtime_ns), str(stat.st_size)),)
     # The WAL component is included only when the file exists and is non-empty.
-    # non-empty - "wal absent" == "wal empty". Measured in poc/09 (APFS +
+    # non-empty - "wal absent" == "wal empty". Measured in POC 09 (APFS +
     # sqlcipher): closing the last rw connection checkpoints and DELETES
     # master.db-wal, and a bare mode=ro open RECREATES a 0-byte wal, so a
     # literal "(mtime,size) of master.db(+wal)" fingerprint changes after
@@ -101,7 +101,7 @@ def mutate(
     # Accepted residual window: a non-Rekordbox external writer (e.g. a cloud
     # sync client resolving a conflict) can land between this check and
     # open_db. The check's placement (at entry, before backup/open) is what
-    # SPEC-UNIFIED 5.11 and poc/09 specify; re-checking after open risks
+    # SPEC-UNIFIED 5.11 and POC 09 specify; re-checking after open risks
     # spurious aborts from SQLite's own wal recovery at open. The backup
     # taken below still covers whatever state gets mutated.
     if backup_files:

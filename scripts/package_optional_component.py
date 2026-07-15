@@ -33,7 +33,7 @@ def main() -> int:
         raise SystemExit(f"component version {version} != application {canonical}")
 
     runner = runpy.run_path(
-        str(REPO / "poc" / "run_b1_deezer_acquisition.py"),
+        str(REPO / "scripts" / "run_b1_deezer_acquisition.py"),
         run_name="syncbox_component_metadata",
     )
     archive = PROJECT / "dist" / f"{COMPONENT}-{version}-macos-arm64.zip"
