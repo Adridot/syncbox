@@ -67,6 +67,12 @@ jobs:
           pnpm install --frozen-lockfile
           (cd sidecar && uv lock --check && uv sync --locked --managed-python)
           (cd optional-component && uv lock --check && uv sync --locked --managed-python)
+          # Building the local sqlcipher3 wheel drops setuptools byproducts
+          # into the vendor tree; remove them so the license inventory hash
+          # sees the pristine sources (same LOCAL_BUILD_PRODUCTS cleanup as
+          # poc/build_macos_release.py).
+          rm -rf sidecar/vendor/sqlcipher3-commoncrypto/build \
+                 sidecar/vendor/sqlcipher3-commoncrypto/sqlcipher3_wheels.egg-info
 
       - name: Tests
         if: matrix.root == 'primary'
