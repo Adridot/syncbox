@@ -17,10 +17,13 @@ jobs:
         # Two isolated absolute source roots must produce byte-identical
         # ZIPs; the release job blocks on that comparison.
         root: [primary, alt]
-    env:
-      SRC: ${{ runner.temp }}/${{ matrix.root }}/syncbox
     steps:
       - uses: actions/checkout@v4
+
+      # runner.temp is not an allowed context in job-level env (startup
+      # failure); the isolated root is exported per step instead.
+      - name: Define the isolated source root
+        run: echo "SRC=$RUNNER_TEMP/${{ matrix.root }}/syncbox" >> "$GITHUB_ENV"
 
       - name: Check tag matches the versioned release metadata
         run: |
