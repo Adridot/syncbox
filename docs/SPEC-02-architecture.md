@@ -1,200 +1,206 @@
-# Syncbox — Remise en question architecturale & cible recommandée (Phase 2, V1)
+# Syncbox — Architectural Reassessment & Recommended Target (Phase 2, V1)
 
-> **Objet.** Challenger *chaque* choix d'architecture, de technologie et de « manière de faire » de l'app actuelle, et proposer **une cible recommandée** optimisée pour les 3 priorités validées : **(1) robustesse/sûreté** (zéro corruption Rekordbox), **(2) empreinte légère** (petit binaire, peu de RAM, démarrage rapide), **(3) performance/réactivité**. La maintenabilité a été *écartée* des priorités — j'assume donc une complexité accrue si elle sert ces trois axes.
+> **Historical design input only.** Forks and cross-platform assumptions in
+> this document predate the macOS v1 owner override. The current implementation
+> and release boundaries are defined by [SPEC-UNIFIED.md](SPEC-UNIFIED.md) and
+> [DISTRIBUTION.md](DISTRIBUTION.md); Windows and Developer ID/notarization are
+> deferred.
+
+> **Purpose.** Challenge *every* architecture, technology, and “way of doing things” choice in the current app, and propose **a recommended target** optimized for the 3 validated priorities: **(1) robustness/safety** (zero Rekordbox corruption), **(2) lightweight footprint** (small binary, low RAM, fast startup), **(3) performance/responsiveness**. Maintainability has been *removed* from the priorities — I therefore accept increased complexity if it serves these three axes.
 >
-> **Statut.** V1 = recommandation + **4 forks structurants soumis à validation** (§4). Les choix produits/features sont figés dans [SPEC-01-syncbox.md](SPEC-01-syncbox.md) (§7, journal D1–D25). Recherche factuelle sourcée dans `docs/_research/`.
+> **Status.** V1 = recommendation + **4 structuring forks submitted for validation** (§4). Product/feature choices are frozen in [SPEC-01-syncbox.md](SPEC-01-syncbox.md) (§7, log D1–D25). Source-backed factual research in `docs/_research/`.
 >
-> **Contraintes de cadrage** (réponses validées) : open-source/public · **macOS + Windows** (Linux exclu) · UI web conservée · Spotify OAuth PKCE only · acquisition Deezer « tout au même endroit » (à arbitrer, fork D).
+> **Scoping constraints** (validated answers): open-source/public · **macOS + Windows** (Linux excluded) · web UI preserved · Spotify OAuth PKCE only · Deezer acquisition “all in one place” (to be arbitrated, fork D).
 
 ---
 
-## 1. Méthode & verdict en une phrase
+## 1. Method & Verdict in One Sentence
 
-J'ai vérifié par recherche web sourcée les 5 points qui déterminent l'archi : (a) librairies d'accès `master.db` par langage, (b) formats d'échange Rekordbox, (c) coques desktop légères, (d) packaging/transport d'un sidecar Python, (e) acquisition Deezer. **Verdict d'ensemble :** garder Python **uniquement** pour la couche Rekordbox (c'est le choix de robustesse, non négociable), **alléger radicalement tout le reste** (coque, transport, packaging, suppression du process externe Deemix), et trancher **une question de fond** — écrire `master.db` en place (fidélité totale) vs passer par les formats d'échange (sûreté maximale mais perte des MyTags/smart playlists).
+I verified through source-backed web research the 5 points that determine the architecture: (a) `master.db` access libraries by language, (b) Rekordbox exchange formats, (c) lightweight desktop shells, (d) packaging/transport of a Python sidecar, (e) Deezer acquisition. **Overall verdict:** keep Python **only** for the Rekordbox layer (this is the robustness choice, non-negotiable), **radically lighten everything else** (shell, transport, packaging, removal of the external Deemix process), and decide **one fundamental question** — write `master.db` in place (full fidelity) vs use exchange formats (maximum safety but loss of MyTags/smart playlists).
 
 ---
 
-## 2. Remise en question, couche par couche
+## 2. Reassessment, Layer by Layer
 
-Format : **Choix actuel** → *Verdict (sourcé)* → **Recommandation**.
+Format: **Current choice** → *Verdict (sourced)* → **Recommendation**.
 
-### 2.1 — Le découpage en 3 process (Electron main + service Python + renderer)
+### 2.1 — The 3-Process Split (Electron Main + Python Service + Renderer)
 
-**Choix actuel.** 3 process : Electron main (TS) qui spawn un service FastAPI/uvicorn (Python) et héberge un renderer Vue ; communication renderer↔service en HTTP `127.0.0.1` + SSE, renderer↔main en IPC, main↔service en spawn (`electron/main.ts`, `service/app/main.py`).
+**Current choice.** 3 processes: Electron main (TS) spawning a FastAPI/uvicorn service (Python) and hosting a Vue renderer; renderer↔service communication over HTTP `127.0.0.1` + SSE, renderer↔main over IPC, main↔service via spawn (`electron/main.ts`, `service/app/main.py`).
 
-*Verdict.* Le découpage **UI / logique** est sain et porté par la nécessité (pyrekordbox est Python, l'UI est web). En revanche **le triple pont** (IPC + HTTP + SSE) et le **double store de réglages** (electron-store ↔ SQLite, réconciliation push/pull manuelle, cf. SPEC-01 §5 T5) sont de la complexité *subie*, pas *choisie*. Le service web complet (FastAPI/uvicorn) est surdimensionné pour un IPC local : **cold start lent** (jusqu'à plusieurs secondes ; Pydantic v2 multiplie le boot par 2–4×) et **bug connu uvicorn+PyInstaller** (workers qui ne démarrent pas ~50 % du temps) · [FastAPI cold starts](https://medium.com/@hadiyolworld007/fastapi-cold-starts-explained-why-your-containers-feel-slow-and-the-optimization-order-that-dcac906ffe2b), [uvicorn #1820](https://github.com/Kludex/uvicorn/discussions/1820).
+*Verdict.* The **UI / logic** split is sound and driven by necessity (pyrekordbox is Python, the UI is web). However, **the triple bridge** (IPC + HTTP + SSE) and the **double settings store** (electron-store ↔ SQLite, manual push/pull reconciliation, cf. SPEC-01 §5 T5) are complexity that is *endured*, not *chosen*. The full web service (FastAPI/uvicorn) is oversized for local IPC: **slow cold start** (up to several seconds; Pydantic v2 multiplies boot time by 2–4×) and **known uvicorn+PyInstaller bug** (workers fail to start ~50% of the time) · [FastAPI cold starts](https://medium.com/@hadiyolworld007/fastapi-cold-starts-explained-why-your-containers-feel-slow-and-the-optimization-order-that-dcac906ffe2b), [uvicorn #1820](https://github.com/Kludex/uvicorn/discussions/1820).
 
-**Recommandation.** Garder la séparation **UI web ↔ noyau Python**, mais : (a) **supprimer le double store de réglages** (une seule source de vérité, lue par l'UI) ; (b) **remplacer FastAPI/uvicorn par un worker Python minimal** (cf. §2.5) ; (c) réduire les ponts à **un seul** canal de commande + **un seul** canal d'événements (cf. fork C).
+**Recommendation.** Keep the **web UI ↔ Python core** separation, but: (a) **remove the double settings store** (single source of truth, read by the UI); (b) **replace FastAPI/uvicorn with a minimal Python worker** (cf. §2.5); (c) reduce bridges to **one** command channel + **one** event channel (cf. fork C).
 
-### 2.2 — La coque Electron
+### 2.2 — The Electron Shell
 
-**Choix actuel.** Electron 42 (Chromium embarqué). Empreinte ~100–150 Mo binaire, 200–300 Mo RAM au repos · [pkgpulse 2026](https://www.pkgpulse.com/guides/electron-vs-tauri-2026), [raftlabs](https://dev.to/raftlabs/tauri-vs-electron-23d1).
+**Current choice.** Electron 42 (bundled Chromium). Footprint ~100–150 MB binary, 200–300 MB RAM at idle · [pkgpulse 2026](https://www.pkgpulse.com/guides/electron-vs-tauri-2026), [raftlabs](https://dev.to/raftlabs/tauri-vs-electron-23d1).
 
-*Verdict.* Frontalement opposé à la priorité **#2 (empreinte)**. **Tauri v2** (stable 02/10/2024, MIT+Apache, audité) produit des binaires **~3–10 Mo** et **~30–100 Mo RAM**, via webview natif (WKWebView macOS / WebView2 Windows), et offre un **mécanisme sidecar de première classe** (`externalBin` + plugin Shell) explicitement prévu pour **un serveur Python bundlé via PyInstaller** · [Tauri 2.0](https://v2.tauri.app/blog/tauri-20/), [Tauri sidecar](https://v2.tauri.app/develop/sidecar/). Deux risques concrets : (1) **bug de notarisation macOS avec `externalBin`** (#11992, ouvert depuis déc. 2024) → il faut **signer manuellement chaque binaire sidecar** ; (2) **webview hétérogène** (WKWebView ≠ WebView2 ≠ Chromium) → tests CSS/JS par OS · [Tauri #11992](https://github.com/tauri-apps/tauri/issues/11992), [webviews Tauri](https://dev.to/shrsv/exploring-system-webviews-in-tauri-native-rendering-for-efficient-cross-platform-apps-9hl). La SSE en `EventSource` **fonctionne** dans WKWebView sur HTTP localhost (à ne PAS faire passer par le custom-protocol Tauri) · [Apple forums #104901](https://developer.apple.com/forums/thread/104901).
+*Verdict.* Directly opposed to priority **#2 (footprint)**. **Tauri v2** (stable 2024-10-02, MIT+Apache, audited) produces binaries of **~3–10 MB** and uses **~30–100 MB RAM**, via native webview (WKWebView macOS / WebView2 Windows), and provides a **first-class sidecar mechanism** (`externalBin` + Shell plugin) explicitly intended for **a Python server bundled via PyInstaller** · [Tauri 2.0](https://v2.tauri.app/blog/tauri-20/), [Tauri sidecar](https://v2.tauri.app/develop/sidecar/). Two concrete risks: (1) **macOS notarization bug with `externalBin`** (#11992, open since Dec. 2024) → each sidecar binary must be **manually signed**; (2) **heterogeneous webview** (WKWebView ≠ WebView2 ≠ Chromium) → CSS/JS tests per OS · [Tauri #11992](https://github.com/tauri-apps/tauri/issues/11992), [Tauri webviews](https://dev.to/shrsv/exploring-system-webviews-in-tauri-native-rendering-for-efficient-cross-platform-apps-9hl). SSE in `EventSource` **works** in WKWebView over HTTP localhost (do NOT route it through the Tauri custom protocol) · [Apple forums #104901](https://developer.apple.com/forums/thread/104901).
 
-**Recommandation.** **Tauri v2** (gain d'empreinte ~10×, RAM ~5×). **Electron en repli** uniquement si la chaîne de signature/notarisation du sidecar macOS s'avère bloquante en POC. ⚠️ **À dé-risquer en tout premier** (cf. §5). → **Fork B**.
+**Recommendation.** **Tauri v2** (footprint gain ~10×, RAM ~5×). **Electron fallback** only if the macOS sidecar signing/notarization chain proves blocking in POC. ⚠️ **De-risk first** (cf. §5). → **Fork B**.
 
-### 2.3 — Le runtime service : Python + pyrekordbox
+### 2.3 — The Service Runtime: Python + pyrekordbox
 
-**Choix actuel.** Service Python, accès `master.db` via **pyrekordbox** (read/write SQLCipher).
+**Current choice.** Python service, `master.db` access through **pyrekordbox** (read/write SQLCipher).
 
-*Verdict (analyse du paysage, demandée).* **La crypto n'est PAS un verrou** : la clé SQLCipher du `master.db` est une **constante publique connue**, identique sur toutes les installs (l'obfuscation de Rekordbox 6.6.5+ casse seulement l'*extraction automatique*, pas la clé) · [pyrekordbox #97](https://github.com/dylanljones/pyrekordbox/discussions/97), [liamcottle](https://github.com/liamcottle/pioneer-rekordbox-database-encryption). N'importe quel langage avec un binding SQLCipher (Rust `rusqlite`, Node `better-sqlite3-multiple-ciphers`, .NET, Go) peut donc ouvrir la base. **Le vrai verrou est la logique métier d'écriture cohérente** (FK, codes `rb_local_*`, smart playlists, MyTags) que **seul pyrekordbox encapsule de façon mûre** :
+*Verdict (landscape analysis, requested).* **Crypto is NOT a lock-in**: the `master.db` SQLCipher key is a **known public constant**, identical across all installs (Rekordbox 6.6.5+ obfuscation only breaks *automatic extraction*, not the key) · [pyrekordbox #97](https://github.com/dylanljones/pyrekordbox/discussions/97), [liamcottle](https://github.com/liamcottle/pioneer-rekordbox-database-encryption). Any language with a SQLCipher binding (Rust `rusqlite`, Node `better-sqlite3-multiple-ciphers`, .NET, Go) can therefore open the database. **The real lock-in is the business logic for coherent writes** (FKs, `rb_local_*` codes, smart playlists, MyTags), which **only pyrekordbox encapsulates maturely**:
 
-| Lib | Langage | Lit/écrit master.db | Maturité | Licence | OS | Note |
+| Lib | Language | Reads/writes master.db | Maturity | License | OS | Note |
 |---|---|---|---|---|---|---|
-| **pyrekordbox** | Python | **Oui** (8 tables, testé RB 7.0.9) | **Mûre** (v0.4.4 2025, 415★) | **MIT** | Win+mac | Tire `numpy` (eager, non-excludable) → plancher ~30-50 Mo |
-| rbox | Rust | Oui (ORM) | **Expérimental**, build cassé | GPL-3.0 | Win+mac | Trop risqué pour « zéro corruption » |
-| RDBManager | Node | Oui (cues/BPM seulement) | Très petit projet | GPL-3.0 | **Windows seul** | Écriture trop partielle |
-| rekordcrate / crate-digger | Rust / Java | **Non** (exports USB only) | Actifs | MPL / — | — | Hors sujet (device export) |
-| Go / .NET / Swift / C++ | — | **Aucune lib métier** | — | — | — | Réécriture from scratch |
+| **pyrekordbox** | Python | **Yes** (8 tables, tested RB 7.0.9) | **Mature** (v0.4.4 2025, 415★) | **MIT** | Win+mac | Pulls `numpy` (eager, non-excludable) → floor ~30-50 MB |
+| rbox | Rust | Yes (ORM) | **Experimental**, broken build | GPL-3.0 | Win+mac | Too risky for “zero corruption” |
+| RDBManager | Node | Yes (cues/BPM only) | Very small project | GPL-3.0 | **Windows only** | Writes too partial |
+| rekordcrate / crate-digger | Rust / Java | **No** (USB exports only) | Active | MPL / — | — | Out of scope (device export) |
+| Go / .NET / Swift / C++ | — | **No business library** | — | — | — | Rewrite from scratch |
 
-Sources : [pyrekordbox](https://github.com/dylanljones/pyrekordbox), [rbox crates.io](https://crates.io/crates/rbox), [RDBManager](https://github.com/l3x04/RDBManager), [rekordcrate](https://github.com/Holzhaus/rekordcrate).
+Sources: [pyrekordbox](https://github.com/dylanljones/pyrekordbox), [rbox crates.io](https://crates.io/crates/rbox), [RDBManager](https://github.com/l3x04/RDBManager), [rekordcrate](https://github.com/Holzhaus/rekordcrate).
 
-**Recommandation.** **Garder Python + pyrekordbox** pour la couche Rekordbox — c'est l'arbitrage **robustesse (priorité #1) > légèreté (#2)**. Réimplémenter l'écriture en Rust/Node serait *le* risque de corruption, pour un gain de taille que l'on récupère autrement (coque + transport + acquisition). On **paie le plancher numpy (~30-50 Mo)** et on optimise le reste. *(L'option full-Rust via rbox reste un chemin futur si rbox mûrit ; non recommandée aujourd'hui.)*
+**Recommendation.** **Keep Python + pyrekordbox** for the Rekordbox layer — this is the tradeoff **robustness (priority #1) > lightweight footprint (#2)**. Reimplementing writes in Rust/Node would be *the* corruption risk, for a size gain that can be recovered elsewhere (shell + transport + acquisition). We **pay the numpy floor (~30-50 MB)** and optimize the rest. *(The full-Rust option via rbox remains a future path if rbox matures; not recommended today.)*
 
-### 2.4 — La stratégie d'écriture Rekordbox : `master.db` en place vs formats d'échange
+### 2.4 — Rekordbox Write Strategy: `master.db` In Place vs Exchange Formats
 
-**Choix actuel.** Écriture directe de `master.db` (apply library/event, dedup, relink, soft-delete), + un « Live Import » M3U8 secondaire (que SPEC-01 D10 retire).
+**Current choice.** Direct `master.db` writes (apply library/event, dedup, relink, soft-delete), + a secondary M3U8 “Live Import” (removed by SPEC-01 D10).
 
-*Verdict (le point le plus structurant).* Écrire `master.db` donne la **fidélité totale** : MyTags, **smart playlists** (le « Event Imports » + la bibliothèque taggée *sont* la valeur de Syncbox), mise à jour **en place**, sans action manuelle. Le coût : dépendance SQLCipher, **verrou « Rekordbox fermé »**, et risque de corruption (mitigé aujourd'hui par backup-avant-mutation + soft-delete). **La voie « formats d'échange » est plus sûre et plus légère** mais **ampute le cœur produit** :
+*Verdict (the most structuring point).* Writing `master.db` provides **full fidelity**: MyTags, **smart playlists** (the “Event Imports” + tagged library *are* Syncbox’s value), update **in place**, with no manual action. Cost: SQLCipher dependency, **“Rekordbox closed” lock**, and corruption risk (currently mitigated by backup-before-mutation + soft-delete). **The “exchange formats” path is safer and lighter** but **amputates the product core**:
 
-| Voie | Corruption possible ? | Verrou RB fermé ? | MyTags | Smart playlists | En place ? | Action manuelle ? |
+| Path | Corruption possible? | RB closed lock? | MyTags | Smart playlists | In place? | Manual action? |
 |---|---|---|---|---|---|---|
-| **master.db (pyrekordbox)** | Oui (mitigée backup) | **Oui** | **Oui** | **Oui** | **Oui** | Non |
-| **XML import** | **Non** | **Non** | **Non** | **Non** (aplaties) | Non (volet Bridge) | **Oui** (import RB manuel, additif/buggé) |
-| **M3U8** | Non | Non | Non | Non | Non | Oui |
+| **master.db (pyrekordbox)** | Yes (mitigated by backup) | **Yes** | **Yes** | **Yes** | **Yes** | No |
+| **XML import** | **No** | **No** | **No** | **No** (flattened) | No (Bridge pane) | **Yes** (manual RB import, additive/buggy) |
+| **M3U8** | No | No | No | No | No | Yes |
 
-L'export XML a été **retiré de l'UI dès RB 6** (seul l'import subsiste), atterrit dans un volet « Bridge » séparé, et son upsert est **additif/buggé** sur les tracks existants · [spec XML PDF](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf), [Engine DJ thread](https://community.enginedj.com/t/no-more-xml-export-in-rekordbox-6-blocks-denon-prime-users/21170), [Mixo import bug](https://www.mixo.dj/guides/rekordbox-xml-import-bug). pyrekordbox sait **écrire le XML** (`rbxml.save()`, cues + beatgrid portés, MIT) mais **pas** les MyTags/smartlists (absents du format) · [pyrekordbox rbxml](https://raw.githubusercontent.com/dylanljones/pyrekordbox/master/pyrekordbox/rbxml.py).
+XML export was **removed from the UI as of RB 6** (only import remains), lands in a separate “Bridge” pane, and its upsert is **additive/buggy** on existing tracks · [spec XML PDF](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf), [Engine DJ thread](https://community.enginedj.com/t/no-more-xml-export-in-rekordbox-6-blocks-denon-prime-users/21170), [Mixo import bug](https://www.mixo.dj/guides/rekordbox-xml-import-bug). pyrekordbox can **write XML** (`rbxml.save()`, cues + beatgrid carried over, MIT) but **not** MyTags/smartlists (absent from the format) · [pyrekordbox rbxml](https://raw.githubusercontent.com/dylanljones/pyrekordbox/master/pyrekordbox/rbxml.py).
 
-**Recommandation.** **Garder l'écriture `master.db` comme chemin principal** (sans elle, Syncbox n'est qu'un downloader Deezer de plus), en s'appuyant sur la colonne vertébrale de sûreté déjà spécifiée (backup obligatoire, soft-delete, garde RB fermé, corbeille OS — SPEC-01 §3.1/D12). **Décision validée : A2 — écriture `master.db` *seule*, sans mode XML** (cœur produit intact, surface minimale, aucune échappatoire « zéro écriture »). → **Fork A** (cf. §4 décisions validées).
+**Recommendation.** **Keep `master.db` writes as the primary path** (without them, Syncbox is just another Deezer downloader), relying on the already specified safety backbone (mandatory backup, soft-delete, RB closed guard, OS Trash — SPEC-01 §3.1/D12). **Validated decision: A2 — `master.db` writes *only*, with no XML mode** (product core intact, minimal surface area, no “zero-write” escape hatch). → **Fork A** (cf. §4 validated decisions).
 
-### 2.5 — Transport (HTTP + SSE + polling) & couche de données UI
+### 2.5 — Transport (HTTP + SSE + Polling) & UI Data Layer
 
-**Choix actuel.** UI ↔ service en **HTTP REST + SSE** ; **deux moteurs de rafraîchissement** (vue-query partiel + `useRefreshManager` setInterval) ; SSE qui n'alimente **qu'un seul** des deux stores de jobs (SPEC-01 §5 F5/F6/T4). FastAPI/uvicorn côté service.
+**Current choice.** UI ↔ service over **HTTP REST + SSE**; **two refresh engines** (partial vue-query + `useRefreshManager` setInterval); SSE feeds **only one** of the two job stores (SPEC-01 §5 F5/F6/T4). FastAPI/uvicorn on the service side.
 
-*Verdict.* (a) Côté UI, la **double couche de données est une migration inachevée** (git `phase-2a→2d`), pas un choix — à **converger sur une seule** (cf. mémoire projet « dual data layer kept » : statut à reconfirmer dans une réécriture ; ici on tranche pour la légèreté/perf → **convergence**). (b) Côté service, **FastAPI/uvicorn est surdimensionné** pour un IPC local : un **worker Python nu en JSON-RPC sur stdin/stdout** démarre quasi-instantanément, est plus léger, et **supprime la surface réseau loopback à sécuriser** · [JSON-RPC stdio vs HTTP](https://medium.com/ingeniouslysimple/building-an-electron-app-from-scratch-part-4-5d0906897bf1). (c) La **reconstruction manuelle du nom de fichier téléchargé** (SPEC-01 §5 F1/D18) doit disparaître au profit du **vrai chemin de sortie** lu depuis le downloader.
+*Verdict.* (a) On the UI side, the **double data layer is an unfinished migration** (git `phase-2a→2d`), not a choice — to **converge on one** (cf. project memory “dual data layer kept”: status to reconfirm in a rewrite; here we decide for lightweight/perf → **convergence**). (b) On the service side, **FastAPI/uvicorn is oversized** for local IPC: a **bare Python worker using JSON-RPC over stdin/stdout** starts almost instantly, is lighter, and **removes the loopback network surface to secure** · [JSON-RPC stdio vs HTTP](https://medium.com/ingeniouslysimple/building-an-electron-app-from-scratch-part-4-5d0906897bf1). (c) The **manual reconstruction of the downloaded filename** (SPEC-01 §5 F1/D18) must disappear in favor of the **real output path** read from the downloader.
 
-**Recommandation.** **Une seule couche de cache réactive côté UI** (style query-cache, intervalles de refetch unifiés, un flux d'événements canonique pour les jobs). Côté noyau, **worker Python minimal**, **piloté en JSON-RPC** ; la progression des jobs poussée à l'UI via **un seul canal d'événements**. Le choix exact du transport (stdin/stdout brokeré par Tauri **vs** HTTP+SSE localhost conservé) = **Fork C**.
+**Recommendation.** **A single reactive cache layer on the UI side** (query-cache style, unified refetch intervals, canonical event stream for jobs). On the core side, **minimal Python worker**, **driven by JSON-RPC**; job progress pushed to the UI through **a single event channel**. The exact transport choice (stdin/stdout brokered by Tauri **vs** preserved HTTP+SSE localhost) = **Fork C**.
 
-### 2.6 — Packaging du sidecar Python
+### 2.6 — Python Sidecar Packaging
 
-**Choix actuel.** PyInstaller `--onedir` (binaire autonome), embarqué en `extraResources` Electron.
+**Current choice.** PyInstaller `--onedir` (standalone binary), bundled in Electron `extraResources`.
 
-*Verdict.* `--onedir` est le bon mode (le `--onefile` ré-extrait à chaque démarrage → lent, à proscrire vu la priorité démarrage) · [PyInstaller docs](https://pyinstaller.org/en/stable/usage.html). Alternatives : **Nuitka** (binaire plus petit ~60 Mo, runtime 2-4× plus rapide, mais build lent et compile tout numpy) ; **python-build-standalone (Astral)** (cross macOS arm64 + Windows, maintenu) · [x321 benchmark](https://x321.org/empirical-pyinstaller-vs-nuitka-vs-cx_freeze/), [astral.sh](https://astral.sh/blog/python-build-standalone). **PyOxidizer est abandonné** (à écarter) · [PyOxidizer #737](https://github.com/indygreg/PyOxidizer/discussions/737). **Le vrai risque robustesse n'est pas le packager mais le cycle de vie** : un binaire PyInstaller spawne **2 process** ; un `kill()` naïf laisse un **orphelin qui garde la transaction SQLCipher ouverte** → corruption · [Tauri #11686](https://github.com/tauri-apps/tauri/issues/11686). `sqlcipher3-wheels` (SQLCipher 4 embarqué) couvre l'ouverture du master.db sans toolchain C chez l'utilisateur · [sqlcipher3-wheels](https://pypi.org/project/sqlcipher3-wheels/).
+*Verdict.* `--onedir` is the right mode (`--onefile` re-extracts on every startup → slow, to be avoided given the startup priority) · [PyInstaller docs](https://pyinstaller.org/en/stable/usage.html). Alternatives: **Nuitka** (smaller binary ~60 MB, runtime 2-4× faster, but slow build and compiles all of numpy); **python-build-standalone (Astral)** (cross macOS arm64 + Windows, maintained) · [x321 benchmark](https://x321.org/empirical-pyinstaller-vs-nuitka-vs-cx_freeze/), [astral.sh](https://astral.sh/blog/python-build-standalone). **PyOxidizer is abandoned** (exclude it) · [PyOxidizer #737](https://github.com/indygreg/PyOxidizer/discussions/737). **The real robustness risk is not the packager but the lifecycle**: a PyInstaller binary spawns **2 processes**; a naive `kill()` leaves an **orphan holding the SQLCipher transaction open** → corruption · [Tauri #11686](https://github.com/tauri-apps/tauri/issues/11686). `sqlcipher3-wheels` (bundled SQLCipher 4) covers opening master.db without a C toolchain on the user’s machine · [sqlcipher3-wheels](https://pypi.org/project/sqlcipher3-wheels/).
 
-**Recommandation.** **PyInstaller `--onedir`** (sûr, rapide à livrer) au départ ; **Nuitka** comme upgrade taille/perf si nécessaire. **Impératif robustesse** : arrêt propre = **handshake RPC « shutdown » → attendre fermeture DB → kill de l'arbre de process** (`taskkill /T` Windows, process-group macOS), + garde anti-double-instance. Mesurer empiriquement le poids numpy+sqlcipher3 et le cold start (leviers #1 de taille/démarrage).
+**Recommendation.** **PyInstaller `--onedir`** (safe, fast to ship) initially; **Nuitka** as a size/perf upgrade if necessary. **Robustness imperative**: clean shutdown = **RPC “shutdown” handshake → wait for DB closure → kill process tree** (`taskkill /T` Windows, process-group macOS), + anti-double-instance guard. Empirically measure numpy+sqlcipher3 weight and cold start (the #1 levers for size/startup).
 
-### 2.7 — Acquisition Deezer/Deemix (process externe sur :6595)
+### 2.7 — Deezer/Deemix Acquisition (External Process on :6595)
 
-**Choix actuel.** Pilotage d'une **app Deemix externe** (Electron/Node) via HTTP `127.0.0.1:6595`, ARL poussé par l'app (SPEC-01 §3.5). Un **second runtime** complet, fragile (parsing heuristique de la queue, globals process).
+**Current choice.** Control of an **external Deemix app** (Electron/Node) over HTTP `127.0.0.1:6595`, ARL pushed by the app (SPEC-01 §3.5). A **second full runtime**, fragile (heuristic parsing of the queue, process globals).
 
-*Verdict.* La lib **`deemix` (Python, GPL-3.0)** est **embarquable** (API conçue pour ça), avec **5 dépendances légères** (`click, pycryptodomex, mutagen, requests, deezer-py`) — **pas de numpy** · [pypi deemix](https://pypi.org/project/deemix/), [setup.py](https://gitlab.com/RemixDev/deemix-py/-/raw/main/setup.py). L'embarquer **dans le sidecar Python existant supprime le process Node/Electron externe** → **gain net de légèreté/RAM/démarrage** (« tout au même endroit »). **Mais** : la lib est **figée sur PyPI depuis 2022**, casse périodiquement au gré des changements d'API Deezer (forks de fix : DeemixFix 2024), **`streamrip`** est mieux maintenu (4.7k★, 2026) mais orienté CLI · [streamrip](https://github.com/nathom/streamrip). Deux coûts à assumer : (1) **GPL-3.0 contamine tout le binaire distribué** (acceptable car open-source, rédhibitoire pour du proprio) ; (2) **risque DMCA/takedown** documenté (plainte Deezer 2021 visant `deemix-gui` ; retraits GitHub historiques) → embarquer le downloader **augmente la surface de takedown du dépôt** · [DMCA Deezer 2021](https://github.com/github/dmca/blob/master/2021/02/2021-02-10-deezer.md), [TorrentFreak](https://torrentfreak.com/deezer-targets-pirate-apps-maliciously-retrieving-publishing-encryption-keys-210212/).
+*Verdict.* The **`deemix` library (Python, GPL-3.0)** is **embeddable** (API designed for this), with **5 lightweight dependencies** (`click, pycryptodomex, mutagen, requests, deezer-py`) — **no numpy** · [pypi deemix](https://pypi.org/project/deemix/), [setup.py](https://gitlab.com/RemixDev/deemix-py/-/raw/main/setup.py). Embedding it **in the existing Python sidecar removes the external Node/Electron process** → **net gain in footprint/RAM/startup** (“all in one place”). **But**: the library has been **frozen on PyPI since 2022**, periodically breaks as Deezer API changes (fix forks: DeemixFix 2024), **`streamrip`** is better maintained (4.7k★, 2026) but CLI-oriented · [streamrip](https://github.com/nathom/streamrip). Two costs to accept: (1) **GPL-3.0 contaminates the entire distributed binary** (acceptable because open-source, blocking for proprietary); (2) **documented DMCA/takedown risk** (2021 Deezer complaint targeting `deemix-gui`; historical GitHub removals) → embedding the downloader **increases the main repository’s takedown surface** · [DMCA Deezer 2021](https://github.com/github/dmca/blob/master/2021/02/2021-02-10-deezer.md), [TorrentFreak](https://torrentfreak.com/deezer-targets-pirate-apps-maliciously-retrieving-publishing-encryption-keys-210212/).
 
-**Recommandation.** **Embarquer une lib Python de download** (deemix ou streamrip) dans le sidecar, **isolée derrière une interface mince**, **version pinée**, **jamais sur le chemin critique d'écriture master.db**. Sérieusement considérer de la livrer comme **module/plugin optionnel** (l'utilisateur l'active + fournit son ARL) pour **limiter l'exposition juridique** du dépôt principal. → **Fork D**.
+**Recommendation.** **Embed a Python download library** (deemix or streamrip) in the sidecar, **isolated behind a thin interface**, **pinned version**, **never on the `master.db` write critical path**. Seriously consider shipping it as an **optional module/plugin** (the user activates it + provides their ARL) to **limit legal exposure** of the main repository. → **Fork D**.
 
-### 2.8 — Les « manières de faire » récurrentes (transversal)
+### 2.8 — Recurring “Ways of Doing Things” (Cross-Cutting)
 
-| Pratique actuelle | Verdict | Cible |
+| Current practice | Verdict | Target |
 |---|---|---|
-| Reconstruction du nom de fichier téléchargé (`audio.py`) | Source chronique de bugs (SPEC-01 F1) | **Lire le vrai chemin** de sortie du downloader (D18) |
-| Globals process (`_applied_arl`, caches mtime) | Races, fuites d'état (F3) | État porté par instance/requête ; pas de global mutable partagé |
-| Navigation sans routeur (`ui.activeView`, Settings = `v-else`) | OK pour desktop mais pas de deep-link/persistance, fourre-tout dangereux | Garder l'état d'écran (léger) mais **défaut explicite** + persistance, ou un mini-routeur |
-| Gestion d'erreur générique (`error.message` brut, parse null) | Fuite de texte backend, null silencieux (F7) | Mapping erreur→message i18n ; validation de schéma au bord |
-| 2 normalisations matching/dedup | Jugements « identique » divergents (T3) | **Une** pipeline normalisation partagée (D19) |
-| Migration SQLite ad-hoc + re-seed à chaque boot | Écrase les éditions utilisateur (B4) | **Migrations versionnées ordonnées** ; seed strictement 1er run |
-| Tokens OAuth en clair dans SQLite | Inacceptable en open-source | **Keychain OS / DB chiffrée** |
+| Reconstruction of the downloaded filename (`audio.py`) | Chronic source of bugs (SPEC-01 F1) | **Read the real output path** from the downloader (D18) |
+| Process globals (`_applied_arl`, mtime caches) | Races, state leaks (F3) | State carried by instance/request; no shared mutable global |
+| Navigation without router (`ui.activeView`, Settings = `v-else`) | OK for desktop but no deep-link/persistence, dangerous catch-all | Keep screen state (lightweight) but **explicit default** + persistence, or a mini-router |
+| Generic error handling (raw `error.message`, null parse) | Backend text leak, silent null (F7) | Error→i18n message mapping; schema validation at the edge |
+| 2 matching/dedup normalizations | Divergent “identical” judgments (T3) | **One** shared normalization pipeline (D19) |
+| Ad-hoc SQLite migration + re-seed on every boot | Overwrites user edits (B4) | **Ordered versioned migrations**; seed strictly on first run |
+| OAuth tokens in plaintext in SQLite | Unacceptable in open-source | **OS Keychain / encrypted DB** |
 
 ---
 
-## 3. Architecture cible recommandée (synthèse)
+## 3. Recommended Target Architecture (Summary)
 
-Optimisée **robustesse > légèreté > performance** ; UI web conservée ; macOS + Windows.
+Optimized for **robustness > lightweight footprint > performance**; web UI preserved; macOS + Windows.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Coque: TAURI v2 (Rust, ~3-10 Mo, webview natif WKWebView/    │
-│  WebView2)                                                     │
-│   • héberge l'UI web   • spawn + supervise le sidecar Python   │
-│   • signe le binaire sidecar (chaîne macOS à dé-risquer)       │
+│  Shell: TAURI v2 (Rust, ~3-10 MB, native WKWebView/           │
+│  WebView2 webview)                                            │
+│   • hosts the web UI   • spawns + supervises the Python sidecar│
+│   • signs the sidecar binary (macOS chain to de-risk)          │
 └───────────────┬──────────────────────────────┬───────────────┘
-                │ (1 canal commande +           │ (spawn + cycle de
-                │  1 canal événements)           │  vie: shutdown
-                ▼                                ▼  propre, kill arbre)
+                │ (1 command channel +          │ (spawn + lifecycle:
+                │  1 event channel)             │  clean shutdown,
+                ▼                                ▼  kill tree)
    ┌────────────────────────┐      ┌────────────────────────────────┐
-   │ UI: Vue 3 (conservée)   │      │ NOYAU: sidecar Python minimal   │
-   │  • UNE couche de cache  │      │  (PAS de FastAPI/uvicorn)       │
-   │    réactive (convergée) │      │  • pyrekordbox (master.db, MIT) │
-   │  • 1 flux d'événements   │      │  • acquisition Deezer (lib      │
-   │    jobs canonique        │      │    embarquée, isolée, pinée)    │
-   │  • i18n FR/EN            │      │  • SQLite app (état) + migrations│
-   └────────────────────────┘      │    versionnées                  │
+   │ UI: Vue 3 (preserved)   │      │ CORE: minimal Python sidecar    │
+   │  • ONE reactive cache   │      │  (NO FastAPI/uvicorn)           │
+   │    layer (converged)    │      │  • pyrekordbox (master.db, MIT) │
+   │  • 1 canonical job      │      │  • Deezer acquisition (embedded │
+   │    event stream         │      │    library, isolated, pinned)   │
+   │  • FR/EN i18n           │      │  • app SQLite (state) + versioned│
+   └────────────────────────┘      │    migrations                   │
                                     │  • Spotify OAuth PKCE only       │
                                     └────────────────────────────────┘
-   Sûreté (inchangée, non négociable): garde « RB fermé », backup
-   avant chaque mutation, soft-delete, corbeille OS, résolution de
-   chemins volume-relatif/absolu (SPEC-01 §3.1-3.2 / §9).
+   Safety (unchanged, non-negotiable): “RB closed” guard, backup
+   before every mutation, soft-delete, OS Trash, relative-to-volume/
+   absolute path resolution (SPEC-01 §3.1-3.2 / §9).
 ```
 
-**Ce qui change vs aujourd'hui** : Electron→Tauri (−~140 Mo) ; FastAPI/uvicorn→worker Python minimal JSON-RPC stdin/stdout (cold start) ; process Deemix externe→lib embarquée **en module optionnel** (−1 runtime quand activé) ; double couche de données→une seule ; double store réglages→une seule source ; reconstruction de nom→vrai chemin ; migrations ad-hoc→versionnées ; tokens→chiffrés.
-**Ce qui ne change pas** : Python+pyrekordbox pour Rekordbox ; UI Vue ; la colonne vertébrale de sûreté ; le modèle de domaine (SPEC-01 §6).
+**What changes vs today**: Electron→Tauri (−~140 MB); FastAPI/uvicorn→minimal Python worker with JSON-RPC stdin/stdout (cold start); external Deemix process→embedded library **as optional module** (−1 runtime when enabled); double data layer→single layer; double settings store→single source; filename reconstruction→real path; ad-hoc migrations→versioned; tokens→encrypted.
+**What does not change**: Python+pyrekordbox for Rekordbox; Vue UI; safety backbone; domain model (SPEC-01 §6).
 
 ---
 
-## 4. Les 4 forks majeurs à valider
+## 4. The 4 Major Forks to Validate
 
-> **⚠️ CLOS — tranché dans [SPEC-UNIFIED.md](SPEC-UNIFIED.md) §7.1.** Les 4 forks sont décidés : **A** = `master.db` en place **sans** mode XML (le double-sens du label « A2 » est abandonné) ; **B** = Tauri v2 (POC signature #11992) ; **C** = **garder HTTP+SSE localhost**, rejeter JSON-RPC ; **D** = lib embarquée en **module optionnel** + ARL (lib déléguée au POC). Cette section et la table « Décisions validées » ci-dessous sont conservées comme **historique** ; la décision faisant foi est dans SPEC-UNIFIED.
+> **⚠️ CLOSED — decided in [SPEC-UNIFIED.md](SPEC-UNIFIED.md) §7.1.** The 4 forks are decided: **A** = `master.db` in place **without** XML mode (the double meaning of the “A2” label is abandoned); **B** = Tauri v2 (signature POC #11992); **C** = **keep HTTP+SSE localhost**, reject JSON-RPC; **D** = embedded library as **optional module** + ARL (library delegated to the POC). This section and the “Validated Decisions” table below are preserved as **history**; the authoritative decision is in SPEC-UNIFIED.
 
-> Recommandation indiquée en premier ; ce sont les choix structurants où ta validation est requise.
+> Recommendation shown first; these are the structuring choices where your validation is required.
 
-**Fork A — Stratégie d'écriture Rekordbox.**
-- **A1 (reco)** : `master.db` en place comme chemin principal (MyTags + smart playlists + en place), porté par la sûreté backup/soft-delete/corbeille. Optionnellement, ajouter un mode « export XML » sûr.
-- A2 : Formats d'échange only (XML/M3U8) — zéro corruption, pas de verrou RB, mais **perte MyTags + smart playlists** + import manuel. Transforme Syncbox en downloader simple.
-- *Pourquoi ça compte* : c'est l'identité du produit vs la sûreté absolue.
+**Fork A — Rekordbox Write Strategy.**
+- **A1 (reco)**: `master.db` in place as the primary path (MyTags + smart playlists + in place), supported by backup/soft-delete/Trash safety. Optionally, add a safe “XML export” mode.
+- A2: Exchange formats only (XML/M3U8) — zero corruption, no RB lock, but **loss of MyTags + smart playlists** + manual import. Turns Syncbox into a simple downloader.
+- *Why it matters*: this is product identity vs absolute safety.
 
-**Fork B — Coque desktop.**
-- **B1 (reco)** : Tauri v2 (empreinte ~10×, RAM ~5×), Electron en repli si la signature sidecar macOS bloque.
-- B2 : Rester sur Electron (rendu homogène, sidecar déjà en place, zéro surprise webview) au prix de l'empreinte.
-- *Pourquoi ça compte* : priorité #2 vs risque/effort de la chaîne de signature Tauri.
+**Fork B — Desktop Shell.**
+- **B1 (reco)**: Tauri v2 (footprint ~10×, RAM ~5×), Electron fallback if macOS sidecar signing blocks.
+- B2: Stay on Electron (homogeneous rendering, sidecar already in place, zero webview surprises) at the cost of footprint.
+- *Why it matters*: priority #2 vs risk/effort of the Tauri signing chain.
 
-**Fork C — Transport noyau ↔ UI.**
-- **C1 (reco)** : worker Python minimal en **JSON-RPC stdin/stdout**, brokeré par Tauri, jobs poussés en **événements Tauri** (le plus léger/rapide, pas de surface réseau).
-- C2 : conserver **HTTP + SSE localhost** (migration plus douce, SSE éprouvée en WKWebView) avec un Python minimal mais un mini-serveur.
-- *Pourquoi ça compte* : pureté légèreté/perf vs effort de réécriture du transport.
+**Fork C — Core ↔ UI Transport.**
+- **C1 (reco)**: minimal Python worker over **JSON-RPC stdin/stdout**, brokered by Tauri, jobs pushed as **Tauri events** (lightest/fastest, no network surface).
+- C2: keep **HTTP + SSE localhost** (smoother migration, SSE proven in WKWebView) with minimal Python but a mini-server.
+- *Why it matters*: lightweight/perf purity vs transport rewrite effort.
 
-**Fork D — Acquisition Deezer.**
-- **D1 (reco)** : embarquer une lib Python (deemix/streamrip) dans le sidecar, isolée + pinée ; **la livrer en module/plugin optionnel** (l'utilisateur l'active + ARL) pour limiter l'exposition DMCA et le couplage GPL du cœur.
-- D2 : garder un downloader **externe** piloté en HTTP (isolation robuste, mais 2e runtime, « pas au même endroit »).
-- D3 : réécrire l'acquisition **nativement** (Rust/Go, ARL+Blowfish, licence permissive, pas de 2e runtime) — plus de maintenance face aux changements Deezer.
-- *Pourquoi ça compte* : « tout au même endroit » vs robustesse/maintenance vs licence/légalité.
+**Fork D — Deezer Acquisition.**
+- **D1 (reco)**: embed a Python library (deemix/streamrip) in the sidecar, isolated + pinned; **ship it as an optional module/plugin** (the user enables it + ARL) to limit DMCA exposure and GPL coupling of the core.
+- D2: keep an **external** downloader controlled over HTTP (robust isolation, but 2nd runtime, “not in one place”).
+- D3: rewrite acquisition **natively** (Rust/Go, ARL+Blowfish, permissive license, no 2nd runtime) — more maintenance against Deezer changes.
+- *Why it matters*: “all in one place” vs robustness/maintenance vs license/legality.
 
-### Décisions validées (forks A–D)
+### Validated Decisions (Forks A–D)
 
-| Fork | Décision | Effet sur la cible |
+| Fork | Decision | Effect on the target |
 |---|---|---|
-| **A — Écriture RB** | **A2 — `master.db` en place *seulement*** (pas de mode XML) | Cœur produit (MyTags + smart playlists + en place) intact ; surface minimale ; pas d'échappatoire « zéro écriture » — la sûreté repose **entièrement** sur la colonne vertébrale backup / soft-delete / corbeille OS / garde RB fermé. ⇒ rend les POC §5.2 (cycle de vie process) et §5.5 (non-régression schéma) d'autant plus critiques. |
-| **B — Coque** | **B1 — Tauri v2** (repli Electron si la signature sidecar macOS bloque) | −~140 Mo binaire, RAM ~5× moindre. Dé-risquer la signature/notarisation macOS du sidecar (#11992) en **POC n°1**. |
-| **C — Transport** | **C1 — worker Python minimal, JSON-RPC stdin/stdout** + jobs poussés en événements Tauri | Pas de FastAPI/uvicorn, pas de surface réseau loopback, cold start minimal. Le pont UI↔noyau passe par le broker Tauri ; transport à réécrire (pas de SSE/HTTP). |
-| **D — Acquisition** | **D1 — lib Python embarquée, livrée en module/plugin *optionnel*** (l'utilisateur l'active + fournit son ARL) | Supprime le process externe **quand activé** ; isolée derrière une interface mince, version pinée, **jamais sur le chemin critique `master.db`** ; limite l'exposition DMCA et confine le copyleft GPL au module optionnel plutôt qu'au cœur. |
+| **A — RB Writes** | **A2 — `master.db` in place *only*** (no XML mode) | Product core (MyTags + smart playlists + in place) intact; minimal surface area; no “zero-write” escape hatch — safety relies **entirely** on the backup / soft-delete / OS Trash / RB closed guard backbone. ⇒ makes POCs §5.2 (process lifecycle) and §5.5 (schema non-regression) even more critical. |
+| **B — Shell** | **B1 — Tauri v2** (Electron fallback if macOS sidecar signing blocks) | −~140 MB binary, ~5× lower RAM. De-risk macOS sidecar signing/notarization (#11992) as **POC #1**. |
+| **C — Transport** | **C1 — minimal Python worker, JSON-RPC stdin/stdout** + jobs pushed as Tauri events | No FastAPI/uvicorn, no loopback network surface, minimal cold start. The UI↔core bridge goes through the Tauri broker; transport must be rewritten (no SSE/HTTP). |
+| **D — Acquisition** | **D1 — embedded Python library, shipped as an *optional* module/plugin** (the user enables it + provides their ARL) | Removes the external process **when enabled**; isolated behind a thin interface, pinned version, **never on the `master.db` critical path**; limits DMCA exposure and confines GPL copyleft to the optional module rather than the core. |
 
 ---
 
-## 5. Risques & ordre de dé-risquage (POC avant tout engagement)
+## 5. Risks & De-Risking Order (POC Before Any Commitment)
 
-1. **Signature + notarisation du sidecar Python sous Tauri macOS** (#11992) — *le* point de friction n°1 ; à prototyper **en premier**. Si bloquant → repli Electron (Fork B).
-2. **Cycle de vie du process** (kill d'arbre + fermeture propre de la connexion SQLCipher) — risque de corruption #1 côté packaging ; à valider mac **et** Windows.
-3. **Taille réelle du bundle** (numpy + sqlcipher3 + lib download) et **cold start** du worker Python — mesurer empiriquement (lèvera/confirmera le gain de légèreté).
-4. **`EventSource`/transport dans WKWebView réel** (si Fork C2) — tester sur device macOS, pas seulement en Chromium/Electron.
-5. **Fidélité d'écriture pyrekordbox sur RB 7.x cible** (smart playlists/MyTags, bugs résiduels #110) — harnais de tests de non-régression sur le schéma `master.db` **avant** tout déploiement.
-6. **Acquisition** : valider qu'un fork deemix/streamrip fonctionne avec l'API Deezer **actuelle** + packaging `pycryptodomex`.
+1. **Signing + notarization of the Python sidecar under Tauri macOS** (#11992) — *the* #1 friction point; prototype **first**. If blocking → Electron fallback (Fork B).
+2. **Process lifecycle** (tree kill + clean SQLCipher connection close) — #1 packaging-side corruption risk; validate on mac **and** Windows.
+3. **Actual bundle size** (numpy + sqlcipher3 + download library) and **cold start** of the Python worker — measure empirically (will lift/confirm the lightweight gain).
+4. **`EventSource`/transport in real WKWebView** (if Fork C2) — test on macOS device, not only in Chromium/Electron.
+5. **pyrekordbox write fidelity on target RB 7.x** (smart playlists/MyTags, residual bugs #110) — non-regression test harness on the `master.db` schema **before** any deployment.
+6. **Acquisition**: validate that a deemix/streamrip fork works with the **current** Deezer API + `pycryptodomex` packaging.
 
 ---
 
-## Annexe — Sources principales
+## Appendix — Main Sources
 
-Librairies RB : [pyrekordbox](https://github.com/dylanljones/pyrekordbox) · [clé SQLCipher #97](https://github.com/dylanljones/pyrekordbox/discussions/97) · [rbox](https://crates.io/crates/rbox) · [RDBManager](https://github.com/l3x04/RDBManager) · [rekordcrate](https://github.com/Holzhaus/rekordcrate).
-Formats : [XML spec PDF](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf) · [pyrekordbox rbxml](https://pyrekordbox.readthedocs.io/en/latest/formats/xml.html) · [import bug](https://www.mixo.dj/guides/rekordbox-xml-import-bug).
-Coques : [Tauri 2.0](https://v2.tauri.app/blog/tauri-20/) · [Tauri sidecar](https://v2.tauri.app/develop/sidecar/) · [notarisation #11992](https://github.com/tauri-apps/tauri/issues/11992) · [Wails](https://wails.io/).
-Packaging : [PyInstaller](https://pyinstaller.org/en/stable/usage.html) · [Nuitka vs PyInstaller](https://x321.org/empirical-pyinstaller-vs-nuitka-vs-cx_freeze/) · [python-build-standalone](https://astral.sh/blog/python-build-standalone) · [orphan #11686](https://github.com/tauri-apps/tauri/issues/11686).
-Acquisition : [deemix lib](https://pypi.org/project/deemix/) · [streamrip](https://github.com/nathom/streamrip) · [DMCA Deezer 2021](https://github.com/github/dmca/blob/master/2021/02/2021-02-10-deezer.md).
+RB libraries: [pyrekordbox](https://github.com/dylanljones/pyrekordbox) · [SQLCipher key #97](https://github.com/dylanljones/pyrekordbox/discussions/97) · [rbox](https://crates.io/crates/rbox) · [RDBManager](https://github.com/l3x04/RDBManager) · [rekordcrate](https://github.com/Holzhaus/rekordcrate).
+Formats: [XML spec PDF](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf) · [pyrekordbox rbxml](https://pyrekordbox.readthedocs.io/en/latest/formats/xml.html) · [import bug](https://www.mixo.dj/guides/rekordbox-xml-import-bug).
+Shells: [Tauri 2.0](https://v2.tauri.app/blog/tauri-20/) · [Tauri sidecar](https://v2.tauri.app/develop/sidecar/) · [notarization #11992](https://github.com/tauri-apps/tauri/issues/11992) · [Wails](https://wails.io/).
+Packaging: [PyInstaller](https://pyinstaller.org/en/stable/usage.html) · [Nuitka vs PyInstaller](https://x321.org/empirical-pyinstaller-vs-nuitka-vs-cx_freeze/) · [python-build-standalone](https://astral.sh/blog/python-build-standalone) · [orphan #11686](https://github.com/tauri-apps/tauri/issues/11686).
+Acquisition: [deemix lib](https://pypi.org/project/deemix/) · [streamrip](https://github.com/nathom/streamrip) · [DMCA Deezer 2021](https://github.com/github/dmca/blob/master/2021/02/2021-02-10-deezer.md).
 
-Recherche détaillée par axe : `docs/_research/00_RB.md` … `04_Acquisition.md`.
+Detailed research by axis: `docs/_research/00_RB.md` … `04_Acquisition.md`.

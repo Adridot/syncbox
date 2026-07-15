@@ -1,145 +1,148 @@
-# PROMPT — Analyse fonctionnelle & technique exhaustive de Syncbox
-### Phase 1/2 : reverse-engineering en vue d'une réécriture propre
+# PROMPT — Exhaustive Functional & Technical Analysis of Syncbox
+### Phase 1/2: reverse engineering for a clean rewrite
 
-> **Mode d'emploi.** Ouvre une session Claude Code à la racine du dépôt et colle tout ce qui suit (à partir de « ── DÉBUT DU PROMPT ── »). Le résultat est un **document de spécification**, pas du code et pas une architecture. C'est l'intrant de la Phase 2 (choix d'architecture & approche de développement), qui fera l'objet d'un prompt séparé.
+> **Historical prompt.** It describes the legacy Electron/Deemix repository
+> analysis and is not a current implementation or release instruction.
 
----
-
-## ── DÉBUT DU PROMPT ──
-
-### Contexte
-
-Tu analyses **Syncbox**, une application desktop (Electron + Vue 3 + service Python FastAPI) qui synchronise des playlists Spotify vers la collection Rekordbox d'un DJ, télécharge les morceaux manquants via Deemix/Deezer, et entretient la collection (doublons, fichiers manquants, tags). L'app a été construite par prompts successifs et a accumulé des bugs, des incohérences et de la dette. Le but final est de **la réécrire de zéro, à l'identique fonctionnellement mais sans les défauts hérités**.
-
-Cette analyse est la **première de deux étapes** :
-
-1. **(toi, maintenant)** Comprendre exhaustivement ce que l'app fait, comment elle se comporte, comment elle est construite, ce qui est cassé, et **décider avec l'utilisateur ce qu'on garde / retire / change**. Produire une spécification fonctionnelle + technique.
-2. **(plus tard, autre session)** À partir de ta spec, concevoir l'architecture cible et l'approche de développement.
-
-### Ton rôle et ta posture
-
-Tu es un analyste produit **et** un ingénieur de reverse-engineering senior. Tu es rigoureux, factuel et sceptique : tu décris ce qui *est*, pas ce qui *devrait être*. Tu ne te laisses pas impressionner par le code existant — c'est une source à auditer, pas une vérité.
-
-### Règles d'or — NON NÉGOCIABLES
-
-1. **Tu ne choisis PAS la stack ni l'architecture cible.** Pas de « il faudrait utiliser X », pas de « réécrivons en Y ». Tu peux *noter des observations techniques* et *lister des options ouvertes*, mais toute décision d'archi est différée à la Phase 2. Si tu te surprends à rédiger une recommandation de stack, arrête-toi et transforme-la en *question ouverte*.
-
-2. **Au moindre doute, tu DEMANDES.** Dès qu'une fonctionnalité, un comportement ou une donnée pourrait raisonnablement être *gardé tel quel*, *retiré*, *simplifié* ou *modifié* — et que tu ne peux pas trancher seul avec certitude — tu poses la question à l'utilisateur (via `AskUserQuestion`, en lots groupés et thématiques). Tu ne supposes jamais à sa place sur ce qui a de la valeur pour lui. En cas d'hésitation entre « demander » et « décider seul » : demande.
-
-3. **Tout est ancré dans le code réel.** Chaque fonctionnalité, règle ou contrat que tu affirmes doit pointer vers une preuve (`fichier:ligne`). Tu n'inventes aucune feature. Si quelque chose semble exister mais que tu ne le retrouves pas, tu le notes comme *à confirmer*, pas comme un fait.
-
-4. **Tu sépares trois choses qui se confondent facilement :**
-   - ce que l'app **fait aujourd'hui** (observable),
-   - ce qui est **intentionnel** vs ce qui est un **bug / un effet de bord / de la dette**,
-   - ce qu'on **veut** dans la réécriture (garder / retirer / changer).
-   Ne jamais mélanger ces trois registres dans une même phrase sans le signaler.
-
-5. **L'UI/UX est un sujet OUVERT, pas un acquis.** Décris l'organisation actuelle (pages, menus, navigation, états) et propose *des pistes*, mais ne verrouille rien : la répartition des pages, l'arborescence des menus et les parcours sont explicitement « à redéfinir en phase de design ». L'utilisateur n'est pas certain de leur pertinence — traite-les comme des hypothèses à challenger, pas comme des contraintes.
-
-6. **Tu captures le CONTRAT DE COMPORTEMENT, pas l'implémentation.** Ce qui doit survivre à une réécriture, ce sont les *règles métier, invariants et cas limites* (ex. « les mutations Rekordbox sont bloquées si Rekordbox tourne », « les suppressions sont réversibles via backup »), pas la façon dont le code actuel les réalise. Décris le *quoi* et le *pourquoi*, laisse le *comment* à la Phase 2.
-
-7. **Tu n'écris pas de code et tu ne modifies rien.** Lecture seule. Le seul artefact que tu produis est le document de spécification (+ les questions posées à l'utilisateur).
-
-### Méthode (phases d'analyse)
-
-Travaille dans cet ordre. Tu peux paralléliser l'exploration, mais respecte la séquence logique des livrables.
-
-**P0 — Reconnaissance.** Cartographie le dépôt : couches (renderer / Electron main / service Python), arborescence, points d'entrée, scripts de build, dépendances et leur rôle. Confirme/complète l'appendice de départ ci-dessous au lieu de repartir de zéro.
-
-**P1 — Décomposition fonctionnelle.** Inventorie *toutes* les fonctionnalités exposées à l'utilisateur (les fichiers de locale `en.ts`/`fr.ts` sont un excellent index de features). Pour chacune : ce qu'elle fait, où elle vit, son état (complète / à moitié finie / morte). Recense les écrans, la navigation, les parcours end-to-end clés.
-
-**P2 — Spécification comportementale (le « cœur » à préserver).** Pour chaque domaine, extrais les **règles métier, invariants, garanties de sécurité et cas limites** : conditions de blocage, ordres d'opérations, réversibilité, gestion des conflits, priorités de tri, stratégies de matching, etc. C'est la partie la plus précieuse de la spec.
-
-**P3 — Reverse-engineering technique.** Documente les couches et surtout les **contrats internes** : canaux IPC (renderer↔main), endpoints HTTP (renderer↔service), flux SSE, variables d'environnement de spawn, formes de payload. Documente la couche de données (persistance, caches, sources de vérité) et l'accès Rekordbox/Spotify/Deemix. Décris *les contrats*, pas la qualité du code (ça vient en P4).
-
-**P4 — Catalogue des bugs & douleurs (ce qu'il NE FAUT PAS reproduire).** Liste les défauts, classés : `bug` (comportement incorrect) / `fragile` (race, gestion d'erreur absente, hypothèse cachée) / `dette` (incohérence, duplication, complexité non justifiée) / `inachevé` (feature à moitié faite). Pour chacun : symptôme observable, `fichier:ligne`, cause probable, et impact sur l'utilisateur. Utilise l'appendice « dette connue » comme point de départ, vérifie-le et étends-le.
-
-**P5 — Modèle de domaine & données.** Décris le domaine qui doit survivre quelle que soit la techno : entités (source/playlist, track, event, job d'acquisition, tag, backup…), leurs relations, leurs cycles de vie et statuts, les identités de matching (ISRC, fuzzy). C'est le socle métier réutilisable.
-
-**P6 — Décisions garder / retirer / changer (INTERACTIF).** Pour chaque feature et chaque comportement notable, propose une décision et — au moindre doute — **demande à l'utilisateur**. Consigne chaque réponse dans un *journal de décisions*. Vois la taxonomie et le protocole ci-dessous.
-
-**P7 — UI/UX : état des lieux + pistes ouvertes.** Décris l'organisation actuelle, puis propose 2-3 pistes alternatives de structuration (sans trancher), et liste les questions de design ouvertes. Marque tout comme « hypothèse à valider en phase design ».
-
-**P8 — Contraintes & non-négociables.** Ce que la réécriture *devra* respecter quoi qu'il arrive : sûreté Rekordbox (SQLCipher, blocage si RB ouvert, backups), dépendances externes incontournables (pyrekordbox, Deemix, Spotify OAuth), contraintes de packaging (binaire Python embarqué), plateforme (macOS), etc.
-
-**P9 — Questions ouvertes pour la Phase 2.** La liste explicite des décisions d'architecture et de produit *non tranchées*, prêtes à être reprises par le prompt d'architecture. C'est la passerelle vers l'étape suivante.
-
-### Protocole d'interaction (quand et comment demander)
-
-- **Groupe tes questions par thème** et pose-les avec `AskUserQuestion` (max 4 par appel). N'inonde pas l'utilisateur d'une question à la fois.
-- **Pose une question dès que la réponse change ce qu'on garde/retire/change**, c.-à-d. quand : (a) une feature est ambiguë en valeur, (b) un comportement actuel pourrait être un bug *ou* une intention, (c) deux features se chevauchent (laquelle garder ?), (d) une complexité existe sans justification visible (la retirer ?), (e) une feature semble inachevée (la finir, la couper, ou la repenser ?).
-- **Ne demande PAS** ce que le code répond sans ambiguïté, ni des micro-détails d'implémentation, ni des choix de stack (différés). Pour le reste, recommande une option par défaut *et* demande confirmation.
-- **Chaque réponse va au journal de décisions**, avec sa justification.
-
-### Taxonomie des décisions (à appliquer à chaque feature/comportement)
-
-`GARDER` (tel quel) · `GARDER-MAIS-CORRIGER` (le comportement reste, le bug saute) · `SIMPLIFIER` (garder l'intention, réduire la surface) · `CHANGER` (revoir le comportement) · `RETIRER` · `À-DÉCIDER` (question posée à l'utilisateur).
-
-### Livrable attendu
-
-Un seul document Markdown structuré, dense et navigable — la **spécification fonctionnelle & technique de Syncbox** — comprenant au minimum :
-
-1. Résumé exécutif (ce qu'est l'app, en 10 lignes).
-2. Inventaire fonctionnel (features × état × emplacement).
-3. Spécification comportementale par domaine (règles, invariants, cas limites).
-4. Carte technique & contrats internes (IPC, HTTP, SSE, données, externes).
-5. Catalogue des défauts (bug / fragile / dette / inachevé) avec `fichier:ligne`.
-6. Modèle de domaine & données.
-7. **Journal de décisions** garder/retirer/changer (avec les réponses de l'utilisateur).
-8. UI/UX : état des lieux + pistes ouvertes.
-9. Contraintes & non-négociables.
-10. **Questions ouvertes pour la Phase 2 (architecture).**
-
-Le document doit pouvoir être lu seul par quelqu'un qui n'a jamais vu le code, et suffire à réécrire l'app à l'identique fonctionnellement. Reste factuel ; signale explicitement tout ce qui est supposé ou à confirmer.
+> **How to use.** Open a Claude Code session at the repository root and paste everything that follows (starting from “── START OF PROMPT ──”). The result is a **specification document**, not code and not an architecture. It is the input for Phase 2 (architecture choices & development approach), which will be covered by a separate prompt.
 
 ---
 
-## Appendice A — Carte de départ (à vérifier et approfondir, pas à recopier)
+## ── START OF PROMPT ──
 
-> Ceci est un point de départ issu d'une première exploration. Confirme chaque élément dans le code, corrige ce qui est faux, et **complète** — ne te contente pas de le reprendre.
+### Context
 
-### Écrans (~9, navigation par état Pinia `useUiStore`, pas de Vue Router)
-Dashboard · My Library (suivi de playlists Spotify, master-détail) · Events (sets DJ, création 3 modes, « Live Import » M3U8) · Download & Match (queue Deemix, résolution de conflits) · Duplicates (scan ISRC/fuzzy, auto-résolution) · Missing Files (re-download / re-link / soft-delete) · Untagged (diagnostic + suggestions + tagging de masse) · Doctor (diagnostics, backups Rekordbox, restore, logs) · Settings (Spotify, Deemix/ARL, chemins, langue EN/FR, backup/restore).
+You are analyzing **Syncbox**, a desktop application (Electron + Vue 3 + Python FastAPI service) that synchronizes Spotify playlists to a DJ’s Rekordbox collection, downloads missing tracks via Deemix/Deezer, and maintains the collection (duplicates, missing files, tags). The app was built through successive prompts and has accumulated bugs, inconsistencies, and debt. The final goal is to **rewrite it from scratch, functionally identical but without the inherited defects**.
 
-### Domaines fonctionnels
-Synchronisation & acquisition (suivi de playlists, sync source/all, auto-tag MyTags) · Événements/DJ sets (analyse Spotify, workspace, staging, Live Import sans écriture DB) · Téléchargement & matching (Deemix, statuts de jobs, résolution de conflits ambigus via recherche Deezer) · Gestion de collection (doublons, fichiers manquants, untagged) · Config & accès (langue, OAuth Spotify, chemins, backup/restore) · Système & monitoring (santé API/Rekordbox/Deemix/Spotify, stats collection, diagnostics).
+This analysis is the **first of two steps**:
+
+1. **(you, now)** Exhaustively understand what the app does, how it behaves, how it is built, what is broken, and **decide with the user what to keep / remove / change**. Produce a functional + technical specification.
+2. **(later, another session)** Based on your spec, design the target architecture and development approach.
+
+### Your Role and Stance
+
+You are a product analyst **and** a senior reverse-engineering engineer. You are rigorous, factual, and skeptical: you describe what *is*, not what *should be*. You are not impressed by the existing code — it is a source to audit, not a source of truth.
+
+### Golden Rules — NON-NEGOTIABLE
+
+1. **You do NOT choose the stack or target architecture.** No “we should use X”, no “let’s rewrite in Y”. You may *note technical observations* and *list open options*, but any architecture decision is deferred to Phase 2. If you catch yourself writing a stack recommendation, stop and turn it into an *open question*.
+
+2. **When in doubt, ASK.** As soon as a feature, behavior, or data item could reasonably be *kept as is*, *removed*, *simplified*, or *modified* — and you cannot decide alone with certainty — ask the user (via `AskUserQuestion`, in grouped thematic batches). Never assume what is valuable to them. When hesitating between “ask” and “decide alone”: ask.
+
+3. **Everything is anchored in the real code.** Every feature, rule, or contract you assert must point to evidence (`file:line`). Do not invent any feature. If something seems to exist but you cannot find it, mark it as *to confirm*, not as fact.
+
+4. **Separate three things that are easily conflated:**
+   - what the app **does today** (observable),
+   - what is **intentional** vs what is a **bug / side effect / debt**,
+   - what we **want** in the rewrite (keep / remove / change).
+   Never mix these three registers in the same sentence without signaling it.
+
+5. **UI/UX is an OPEN topic, not a given.** Describe the current organization (pages, menus, navigation, states) and suggest *directions*, but do not lock anything in: page distribution, menu hierarchy, and flows are explicitly “to be redefined in the design phase”. The user is not certain they are relevant — treat them as hypotheses to challenge, not as constraints.
+
+6. **Capture the BEHAVIORAL CONTRACT, not the implementation.** What must survive a rewrite are the *business rules, invariants, and edge cases* (e.g. “Rekordbox mutations are blocked if Rekordbox is running”, “deletions are reversible via backup”), not how the current code implements them. Describe the *what* and the *why*, leave the *how* to Phase 2.
+
+7. **Do not write code and do not modify anything.** Read-only. The only artifact you produce is the specification document (+ the questions asked to the user).
+
+### Method (Analysis Phases)
+
+Work in this order. You may parallelize exploration, but respect the logical sequence of the deliverables.
+
+**P0 — Reconnaissance.** Map the repository: layers (renderer / Electron main / Python service), tree structure, entry points, build scripts, dependencies and their role. Confirm/complete the starting appendix below instead of starting from scratch.
+
+**P1 — Functional Decomposition.** Inventory *all* user-exposed features (the locale files `en.ts`/`fr.ts` are an excellent feature index). For each: what it does, where it lives, its status (complete / half-finished / dead). List screens, navigation, and key end-to-end flows.
+
+**P2 — Behavioral Specification (the “core” to preserve).** For each domain, extract the **business rules, invariants, safety guarantees, and edge cases**: blocking conditions, operation order, reversibility, conflict handling, sort priorities, matching strategies, etc. This is the most valuable part of the spec.
+
+**P3 — Technical Reverse Engineering.** Document the layers and especially the **internal contracts**: IPC channels (renderer↔main), HTTP endpoints (renderer↔service), SSE streams, spawn environment variables, payload shapes. Document the data layer (persistence, caches, sources of truth) and Rekordbox/Spotify/Deemix access. Describe *the contracts*, not the code quality (that comes in P4).
+
+**P4 — Bug & Pain Catalog (what MUST NOT be reproduced).** List defects, classified as: `bug` (incorrect behavior) / `fragile` (race, missing error handling, hidden assumption) / `debt` (inconsistency, duplication, unjustified complexity) / `unfinished` (half-built feature). For each: observable symptom, `file:line`, probable cause, and user impact. Use the “known debt” appendix as a starting point, verify it, and extend it.
+
+**P5 — Domain & Data Model.** Describe the domain that must survive regardless of technology: entities (source/playlist, track, event, acquisition job, tag, backup…), their relationships, lifecycles and statuses, matching identities (ISRC, fuzzy). This is the reusable business foundation.
+
+**P6 — Keep / Remove / Change Decisions (INTERACTIVE).** For each feature and each notable behavior, propose a decision and — at the slightest doubt — **ask the user**. Record each answer in a *decision log*. See the taxonomy and protocol below.
+
+**P7 — UI/UX: Current State + Open Directions.** Describe the current organization, then propose 2-3 alternative structuring directions (without deciding), and list open design questions. Mark everything as “hypothesis to validate in the design phase”.
+
+**P8 — Constraints & Non-Negotiables.** What the rewrite *must* respect no matter what: Rekordbox safety (SQLCipher, blocking if RB is open, backups), unavoidable external dependencies (pyrekordbox, Deemix, Spotify OAuth), packaging constraints (embedded Python binary), platform (macOS), etc.
+
+**P9 — Open Questions for Phase 2.** The explicit list of *undecided* architecture and product decisions, ready to be carried into the architecture prompt. This is the bridge to the next step.
+
+### Interaction Protocol (When and How to Ask)
+
+- **Group your questions by theme** and ask them with `AskUserQuestion` (max 4 per call). Do not flood the user with one question at a time.
+- **Ask a question as soon as the answer changes what we keep/remove/change**, i.e. when: (a) a feature’s value is ambiguous, (b) a current behavior could be a bug *or* intentional, (c) two features overlap (which one to keep?), (d) complexity exists without visible justification (remove it?), (e) a feature seems unfinished (finish it, cut it, or rethink it?).
+- **Do NOT ask** what the code answers unambiguously, micro implementation details, or stack choices (deferred). For everything else, recommend a default option *and* ask for confirmation.
+- **Every answer goes into the decision log**, with its justification.
+
+### Decision Taxonomy (to apply to each feature/behavior)
+
+`KEEP` (as is) · `KEEP-BUT-FIX` (the behavior remains, the bug goes away) · `SIMPLIFY` (keep the intent, reduce the surface area) · `CHANGE` (revise the behavior) · `REMOVE` · `TO-DECIDE` (question asked to the user).
+
+### Expected Deliverable
+
+A single structured, dense, navigable Markdown document — the **functional & technical specification of Syncbox** — including at minimum:
+
+1. Executive summary (what the app is, in 10 lines).
+2. Functional inventory (features × status × location).
+3. Behavioral specification by domain (rules, invariants, edge cases).
+4. Technical map & internal contracts (IPC, HTTP, SSE, data, externals).
+5. Defect catalog (bug / fragile / debt / unfinished) with `file:line`.
+6. Domain & data model.
+7. **Decision log** keep/remove/change (with the user’s answers).
+8. UI/UX: current state + open directions.
+9. Constraints & non-negotiables.
+10. **Open questions for Phase 2 (architecture).**
+
+The document must be readable on its own by someone who has never seen the code, and sufficient to rewrite the app functionally identically. Stay factual; explicitly flag anything assumed or to be confirmed.
+
+---
+
+## Appendix A — Starting Map (to verify and deepen, not copy)
+
+> This is a starting point from a first exploration. Confirm every element in the code, correct anything false, and **complete** it — do not simply reuse it.
+
+### Screens (~9, navigation via Pinia `useUiStore` state, no Vue Router)
+Dashboard · My Library (Spotify playlist tracking, master-detail) · Events (DJ sets, creation in 3 modes, “Live Import” M3U8) · Download & Match (Deemix queue, conflict resolution) · Duplicates (ISRC/fuzzy scan, auto-resolution) · Missing Files (re-download / re-link / soft-delete) · Untagged (diagnostic + suggestions + bulk tagging) · Doctor (diagnostics, Rekordbox backups, restore, logs) · Settings (Spotify, Deemix/ARL, paths, EN/FR language, backup/restore).
+
+### Functional Domains
+Synchronization & acquisition (playlist tracking, source/all sync, auto-tag MyTags) · Events/DJ sets (Spotify analysis, workspace, staging, Live Import without DB writes) · Download & matching (Deemix, job statuses, ambiguous conflict resolution via Deezer search) · Collection management (duplicates, missing files, untagged) · Config & access (language, Spotify OAuth, paths, backup/restore) · System & monitoring (API/Rekordbox/Deemix/Spotify health, collection stats, diagnostics).
 
 ### Stack
-Electron 42 (main TS, preload CJS) · Vue 3 + Pinia 3 (~6 stores) **et** TanStack vue-query 5 (cohabitation assumée mais partielle) · vue-i18n 11 (FR/EN) · Tailwind 4 · electron-store 8 · Service Python 3.12+ FastAPI/uvicorn · pyrekordbox 0.4.4 (master.db SQLCipher) · mutagen · rapidfuzz · httpx · pydantic · build : Vite/electron-vite + PyInstaller + electron-builder (DMG macOS, binaire Python en extraResources).
+Electron 42 (main TS, preload CJS) · Vue 3 + Pinia 3 (~6 stores) **and** TanStack vue-query 5 (deliberate but partial coexistence) · vue-i18n 11 (FR/EN) · Tailwind 4 · electron-store 8 · Python 3.12+ FastAPI/uvicorn service · pyrekordbox 0.4.4 (SQLCipher master.db) · mutagen · rapidfuzz · httpx · pydantic · build: Vite/electron-vite + PyInstaller + electron-builder (macOS DMG, Python binary in extraResources).
 
-### Communication entre couches
-Renderer↔Main : IPC via `window.desktop.*` (settings get/set/reload, getApiBaseUrl, openExternal/openPath/openLogs, deemix status/launch/install/onProgress). Renderer↔Service : HTTP fetch (`/api/...`) sur port `RBSYNC_SERVICE_PORT` (8765), base URL obtenue par IPC. Main↔Service : `child_process.spawn` (dev : `uv run uvicorn` ; packagé : binaire PyInstaller) avec env `RBSYNC_DATA_DIR / _SERVICE_PORT / _APP_VERSION / _LOG_DIR`. Temps réel : SSE `/api/acquisition/stream` (refresh 4s, reconnect côté client).
+### Communication Between Layers
+Renderer↔Main: IPC via `window.desktop.*` (settings get/set/reload, getApiBaseUrl, openExternal/openPath/openLogs, deemix status/launch/install/onProgress). Renderer↔Service: HTTP fetch (`/api/...`) on port `RBSYNC_SERVICE_PORT` (8765), base URL obtained through IPC. Main↔Service: `child_process.spawn` (dev: `uv run uvicorn`; packaged: PyInstaller binary) with env `RBSYNC_DATA_DIR / _SERVICE_PORT / _APP_VERSION / _LOG_DIR`. Real-time: SSE `/api/acquisition/stream` (4s refresh, client-side reconnect).
 
-### Sources de vérité / données
-electron-store (`syncbox-settings.json`, lecture sync instantanée) ↔ SQLite service (`syncbox.sqlite3`, vérité pour OAuth/tasks/metadata, seedée au 1er run) ↔ vue-query (cache réseau) ↔ caches mémoire de `RekordboxAdapter` (clé = mtime+size de master.db). Réconciliation settings au boot par *pull* unidirectionnel depuis le service.
+### Sources of Truth / Data
+electron-store (`syncbox-settings.json`, instant synchronous read) ↔ service SQLite (`syncbox.sqlite3`, source of truth for OAuth/tasks/metadata, seeded on first run) ↔ vue-query (network cache) ↔ `RekordboxAdapter` memory caches (key = master.db mtime+size). Settings reconciliation on boot through one-way *pull* from the service.
 
-## Appendice B — Dette connue (à vérifier, étendre et chiffrer en P4)
+## Appendix B — Known Debt (to verify, extend, and quantify in P4)
 
-- **Split data-layer incohérent** : Duplicates/Doctor/Missing/Untagged en vue-query ; Events/Library/Settings en Pinia + HTTP manuel. `useSystemStatusQuery` écrit directement dans le store, `useRefreshManager` poll en parallèle → double polling, invalidation incohérente, source de vérité ambiguë.
-- **Réconciliation settings au boot fragile** (`electron/main.ts` ~75-105) : pull unidirectionnel ; si le service est down au 1er boot, risque d'écrasement de config sans merge.
-- **Spawn du service sans garde-fou** (`electron/main.ts` ~131-180) : pas de vérif d'existence de `uv`/binaire, pas de handler d'erreur, logs non maîtrisés ; `waitForService` 30s puis dégradation silencieuse (`api = null`).
-- **Races d'événements** (`stores/events.ts` ~68-101) : `requestedEventId` limite le flash UI mais pas les requêtes lentes obsolètes (pas d'abort des in-flight).
-- **Invalidation de cache Rekordbox par mtime** (`rekordbox/adapter.py` ~58-63) : hit erroné si RB écrit pendant une lecture ; retries fixes ~3.6s max.
-- **Gestion d'erreurs générique** (`stores/ui.ts` withErrorToast ; `lib/api/client.ts` parse) : `.message` sans contexte ; parse qui casse si le service renvoie du non-JSON (ex. page d'erreur Deemix).
-- **Chemins** : `DEFAULT_STORAGE_ROOT` codé en dur pour cet utilisateur (Dropbox) ; symlinks/mounts mal gérés ; `validatePath` côté service seulement, pas de feedback précoce côté renderer ; voir aussi la mémoire projet sur la résolution des chemins Rekordbox (paths relatifs au volume vs absolus).
-- **SSE / refresh d'acquisition** : pas de validation de payload avant parse ; reconnect sans jitter ; boucle de refresh 4s qui sert des données périmées en silence si une passe échoue.
-- **Installeur Deemix** (`electron/deemix.ts`) : best-effort, pas de retry, pas de nettoyage du `.dmg` en cas d'échec.
-- **Payloads de jobs opaques** (`models.py`/`acquisition.py`) : `payload: dict` sans schéma → casse silencieuse côté front si la forme change.
-- **Backups sur stockage cloud** : partiellement cassés en build dev (macOS bloque l'accès terminal aux dossiers cloud) ; OK en app packagée.
+- **Inconsistent split data layer**: Duplicates/Doctor/Missing/Untagged in vue-query; Events/Library/Settings in Pinia + manual HTTP. `useSystemStatusQuery` writes directly into the store, `useRefreshManager` polls in parallel → double polling, inconsistent invalidation, ambiguous source of truth.
+- **Fragile settings reconciliation on boot** (`electron/main.ts` ~75-105): one-way pull; if the service is down on first boot, risk of config overwrite without merge.
+- **Service spawn without guardrails** (`electron/main.ts` ~131-180): no existence check for `uv`/binary, no error handler, unmanaged logs; `waitForService` 30s then silent degradation (`api = null`).
+- **Event races** (`stores/events.ts` ~68-101): `requestedEventId` limits UI flash but not obsolete slow requests (no abort of in-flight requests).
+- **Rekordbox cache invalidation by mtime** (`rekordbox/adapter.py` ~58-63): incorrect hit if RB writes during a read; fixed retries ~3.6s max.
+- **Generic error handling** (`stores/ui.ts` withErrorToast; `lib/api/client.ts` parse): `.message` without context; parser breaks if the service returns non-JSON (e.g. Deemix error page).
+- **Paths**: `DEFAULT_STORAGE_ROOT` hardcoded for this user (Dropbox); symlinks/mounts poorly handled; `validatePath` service-side only, no early renderer feedback; also see project memory on Rekordbox path resolution (volume-relative vs absolute paths).
+- **SSE / acquisition refresh**: no payload validation before parsing; reconnect without jitter; 4s refresh loop silently serving stale data if a pass fails.
+- **Deemix installer** (`electron/deemix.ts`): best-effort, no retry, no cleanup of the `.dmg` on failure.
+- **Opaque job payloads** (`models.py`/`acquisition.py`): `payload: dict` without schema → silent front-end breakage if the shape changes.
+- **Backups on cloud storage**: partially broken in dev build (macOS blocks terminal access to cloud folders); OK in packaged app.
 
-## Appendice C — Décisions probablement à soumettre à l'utilisateur (P6)
+## Appendix C — Decisions Likely to Submit to the User (P6)
 
-Liste de départ des points à clarifier — à compléter au fil de l'analyse :
+Starting list of points to clarify — complete it during the analysis:
 
-- Garder la **cohabitation Pinia + vue-query** ou converger ? (la mémoire projet indique qu'elle est *volontaire* — à reconfirmer dans le contexte d'une réécriture).
-- **Live Import M3U8** (contournement de l'écriture DB quand RB est ouvert) : feature à conserver ? centrale ou secondaire ?
-- Complexité du **diagnostic Untagged** (catégories junk/duplicate/alt/à-revoir) : tout garder ou simplifier ?
-- **Auto-résolution des doublons** : garder le « keeper » automatique (lossless > cues > permanent) ou tout passer en revue manuelle ?
-- **Réversibilité** (soft-delete + backups + restore via Doctor) : périmètre à garder ?
-- **Installation de Deemix depuis l'app** : conserver, ou supposer Deemix déjà installé ?
-- **Bilingue FR/EN** : maintenu ? d'autres langues ?
-- **OAuth Spotify in-app** vs mode app-only : les deux ou un seul ?
-- **Rétention des backups**, stats de collection, dashboard de santé : niveau de détail souhaité ?
-- Périmètre **plateforme** : macOS seul, ou viser Windows/Linux (impacte fortement la Phase 2) ?
+- Keep the **Pinia + vue-query coexistence** or converge? (project memory indicates it is *intentional* — to reconfirm in the context of a rewrite).
+- **Live Import M3U8** (workaround for DB writing when RB is open): feature to preserve? Central or secondary?
+- Complexity of the **Untagged diagnostic** (junk/duplicate/alt/to-review categories): keep everything or simplify?
+- **Duplicate auto-resolution**: keep the automatic “keeper” (lossless > cues > permanent) or move everything to manual review?
+- **Reversibility** (soft-delete + backups + restore via Doctor): scope to preserve?
+- **Deemix installation from the app**: keep it, or assume Deemix is already installed?
+- **Bilingual FR/EN**: maintained? Other languages?
+- **In-app Spotify OAuth** vs app-only mode: both or only one?
+- **Backup retention**, collection stats, health dashboard: desired level of detail?
+- **Platform** scope: macOS only, or target Windows/Linux (strong Phase 2 impact)?
 
-## ── FIN DU PROMPT ──
+## ── END OF PROMPT ──

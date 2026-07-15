@@ -63,23 +63,33 @@ Syncbox write goes through a single guarded pipeline:
    database; audio files go to the macOS Trash. Where a volume has no
    working trash (some cloud/exFAT setups), Syncbox asks for explicit
    consent *before* anything irreversible.
-6. **Files are never moved or renamed** — your folder structure is yours.
+6. **Ordinary library files are never moved or renamed.** The only v1
+   exception is a retained event-staging track, which is migrated to
+   `<storage root>/rekordbox/Collection/` before the event is removed.
 
 ## Install (macOS, Apple Silicon)
 
-1. Download `Syncbox-<version>-macos-arm64.zip` from
-   [Releases](https://github.com/Adridot/syncbox/releases) and unzip.
+1. Obtain `Syncbox-<version>-macos-arm64.zip` from the matching versioned
+   [GitHub Release](https://github.com/Adridot/syncbox/releases) only after the
+   release closure report records a successful public download-back, then
+   unzip it.
 2. The current app is ad-hoc signed, not signed with an Apple Developer ID and
-   not notarized. On first launch macOS may say it "is damaged" or "cannot be
-   verified". Either:
-   - **Right-click the app → Open → Open** (once; macOS remembers), or
-   - `xattr -dr com.apple.quarantine /path/to/Syncbox.app`
+   not notarized. Launch it once. If macOS blocks an artifact you trust, open
+   **System Settings → Privacy & Security**, select **Open Anyway**, then
+   confirm **Open**. Apple documents this exception in
+   [Open a Mac app from an unknown developer](https://support.apple.com/guide/mac-help/mh40616/mac).
 3. Launch. The onboarding walks you through the three things it needs: your
    Rekordbox database (one click fills the default
    `~/Library/Pioneer/rekordbox/master.db`), a storage root, and — for
    Spotify features — a free Spotify developer client ID (guided, ~2 min).
 
-Tested with Rekordbox 7 on Apple Silicon. App data lives in
+The bundle and lifecycle harnesses are validated on Apple Silicon. The ignored
+private Rekordbox 7 fixtures pass the exact 10-node harness, the retained-event
+migration node, and the Smart Fixes copied-fixture node with zero skips and
+unchanged sources. Rekordbox 7.2.16 manual checks on disposable mutated copies
+also passed for reopen, playback, cues, beatgrid, analysis, MyTags, playlists,
+Smart Fix metadata, volume-relative paths, and ANLZ PPTH readability. App data
+lives in
 `~/Library/Application Support/Syncbox`; database backups under
 `<storage root>/_syncbox/backups`.
 
@@ -92,8 +102,9 @@ Tested with Rekordbox 7 on Apple Silicon. App data lives in
 │           tree-kill + shutdown handshake                             │
 │  ui/      Vue 3 + TypeScript — screens, guarded mutations, i18n      │
 │  sidecar/ Python 3.14 (Starlette) — all domain logic, served on      │
-│           127.0.0.1:8765 (REST + SSE), packaged as a PyInstaller     │
-│           onedir binary inside the app bundle                        │
+│           127.0.0.1:8766 (REST + SSE), packaged as a PyInstaller     │
+│           onedir binary inside the app bundle. Spotify PKCE opens    │
+│           127.0.0.1:8765/callback only for the active attempt.       │
 └──────────────────────────────────────────────────────────────────────┘
              reads/writes master.db via pyrekordbox, guarded
 
@@ -147,9 +158,13 @@ docstring says how to run it.
 
 ## Status & roadmap
 
-Current release: **0.2.1** — macOS 14+ (Apple Silicon), ad-hoc signed without a Developer ID.
+Current source version: **0.2.2**. A local macOS 14+ Apple Silicon release
+candidate passes its strict scanner. Final independent-root equality, live
+artwork embedding, and public download-back are recorded only in the
+[release closure report](docs/_handoffs/final-release-closure.md). The app is
+ad-hoc signed without a Developer ID or notarization.
 
-- **Signing, notarization, and Keychain** — deferred; the current release uses
+- **Signing, notarization, and Keychain** — deferred; the v1 distribution uses
   a per-install encrypted SQLCipher secret store and never exports OAuth
   tokens.
 - **Windows** — deferred to v2; the v1 build and validation contract is macOS
@@ -157,8 +172,10 @@ Current release: **0.2.1** — macOS 14+ (Apple Silicon), ad-hoc signed without 
 - **Updates** — no in-app auto-update is implemented.
 - **Optional acquisition** — purchase links remain first. Deezer acquisition
   is explicit, disabled by default, requires a Premium credential stored only
-  in the encrypted secret store, and downloads a hash-pinned component from
-  the matching GitHub Release. SoundCloud and ffmpeg are not exposed.
+  in the encrypted secret store. Local archive installation is validated; the
+  hash-pinned online component path remains blocked until the exact GitHub
+  Release asset is published and downloaded back for verification. SoundCloud
+  and ffmpeg are not exposed.
 - **Later** — in-app audio preview, fingerprint-based duplicate detection
   (Chromaprint), ISRC enrichment.
 
@@ -166,6 +183,9 @@ Current release: **0.2.1** — macOS 14+ (Apple Silicon), ad-hoc signed without 
 
 [MIT](LICENSE). The packaged base app bundles third-party components under
 their own licenses, including [mutagen](https://github.com/quodlibet/mutagen)
-(GPL-2.0-or-later). The separately distributed streamrip component carries its
-GPL license and notice. A consolidated third-party notice and redistribution
-review remain release gates before public binary distribution.
+(GPL-2.0-or-later), MPL-2.0 dependencies, and the PyInstaller bootloader under
+its GPL exception. The separately distributed component contains deezer-py
+(GPL-3.0-or-later), mutagen, streamrip's exact GPL-3.0-only license, pinned
+source revision, source-availability notice, and its own dependency inventory.
+The generated base and optional consolidated notices are authoritative; this
+summary is not a legal-compliance claim.

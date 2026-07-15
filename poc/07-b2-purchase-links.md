@@ -54,9 +54,9 @@ without an ASCII decomposition are removed. Fully CJK or emoji metadata can
 therefore normalize to an empty string; Syncbox emits no purchase button in
 that case. This is explicit and covered by tests.
 
-`acquisition_failed` remains excluded because B1 is not implemented. Adding
-that status before B1 would expose a state that the v1 app cannot currently
-produce.
+After the B1 `GO`, `acquisition_failed` exposes the same purchase links as
+`missing`. The legal path therefore remains available after an optional
+acquisition failure.
 
 ## Verification
 

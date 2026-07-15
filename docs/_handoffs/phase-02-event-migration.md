@@ -185,3 +185,15 @@ No inline Ponytail debt markers remain in any Phase 2 file touched by this work.
 2. Supply the Phase 2 `event-migration.json` fixture set and run `poc/run_event_migration_tests.py` successfully.
 3. Perform the manual Rekordbox reopen/playback/analysis checks on a disposable copy.
 4. Record actual filesystem behavior and any required recovery action without broadening Phase 2 into packaging or deferred features.
+
+## Final release closure update — 2026-07-14
+
+The historical fixture blockers above are closed. The private ten-node
+Rekordbox harness and the dedicated retained-event migration harness passed
+with their exact required pass counts, zero skips, and unchanged source
+fixtures. Rekordbox 7.2.16 then passed the approved manual validation on the
+disposable event copy: reopen, playback, cues, beatgrid, analysis, MyTags,
+playlists, volume-relative audio path, and ANLZ PPTH readability. The live
+Rekordbox directory was restored to its exact pre-validation 12,718-file
+snapshot. POC #9 is **GO**; the original Phase 2 verdict and measurements above
+remain the historical implementation handoff.

@@ -1,6 +1,6 @@
 # Syncbox v1 POC Evidence Index
 
-Authoritative index date: 2026-07-13 (Phase 6)
+Authoritative index date: 2026-07-14 (final release closure)
 
 This index follows the nine-item macOS v1 order in `docs/PROMPT-05-implementation.md`. Earlier POC numbers mentioned in source comments are historical claims, not evidence.
 
@@ -11,21 +11,21 @@ Status meanings:
 - **BLOCKED** — required evidence, fixtures, credentials, hardware, or implementation is unavailable.
 
 Phase 5 returned `GO` for POC #5 after a real full-track Deezer run with a
-local one-shot Premium credential. The Phase 6 rerun adds admissible evidence
-for POC #1, #2, #3, and the packaged boundary of #5. B2 purchase links remain
-the primary v1 missing-track path; B1 is optional and disabled by default.
+local one-shot Premium credential. Phase 7 revalidated the exact local candidate
+for POC #1, #2, #3, #5, and #6. B2 purchase links remain the primary v1
+missing-track path; B1 is optional and disabled by default.
 
 | # | POC | Current evidence | State | GO condition | Fallback |
 |---|---|---|---|---|---|
-| 1 | Sidecar process lifecycle on macOS | [Phase 6 evidence](08-phase6-packaging-lifecycle.md) covers source, frozen, and packaged process groups; graceful/TERM/KILL shutdown; no orphan; port release; exact stale cleanup; foreign collision; 1/2/4 restart exhaustion; backend-down; manual restart; and single instance. | **GO** | Keep the complete harness matrix green on the exact release artifact. | Block the artifact on regression; retain the native supervisor until measured evidence requires a change. |
-| 2 | PyInstaller onedir size and cold start | [Phase 6 evidence](08-phase6-packaging-lifecycle.md) records the final 62,179,355-byte base app tree, 32,479,713-byte app ZIP, 19,072,885-byte optional ZIP, source/frozen/package start measurements, arm64-only native trees, deployment targets, ad-hoc signature, native imports, exact archive match, and scans. | **GO for functional local artifacts** | Re-run the scanner and lifecycle suite on every exact release candidate. Public redistribution has separate asset, notice, identifier, and trust gates. | Keep onedir; investigate another freezer only after a concrete measured failure. |
-| 3 | SSE in the real macOS Tauri WebView | [Phase 6 evidence](08-phase6-packaging-lifecycle.md) records the final bundle smoke plus the same-day packaged completion activity, EventSource reconnect after supervised sidecar restart, no-store loopback responses, and system-browser OAuth boundary. Live token exchange remains credential-limited. | **GO for SSE** | Keep packaged completion/reconnect behavior green; run full OAuth with owner consent before claiming live authorization evidence. | Investigate WebKit caching/buffering first; change transport only with owner approval. |
-| 4 | pyrekordbox writes on Rekordbox 7.x | Ten integration tests exist; the local fixture is absent. | **BLOCKED** | Run all ten tests through `poc/run_real_rekordbox_tests.py` with zero skips and unchanged source fixtures, then cover the remaining Phase 3 cases. | Block claims of complete `master.db` write support. |
-| 5 | Deezer full-track streamrip | [Phase 5](../docs/_handoffs/phase-05-b1-acquisition.md) proved a full 337.56-second track with a one-shot local Premium credential. [Phase 6](08-phase6-packaging-lifecycle.md) proves a separate pinned macOS arm64 component in source, frozen, and packaged hosts, with only the Deezer client, no ffmpeg, no external Python, and no streamrip distribution in the base app. | **GO for optional local component** | Publish and download-back the exact hash-pinned Release asset, complete notices, and keep every isolation/secret/lifecycle assertion green before public B1 distribution. | Keep B2 primary. If publication or licensing gates fail, do not ship the component; the base app remains functional. |
+| 1 | Sidecar process lifecycle on macOS | Source, frozen, app-embedded, optional source/frozen/packaged, single-instance, foreign/stale listener, immediate-failure, and supervisor exhaustion/recovery lanes pass. Graceful, TERM, and KILL leave no orphan and release ports 8765/8766. | **GO on the diagnostic candidate; final-byte rerun required** | Keep every lane green on the two-root final base bytes and on the public download. | Block the artifact on regression; retain the native supervisor until measured evidence requires a change. |
+| 2 | PyInstaller onedir size and cold start | The final-candidate base ZIP is 29,295,890 bytes (`45404335…`); the optional ZIP is 17,340,517 bytes (`37fb7375…`). Both strict scanners pass and two consecutive optional freezes match. | **BLOCKED for independent-root proof** | Require byte-identical ZIPs and unpacked trees from two clean absolute source roots, then validate public downloads. | Keep onedir; investigate another freezer only after a measured failure. |
+| 3 | SSE in the real macOS Tauri WebView | Packaged WKWebView navigation passed; UI completion/reconnect tests pass. Real packaged Spotify PKCE, refresh, forged-state rejection, invalid-grant recovery, listener shutdown, and port release pass with permanent SSE/API on 8766 and temporary callback on 8765. | **GO on the diagnostic candidate; final-byte rerun required** | Keep packaged completion/reconnect and OAuth port behavior green on final and downloaded bytes. | Investigate WebKit caching/buffering first; change transport only with owner approval. |
+| 4 | pyrekordbox writes on Rekordbox 7.x | The ignored private CommonCrypto fixture passes all 10 integration nodes with zero skips; source size, timestamps, and hashes are unchanged. Rekordbox 7.2.16 previously passed every manual check on disposable copies before the provider switch. | **GO for automated CommonCrypto evidence; manual provider rerun pending owner-approved swap** | If authorized immediately beforehand, repeat the safe disposable data-directory swap and walkthrough. | Block release on any mutation or safety regression; never weaken the guard. |
+| 5 | Deezer full-track streamrip | [Phase 5](../docs/_handoffs/phase-05-b1-acquisition.md) proved a full 337.56-second track with a one-shot local Premium credential. The current Deezer-only optional ZIP includes pinned Pillow artwork support and passes strict license, frozen-runtime, native, provider, signature, and secret scans. | **BLOCKED for final artwork/public evidence** | Prove embedded artwork in source, frozen, installed, and packaged lanes on the final hash, then repeat on the public download. | Keep B2 primary. If the live gate fails, do not publish the component; the base remains functional. |
 | 6 | A3 bundle and audio calibration | The deterministic 12-case corpus ran identically in source, fresh PyInstaller onedir, and the sidecar embedded in a fresh app. Spectral-only detection cannot safely separate transcodes from legitimate band-limited masters. | **NO-GO for full A3** | No threshold-only detector may emit a keeper penalty until a real labeled corpus proves safe separation. | Conservative fallback active: sub-threshold is `incertain` and keeper-neutral; full detection is deferred. |
 | 7 | B2 purchase-link browser behavior | Eight Beatport and Bandcamp searches loaded through browser tooling. Templates work, but first-result relevance is store/catalog dependent and intentionally not resolved by the sidecar. | **GO with documented relevance limits** | Keep both templates browser-only and rerun the sample when either store changes its search format. | Remove a broken store entry at build time; never add sidecar scraping. |
-| 8 | Smart Fixes exact payload and idempotence | Synthetic catalog, API, mutation-order, backup, rollback, ownership-neutrality, and adversarial payload coverage passes. The copied-real-fixture test verifies exact written values and idempotence but remains skipped because the private fixture is absent. | **BLOCKED** | Run `tests/test_rb_write.py::test_smartfixes_runner_end_to_end` through the copied-fixture harness with zero skips, then verify the resulting metadata in Rekordbox 7.x. | Do not claim release readiness for Smart Fixes; disable or defer it if the real gate cannot run. |
-| 9 | Retained-event-track migration with ANLZ preservation | A dedicated copied-fixture harness and manifest contract exist; no local fixture or execution evidence is recorded. | **BLOCKED** | Run `test_retained_track_migration_on_real_db` through `poc/run_event_migration_tests.py` with one pass, zero skips, and unchanged sources; then record the required macOS/Rekordbox evidence. | Keep deletion of affected retained staging tracks blocked until safe behavior exists. |
+| 8 | Smart Fixes exact payload and idempotence | Synthetic coverage and the copied-real CommonCrypto node pass. Every previewed field matches the copied database, the second preview is empty, and all source fixtures remain unchanged. | **GO** | Keep exact payload, deterministic order, freshness, safety, and idempotence green. | Do not release Smart Fixes after any exact-payload, guard, or manual regression. |
+| 9 | Retained-event-track migration with ANLZ preservation | The CommonCrypto copied-fixture harness passes once with zero skips across eight declared files; all sources remain unchanged. The earlier Rekordbox 7.2.16 disposable-copy walkthrough passed playback, cues, beatgrid, analysis, MyTags, playlists, paths, and ANLZ PPTH. | **GO for automated provider evidence; manual provider rerun pending owner-approved swap** | If authorized, repeat the exact manual walkthrough with the CommonCrypto candidate. | Keep deletion of affected retained staging tracks blocked after any regression; never weaken the guard. |
 
 ## Evidence README contract
 
@@ -55,7 +55,11 @@ sidecar/.venv/bin/python poc/run_real_rekordbox_tests.py --check
 sidecar/.venv/bin/python poc/run_real_rekordbox_tests.py
 ```
 
-Fixture preparation is documented in `poc/testdata/README.md`.
+Fixture preparation is documented in `poc/testdata/README.md`. On 2026-07-14,
+the exact ten-node run passed with zero skips and unchanged fixture sources.
+Rekordbox 7.2.16 subsequently passed the complete manual checklist on the
+disposable copies; the live library was restored byte-for-byte after the
+approved swap procedure.
 
 ## POC #8 Smart Fixes evidence
 
@@ -80,9 +84,9 @@ tests/test_rb_write.py::test_smartfixes_runner_end_to_end
 It runs only on a copied `poc/testdata/master.db` through
 `poc/run_real_rekordbox_tests.py`. It now compares every previewed field to the
 value read back from the copied database and requires the next preview to be
-empty. POC #8 remains **BLOCKED** until that node passes and Rekordbox 7.x
-opens the copied result successfully. Synthetic tests do not replace this
-release gate.
+empty. The node passed once with zero skips on 2026-07-13 and the source
+fixture was unchanged. On 2026-07-14, Rekordbox 7.2.16 displayed the expected
+Smart Fix values on the disposable mutated copy. POC #8 is **GO**.
 
 ## POC #9 retained-track migration harness
 
@@ -101,6 +105,8 @@ checks source hashes and metadata again after the run. A skipped test is a
 failure. The source fixture layout and manifest schema are documented in
 `poc/testdata/README.md`.
 
-POC #9 remains **BLOCKED** until the real fixture test runs successfully and its
-required macOS/Rekordbox evidence is recorded. The presence of this harness is
-not evidence that migration has passed.
+The real fixture test passed once with zero skips on 2026-07-13 and all
+declared sources were unchanged. On 2026-07-14, Rekordbox 7.2.16 passed the
+required playback, cue, beatgrid, analysis, MyTag, playlist,
+volume-relative-path, and ANLZ PPTH checks on the disposable copy. POC #9 is
+**GO**.

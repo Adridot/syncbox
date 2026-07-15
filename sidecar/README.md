@@ -2,8 +2,12 @@
 
 All of Syncbox's domain logic lives here: Spotify sync, matching, events,
 duplicates/missing/untagged, Smart Fixes, quality verdicts, Doctor. It is a
-Starlette app served by uvicorn on `127.0.0.1:8765` (REST + one SSE job
-stream), spawned and supervised by the Tauri shell.
+Starlette app served by uvicorn on `127.0.0.1:8766` (REST + one SSE job
+stream), spawned and supervised by the Tauri shell. Spotify PKCE uses a
+separate access-log-free listener on the exact
+`http://127.0.0.1:8765/callback`; it exists only during an authorization
+attempt and closes after a terminal response, timeout, disconnect, or process
+shutdown.
 
 - Entry point: [src/syncbox/__main__.py](src/syncbox/__main__.py) (composition
   root, `python -m syncbox`).
@@ -34,8 +38,9 @@ dist/syncbox-sidecar/syncbox-sidecar --packaging-check
 ```
 
 That check imports the packaged CA bundle, audio/native stack, Rekordbox
-reader, Trash integration, and SQLCipher extension, then opens an in-memory
-encrypted database. The release scanner in `poc/run_phase6_packaging.py`
+reader, Trash integration, and the local SQLCipher CommonCrypto extension,
+then opens an in-memory encrypted database and reports the provider/status.
+The release scanner in `poc/run_phase6_packaging.py`
 performs the complementary app-tree, lock, license, architecture, signature,
 secret, and archive checks.
 

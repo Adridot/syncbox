@@ -1,19 +1,20 @@
 # User Guide
 
-Syncbox 0.2.1 supports macOS 14 or later on Apple Silicon. It is an ad-hoc
-signed local application with no Developer ID signature, notarization, or
-automatic updater.
+Syncbox 0.2.2 supports macOS 14 or later on Apple Silicon. It is an ad-hoc
+signed application with no Developer ID signature, notarization, or automatic
+updater. Public availability and download-back evidence are recorded in the
+[release closure report](_handoffs/final-release-closure.md).
 
 ## Install and first launch
 
-1. Unzip `Syncbox-0.2.1-macos-arm64.zip` and move `Syncbox.app` to
-   Applications if desired.
-2. Right-click `Syncbox.app`, choose **Open**, then confirm **Open**. If macOS
-   still blocks the locally obtained build, remove quarantine explicitly:
-
-   ```sh
-   xattr -dr com.apple.quarantine /path/to/Syncbox.app
-   ```
+1. Obtain `Syncbox-0.2.2-macos-arm64.zip` from the matching versioned
+   [GitHub Release](https://github.com/Adridot/syncbox/releases) only after the
+   release closure report records a successful public download-back, unzip it,
+   and move `Syncbox.app` to Applications if desired.
+2. Launch the app once. If macOS blocks an artifact you trust, open **System
+   Settings → Privacy & Security**, select **Open Anyway**, then confirm
+   **Open**. See Apple's current
+   [unknown-developer guidance](https://support.apple.com/guide/mac-help/mh40616/mac).
 
 3. In onboarding, select the Rekordbox `master.db` file and a storage root.
    The usual Rekordbox path is
@@ -34,7 +35,13 @@ automatic updater.
 Application state is stored under
 `~/Library/Application Support/Syncbox`. OAuth tokens live in a separate
 encrypted SQLCipher secret store protected by an owner-only per-install key.
-Syncbox does not use Keychain in this unsigned release.
+Syncbox does not use Keychain in this ad-hoc-signed, non-Developer-ID release.
+The durable macOS bundle identifier is `io.github.adridot.syncbox`; changing
+to that identifier does not move this product-named data directory, so existing
+settings and encrypted secrets remain available after an update. Because the
+identifier also changes the WKWebView storage namespace, the onboarding dialog
+may appear once after this update; completing or dismissing it does not replace
+the preserved database or secret store.
 
 ## Rekordbox write safety
 
@@ -47,7 +54,8 @@ the only available option.
 
 Audio ownership is explicit:
 
-- `app_managed`: working files under `<storage root>/_syncbox/`;
+- `app_managed`: audio under `<storage root>/_syncbox/events/` or
+  `<storage root>/_syncbox/inbox/`;
 - `permanent_library`: files under `<storage root>/rekordbox/`;
 - `external`: every other location.
 
@@ -115,8 +123,10 @@ For optional Deezer acquisition:
 2. Save a valid Premium credential. The value is sent only to the local
    sidecar, stored in the encrypted secret database, and immediately cleared
    from the input field.
-3. Install the matching component. Syncbox downloads the versioned macOS arm64
-   archive from the GitHub Release, verifies its exact byte size and SHA-256,
+3. Install the matching component. Local archive installation is validated.
+   Online installation becomes available only after the exact versioned macOS
+   arm64 archive is published to the matching GitHub Release and downloaded
+   back for verification. Syncbox checks its exact byte size and SHA-256,
    extracts it into app data, and runs its self-check before marking it ready.
 4. Start acquisition explicitly from a missing track with a valid ISRC.
 
@@ -151,6 +161,7 @@ With `<storage root>` configured, Syncbox derives:
   _syncbox/
     inbox/                   app-managed incoming work
     events/                  app-managed event staging
+    acquisition/             retained per-job acquisition outputs
     backups/                 Rekordbox database backups
 ```
 
@@ -165,5 +176,6 @@ Rekordbox metadata; they are not copies of your audio files.
 - optional Deezer acquisition requires the matching GitHub Release asset,
   explicit enablement, a Premium credential, and an ISRC;
 - no SoundCloud interface or ffmpeg support;
-- private real-Rekordbox fixture gates remain prerequisites for a public
-  release claim covering all database mutations.
+- the private automated Rekordbox fixtures pass with CommonCrypto; the recorded
+  manual Rekordbox walkthrough predates that provider switch, and another
+  disposable data-directory swap requires immediate owner authorization.

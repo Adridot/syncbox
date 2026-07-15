@@ -250,8 +250,9 @@ These do not block Phase 7, but they block the corresponding public claim:
 2. **Third-party notices.** The base ZIP lacks the root project license and a
    reviewed consolidated notice. The optional notice does not cover every
    redistributed runtime/transitive dependency.
-3. **Bundle identity.** `dev.syncbox.app` ends in `.app`; the owner must choose
-   a durable reverse-DNS identifier before public release.
+3. **Bundle identity.** This historical Phase 6 artifact still used
+   `dev.syncbox.app`; final release work replaces it with the owner-approved
+   `io.github.adridot.syncbox` identifier and must rebuild the bundle.
 4. **Private Rekordbox fixtures.** Eleven real-data gates remain skipped.
 5. **Signing/trust.** No Developer ID, notarization, or Gatekeeper acceptance
    claim exists.
@@ -289,3 +290,14 @@ Primary official sources:
 - [PyInstaller spec files](https://pyinstaller.org/en/stable/spec-files.html)
 - [uv locking](https://docs.astral.sh/uv/concepts/projects/sync/)
 - [GitHub Release assets](https://docs.github.com/en/rest/releases/assets)
+
+## Final release closure update — 2026-07-15
+
+This document remains the historical Phase 6 record for version 0.2.1. The
+current 0.2.2 evidence, including re-enabled artwork, complete generated
+license inventories, the durable bundle identifier, CommonCrypto SQLCipher,
+real-Rekordbox automation, packaged OAuth, and the remaining final gates, is
+recorded in
+[`final-release-closure.md`](final-release-closure.md). Do not use the old
+0.2.1 hashes, artwork-disabled statement, license gaps, identifier, or
+reproducibility verdict as claims about the current candidate.

@@ -1,5 +1,8 @@
 # Phase 4 Handoff — A3 Audio Quality and B2 Purchase Links
 
+> Historical Phase 4 evidence. Current release status and later gate results
+> are recorded in [`final-release-closure.md`](final-release-closure.md).
+
 Date: 2026-07-12
 
 ## Verdict
@@ -44,7 +47,9 @@ that signal.
   `urllib.parse.quote` and shared D19 normalization;
 - the sidecar performs zero store network access;
 - the UI delegates purchase clicks to Tauri's external URL opener;
-- `acquisition_failed` remains excluded because B1 is not implemented;
+- At this Phase 4 checkpoint, `acquisition_failed` remained excluded because
+  B1 was not implemented. This statement is superseded by the Phase 5 `GO` and
+  Phase 7 integration: failed acquisitions now retain B2 purchase links.
 - fully non-ASCII metadata that D19 reduces to an empty string emits no links.
 
 ## POC verdicts

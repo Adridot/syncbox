@@ -128,6 +128,63 @@ Exit codes:
 - `4`: pytest did not report exactly one pass or the selected test was skipped;
 - any other non-zero code: pytest's failure code.
 
-POC #9 remains **BLOCKED** until the real test passes and the required
-macOS/Rekordbox evidence is recorded. This fixture contract and runner do not
-claim a successful POC execution.
+The copied-fixture POC #9 node passed once with zero skips on 2026-07-13 and
+left every source unchanged. The required Rekordbox 7.2.16 manual checks passed
+on the disposable mutated copy on 2026-07-14. POC #9 is **GO**.
+
+## Disposable directories for manual Rekordbox checks
+
+The manual preparers require a confirmed complete backup and the same strict
+Rekordbox/process-agent guard as production writes. They copy regular files
+only, keep every output below this ignored directory, and verify every source
+file before and after copying.
+
+Prepare the exact Smart Fix mutation first:
+
+```sh
+sidecar/.venv/bin/python poc/prepare_manual_smartfix_fixture.py \
+  --backup-confirmed \
+  --output poc/testdata/manual-validation-20260715/smartfix-final
+```
+
+Retain the event-migration result on the dedicated local test volume:
+
+```sh
+sidecar/.venv/bin/python poc/run_event_migration_tests.py \
+  --retain poc/testdata/manual-validation-20260715/event-canonical-final
+```
+
+Finally, build complete disposable Rekordbox data directories without writing
+to or renaming the live directory:
+
+```sh
+sidecar/.venv/bin/python poc/prepare_manual_rekordbox_sandboxes.py \
+  --backup-confirmed
+```
+
+The resulting ignored `rekordbox-sandboxes-final/` directory contains
+`smartfix-sandbox/`, `event-sandbox/`, and `sandbox-evidence.json`. It is
+published as one atomic directory and is private local evidence. Never commit
+or share it. Preparing these directories does not authorize replacing the live
+Rekordbox data directory: the documented swap and recovery sequence must be
+reviewed and explicitly approved immediately before that separate operation.
+
+## Manual validation result
+
+The owner approved the exact swap and recovery procedure immediately before
+each operation. Rekordbox 7.2.16 was opened only against disposable copies and
+passed all required checks on 2026-07-14:
+
+- reopen and playback;
+- cues, beatgrid, waveform, and analysis;
+- MyTags and playlist membership;
+- Smart Fix metadata;
+- retained-track volume-relative paths;
+- ANLZ PPTH readability.
+
+The live Rekordbox directory was restored after validation. Its complete
+12,718-file snapshot matched the pre-operation snapshot with SHA-256
+`f11e7edd9e921638b9e7f519aebb778beb4869a1d9775616d6ba391d5f4c0c9f`, and
+the strict process guard confirmed that Rekordbox and `rekordboxAgent` were
+closed. All databases, XML, audio, ANLZ files, evidence JSON, and personal
+paths remain ignored local data.

@@ -1,12 +1,12 @@
 # Distribution
 
-This is the release contract for Syncbox 0.2.1. The supported v1 target is
-macOS 14 or later on Apple Silicon. Phase 6 produces two independent unsigned
-artifacts:
+This is the release contract for Syncbox 0.2.2. The supported v1 target is
+macOS 14 or later on Apple Silicon. The final candidate consists of two
+independent artifacts:
 
-- `Syncbox-0.2.1-macos-arm64.zip`, containing the Tauri application and its
+- `Syncbox-0.2.2-macos-arm64.zip`, containing the Tauri application and its
   base PyInstaller onedir sidecar;
-- `syncbox-deezer-component-0.2.1-macos-arm64.zip`, a separately distributed
+- `syncbox-deezer-component-0.2.2-macos-arm64.zip`, a separately distributed
   optional PyInstaller onedir component.
 
 The base application is complete without the optional component. It neither
@@ -60,12 +60,18 @@ pnpm bundle:macos
 2. freezes the optional component with its own lock and PyInstaller 6.21.0;
 3. creates its deterministic ZIP container and writes the exact size and
    SHA-256 to `sidecar/src/syncbox/optional_component.json`;
-4. freezes the base sidecar, including only that small manifest;
-5. invokes Tauri with Cargo `--locked` and the explicit
+4. builds the locally inventoried `sqlcipher3-wheels` fork with SQLCipher
+   4.12.0 and Apple's CommonCrypto provider; its extension must link only
+   Security, CoreFoundation, and libSystem, never a separate OpenSSL library;
+5. freezes the base sidecar, including only that small manifest;
+6. invokes Tauri with Cargo `--locked` and the explicit
    `aarch64-apple-darwin` target;
-6. places `/usr/bin` and `/bin` first so Tauri uses Apple's `xattr`;
-7. remaps the builder home prefix in Rust debug paths;
-8. applies an ad-hoc signature through Tauri's `signingIdentity: "-"`.
+7. places `/usr/bin` and `/bin` first so Tauri uses Apple's `xattr`;
+8. remaps the builder home prefix in Rust debug paths;
+9. applies an ad-hoc signature through Tauri's `signingIdentity: "-"`;
+10. creates the deterministic base ZIP and runs the complete artifact scanner
+   against the app, both ZIPs, locks, frozen package versions, license
+   inventories, native payloads, and source tree.
 
 The optional component cannot reuse `sys.executable` from a frozen base app:
 PyInstaller defines it as the bootloader executable, not as a general Python
@@ -76,17 +82,15 @@ Build outputs:
 
 ```text
 optional-component/dist/syncbox-deezer-component/
-optional-component/dist/syncbox-deezer-component-0.2.1-macos-arm64.zip
+optional-component/dist/syncbox-deezer-component-0.2.2-macos-arm64.zip
 shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
+shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.2-macos-arm64.zip
 ```
 
-Create the base application archive from the bundle directory:
-
-```sh
-cd shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos
-COPYFILE_DISABLE=1 /usr/bin/zip -FS -qry -y \
-  Syncbox-0.2.1-macos-arm64.zip Syncbox.app
-```
+`poc/package_base_app.py` creates the base ZIP as the final step of
+`bundle:macos`. Both release ZIPs use `poc/reproducible_archive.py`; do not
+recreate either archive with the system `zip` command because that would
+discard the controlled entry order, modes, and `SOURCE_DATE_EPOCH` timestamps.
 
 Build artifacts are ignored and must not be committed.
 
@@ -96,8 +100,8 @@ From the repository root:
 
 ```sh
 APP=shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
-APP_ZIP=shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.1-macos-arm64.zip
-COMPONENT_ZIP=optional-component/dist/syncbox-deezer-component-0.2.1-macos-arm64.zip
+APP_ZIP=shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.2-macos-arm64.zip
+COMPONENT_ZIP=optional-component/dist/syncbox-deezer-component-0.2.2-macos-arm64.zip
 
 codesign --verify --deep --strict "$APP"
 PYI_ARCHIVE_VIEWER=sidecar/.venv/bin/pyi-archive_viewer \
@@ -111,6 +115,8 @@ The scanner fails closed on:
 - a streamrip or Deemix distribution inside the base artifact;
 - missing required native packages, non-arm64 Mach-O files, or an effective
   deployment target above the declared minimum;
+- a SQLCipher provider other than CommonCrypto, missing `cipher_status`, an
+  unexpected SQLCipher/OpenSSL native link, or local-source inventory drift;
 - a Developer ID signature, notarization claim, malformed resource, or app/ZIP
   payload drift;
 - component size/hash drift, a missing streamrip license, an exposed
@@ -125,54 +131,74 @@ GPL-licensed dependency.
 
 Run the source, frozen, packaged lifecycle, single-instance, supervisor, and
 optional-component harnesses documented in `shell/README.md` and
-`shell/harness/`. Exact Phase 6 commands and measurements are recorded in
+`shell/harness/`. The Phase 7 candidate rerun is summarized in `poc/README.md`;
+the baseline commands and detailed measurements are recorded in
 `poc/08-phase6-packaging-lifecycle.md`.
+
+The supervised API/SSE service owns `127.0.0.1:8766`. Spotify authorization
+pre-binds only the exact `http://127.0.0.1:8765/callback` listener and releases
+it after a terminal callback, timeout, disconnect, or shutdown. Lifecycle
+validation must check the two ports independently and must preserve foreign
+listeners on either port.
 
 ## Release publication
 
-The base manifest for 0.2.1 pins the optional asset to:
+The base manifest for 0.2.2 pins the optional asset to:
 
 ```text
-Name:   syncbox-deezer-component-0.2.1-macos-arm64.zip
-Bytes:  19,072,885
-SHA-256: 92ccd44e07523818854d52926a6e479c798f2f324e27b3f997586b9d98e2a181
-URL:    https://github.com/Adridot/syncbox/releases/download/v0.2.1/syncbox-deezer-component-0.2.1-macos-arm64.zip
+Name:   syncbox-deezer-component-0.2.2-macos-arm64.zip
+Bytes:  17,340,517
+SHA-256: 37fb7375a357a0fb218709a2092632fd18d99c828c541c341645969eda1fb39c
+URL:    https://github.com/Adridot/syncbox/releases/download/v0.2.2/syncbox-deezer-component-0.2.2-macos-arm64.zip
 ```
 
 Before making the B1 path available to users, publish that exact byte stream as
-an asset of GitHub Release `v0.2.1`, then download the published asset and
+an asset of GitHub Release `v0.2.2`, then download the published asset and
 repeat the size/hash and live installation checks. A differently rebuilt asset
 must receive a new manifest and a rebuilt base application; never replace the
 asset while retaining the old manifest.
 
-The Phase 6 task did not create a release or upload either artifact. Until the
-asset exists at the pinned URL, local/offline installation is proven but the
-public online optional-component path is not release-ready.
+The current final-candidate base ZIP is 29,295,890 bytes with SHA-256
+`454043354c97b7de03b2858503c0e2b0754432a81bbaaa0dfdd015fef4482e4c`.
+Its strict scanner passes. The base contains 30 arm64 Mach-O files, has an
+effective macOS 14.0 minimum, uses CommonCrypto for SQLCipher, and contains no
+streamrip. The optional artifact contains 28 arm64 Mach-O files, has an
+effective macOS 11.0 minimum, includes artwork-capable Pillow payloads, and
+exposes only the Deezer provider. These exact values are candidates until the final
+two-root build, live artwork gate, and public download-back all pass. The
+authoritative evolving evidence is
+[`docs/_handoffs/final-release-closure.md`](_handoffs/final-release-closure.md).
 
 ## Current trust and release gates
 
 `spctl` is not an acceptance test for this artifact because there is no
 Developer ID or notarization ticket. `codesign --verify --deep --strict`
-passes. Users may need to right-click the app and choose Open, or remove
-quarantine explicitly:
+passes. After the first blocked launch of an artifact they trust, local users
+may use **System Settings → Privacy & Security → Open Anyway**, then confirm
+**Open**, as described in Apple's
+[unknown-developer guidance](https://support.apple.com/guide/mac-help/mh40616/mac).
 
-```sh
-xattr -dr com.apple.quarantine /path/to/Syncbox.app
-```
-
-Public binary distribution remains blocked until all applicable gates are
-closed:
+Publication is permitted only after all applicable gates are closed:
 
 - upload and revalidate the exact optional component Release asset;
-- choose a durable reverse-DNS bundle identifier; `dev.syncbox.app` ends in
-  `.app` and triggers a Tauri warning;
-- include the project license and a reviewed consolidated third-party notice
-  in the base ZIP, and complete the streamrip component redistribution review;
-- complete the private Rekordbox fixture gates listed in the Phase 6 handoff;
-- perform live Spotify OAuth with owner consent before claiming complete OAuth
-  evidence;
+- preserve the scanner-verified `io.github.adridot.syncbox` bundle identifier
+  and close any older Syncbox process before replacing it; the sidecar
+  continues to use `~/Library/Application Support/Syncbox`, so the identifier
+  change does not relocate the existing database or secret store;
+- require byte-identical base and optional artifacts from two clean absolute
+  source roots and pass the complete scanner independently in each root;
+- keep the completed packaged Spotify PKCE, refresh, forged-state, revocation,
+  encrypted-storage, listener-shutdown, and port-release evidence green;
+- run real artwork embedding through the exact source, frozen, installed, and
+  packaged optional-component lanes with a one-shot local credential;
+- upload both exact validated byte streams and revalidate their public HTTPS
+  downloads without silently replacing a published asset;
 - add Developer ID signing/notarization only if a frictionless public install
   becomes a requirement.
 
-No legal compliance, Gatekeeper acceptance, notarization, or two-root
-bit-for-bit reproducibility claim is made by this document.
+The private automated Rekordbox fixtures pass with the CommonCrypto runtime.
+The recorded Rekordbox 7.2.16 manual walkthrough predates the provider switch;
+another disposable data-directory swap requires an immediately preceding owner
+confirmation. No legal-compliance, Gatekeeper-acceptance, notarization,
+two-root, or public-download claim is made until the final handoff records the
+corresponding executable evidence.

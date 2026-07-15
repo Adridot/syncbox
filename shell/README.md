@@ -9,6 +9,9 @@ spawned in its own process group, output always consumed, bounded restarts
 
 Dev spawns the sidecar from `sidecar/.venv`; the release build resolves the
 bundled PyInstaller binary from the app resources (`Resources/sidecar/`).
+The permanent REST/SSE server uses `127.0.0.1:8766`. Spotify authorization
+temporarily opens only the exact `http://127.0.0.1:8765/callback` listener and
+releases it after the attempt.
 
 ```sh
 pnpm install --frozen-lockfile

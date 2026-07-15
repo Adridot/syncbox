@@ -924,7 +924,9 @@ Keep the current macOS lifecycle small and explicit:
 - SIGTERM fallback;
 - SIGKILL final fallback;
 - SQLCipher connections closed before exit;
-- port 8765 released;
+- permanent API/SSE port 8766 released;
+- temporary Spotify callback port 8765 released after a terminal callback,
+  timeout, disconnect, or shutdown;
 - no orphan.
 
 Do not build a Windows implementation.
@@ -1166,7 +1168,9 @@ The task is complete when:
 - all relevant v1 POC have traceable verdicts;
 - Windows and signing POC are explicitly deferred;
 - no sidecar remains orphaned;
-- port 8765 is released on shutdown;
+- permanent API/SSE port 8766 is released on shutdown;
+- the exact temporary Spotify callback listener on port 8765 is released
+  after success, denial, terminal error, timeout, disconnect, and shutdown;
 - no secret is stored in cleartext;
 - no streamrip configuration contains the ARL;
 - event deletion migrates retained staging files to the main Collection;

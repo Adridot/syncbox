@@ -332,8 +332,8 @@ They are not counted as passes.
   The optional notice does not yet cover every redistributed runtime and
   transitive dependency.
 - The artifact is ad-hoc signed, not Developer ID signed or notarized.
-- `dev.syncbox.app` ends in `.app`; the owner must choose a permanent bundle
-  identifier before public release.
+- this historical Phase 6 artifact used `dev.syncbox.app`; the final bundle
+  must use and verify `io.github.adridot.syncbox`.
 - Private real-Rekordbox fixture gates remain blocked.
 - Complete live Spotify OAuth requires owner credentials and consent.
 - Binary bit-for-bit reproducibility across independent clean roots is not
@@ -358,3 +358,19 @@ Primary sources:
 - [PyInstaller spec files](https://pyinstaller.org/en/stable/spec-files.html)
 - [uv locking and syncing](https://docs.astral.sh/uv/concepts/projects/sync/)
 - [GitHub Release assets](https://docs.github.com/en/rest/releases/assets)
+
+## Final release closure update — 2026-07-15
+
+This POC remains the historical Phase 6 evidence for version 0.2.1 and its
+measured lifecycle baseline. It is not the current artifact manifest. The
+final-candidate optional 0.2.2 ZIP is 17,340,517 bytes with SHA-256
+`37fb7375a357a0fb218709a2092632fd18d99c828c541c341645969eda1fb39c`.
+It includes scanner-verified Pillow artwork support, frozen-runtime license
+alignment, and complete generated redistribution material. The final-candidate base
+0.2.2 ZIP is 29,295,890 bytes with SHA-256
+`454043354c97b7de03b2858503c0e2b0754432a81bbaaa0dfdd015fef4482e4c`.
+Clean locked environments, every lifecycle edge, and real packaged Spotify
+PKCE/refresh/recovery now pass. Independent-root equality, final artwork
+embedding, any owner-approved post-provider manual Rekordbox walkthrough, and
+public Release download-back remain pending as listed in
+`docs/_handoffs/final-release-closure.md`.
