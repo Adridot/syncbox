@@ -57,9 +57,7 @@ def _matches_macos_exe(exe_path: str) -> bool:
 def is_rekordbox_running() -> bool:
     """Return True if rekordbox or rekordboxAgent is running (strict filter)."""
     on_windows = sys.platform.startswith("win")
-    # ponytail: non-Windows platforms reuse the macOS path rule; Linux is out
-    # of scope (SPEC-UNIFIED 3.7 targets macOS + Windows). Revisit only if a
-    # Linux target ever appears.
+    # Linux is out of scope; non-Windows platforms use the macOS path rule.
     for proc in psutil.process_iter(attrs=["name", "exe"]):
         try:
             info = proc.info

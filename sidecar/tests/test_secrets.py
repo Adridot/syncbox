@@ -2,6 +2,8 @@
 
 import stat
 
+import pytest
+
 from syncbox.secrets import SecretsStore
 
 TOKEN = "spotify-refresh-token-EXTREMELY-SECRET-0123456789"
@@ -58,6 +60,34 @@ def test_existing_key_reused_not_rotated(tmp_path):
     second = SecretsStore(tmp_path)
     assert second.get("s") == "v"
     assert (tmp_path / "secrets.key").read_text() == key_before
+
+
+def test_existing_key_permissions_are_hardened_to_0600(tmp_path):
+    key_file = tmp_path / "secrets.key"
+    key_file.write_text("ab" * 32)
+    key_file.chmod(0o644)
+    store = SecretsStore(tmp_path)
+    store.set("s", "v")
+    assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
+
+
+def test_symlink_and_invalid_existing_keys_are_rejected(tmp_path):
+    target = tmp_path / "target.key"
+    target.write_text("ab" * 32)
+    (tmp_path / "secrets.key").symlink_to(target)
+    with pytest.raises(ValueError, match="regular owner-only file"):
+        SecretsStore(tmp_path).set("s", "v")
+
+    (tmp_path / "secrets.key").unlink()
+    (tmp_path / "secrets.key").write_text("not-a-key")
+    with pytest.raises(ValueError, match="valid 32-byte key"):
+        SecretsStore(tmp_path).set("s", "v")
+
+    (tmp_path / "secrets.key").write_text("ab " * 32)
+    store = SecretsStore(tmp_path)
+    assert store._key() == "ab" * 32
+    store.set("s", "v")
+    assert store.get("s") == "v"
 
 
 def test_store_survives_cross_thread_access(tmp_path):

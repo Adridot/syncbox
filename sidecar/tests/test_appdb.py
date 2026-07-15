@@ -129,6 +129,83 @@ def test_import_rejects_corrupt_file(tmp_path):
     assert conn.execute("PRAGMA user_version").fetchone()[0] >= 1
 
 
+def test_import_rejects_future_and_incomplete_syncbox_schema(tmp_path):
+    db = tmp_path / "app.db"
+    appdb.open_app_db(db).close()
+    current = appdb._scripts()[-1][0]
+
+    future = tmp_path / "future.db"
+    with sqlite3.connect(future) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute(f"PRAGMA user_version = {current + 1}")
+    with pytest.raises(ValueError, match="newer than supported"):
+        appdb.import_data(db, future)
+
+    incomplete = tmp_path / "incomplete.db"
+    with sqlite3.connect(incomplete) as conn:
+        conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute(f"PRAGMA user_version = {current}")
+    with pytest.raises(ValueError, match="canonical Syncbox schema"):
+        appdb.import_data(db, incomplete)
+
+    assert appdb.open_app_db(db).execute("PRAGMA user_version").fetchone()[0] == current
+
+
+def test_import_handles_uri_characters_in_path(tmp_path):
+    db = tmp_path / "app.db"
+    conn = appdb.open_app_db(db)
+    source = appdb.export_data(conn, tmp_path / "syncbox export ? #.db")
+    conn.close()
+    appdb.import_data(db, source)
+    assert appdb.open_app_db(db).execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_import_rejects_the_live_database_as_its_own_source(tmp_path):
+    db = tmp_path / "app.db"
+    appdb.open_app_db(db).close()
+    with pytest.raises(ValueError, match="live Syncbox database"):
+        appdb.import_data(db, db)
+
+
+def test_import_copy_failure_leaves_live_database_untouched(tmp_path, monkeypatch):
+    db = tmp_path / "app.db"
+    conn = appdb.open_app_db(db)
+    conn.execute("INSERT INTO settings (key, value) VALUES ('language', '\"en\"')")
+    source = appdb.export_data(conn, tmp_path / "source.db")
+    conn.close()
+    before = db.read_bytes()
+
+    monkeypatch.setattr(
+        appdb.shutil, "copy2", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("copy failed"))
+    )
+    with pytest.raises(OSError, match="copy failed"):
+        appdb.import_data(db, source)
+
+    assert db.read_bytes() == before
+    assert not list(tmp_path.glob(".app.db.import-*.tmp"))
+
+
+def test_import_replace_failure_keeps_original_and_safety_backup(tmp_path, monkeypatch):
+    db = tmp_path / "app.db"
+    conn = appdb.open_app_db(db)
+    conn.execute("INSERT INTO settings (key, value) VALUES ('language', '\"en\"')")
+    source = appdb.export_data(conn, tmp_path / "source.db")
+    conn.close()
+    before = db.read_bytes()
+
+    monkeypatch.setattr(
+        appdb.os, "replace", lambda *_args: (_ for _ in ()).throw(OSError("replace failed"))
+    )
+    with pytest.raises(OSError, match="replace failed"):
+        appdb.import_data(db, source)
+
+    assert db.read_bytes() == before
+    backups = list(tmp_path.glob("app.db.pre-import-*"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == before
+    assert not list(tmp_path.glob(".app.db.import-*.tmp"))
+
+
 def test_export_refuses_overwrite(tmp_path):
     conn = appdb.open_app_db(tmp_path / "app.db")
     dest = tmp_path / "out.db"

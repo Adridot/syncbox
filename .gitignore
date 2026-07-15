@@ -5,6 +5,9 @@ __pycache__/
 .pytest_cache/
 sidecar/build/
 sidecar/dist/
+optional-component/.venv/
+optional-component/build/
+optional-component/dist/
 *.spec.bak
 
 # Rust / Tauri
@@ -18,20 +21,19 @@ node_modules/
 ui/node_modules/
 ui/dist/
 
-# POC scratch (jetable) — verdicts conservés, artefacts non
+# POC scratch data (disposable; keep only documented evidence)
 poc/**/build/
 poc/**/dist/
-poc/testdata/master.db
-poc/testdata/master.db-wal
-poc/testdata/master.db-shm
-poc/testdata/masterPlaylists6.xml
-poc/**/*.mp3
-poc/**/*.flac
-poc/**/*.wav
-poc/**/*.aiff
+
+# Local Rekordbox fixtures, including database sidecars, ANLZ, and audio
+poc/testdata/**
+!poc/testdata/README.md
 
 # OS
 .DS_Store
+
+# Local agent tooling artifacts
+.playwright-mcp/
 
 # POC cargo shells
 poc/**/target/

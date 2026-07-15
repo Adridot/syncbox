@@ -1,6 +1,9 @@
-# PROMPT-02 — Unification & finalisation des specs Syncbox (ultracode + ponytail)
+# PROMPT-02 — Unification & Finalization of the Syncbox Specs (ultracode + ponytail)
 
-> **Comment l'utiliser.** Coller ce prompt dans une session Claude Code. Le mot **`ultracode`** active l'orchestration multi-agents (Workflow). Le module **ponytail** doit rester actif tout du long (`/ponytail full`). Tout choix structurant **passe par moi** via `AskUserQuestion` — ne rien trancher seul.
+> **Historical prompt.** Its output has been superseded by the current
+> SPEC-UNIFIED owner override and PROMPT-05 release contract.
+
+> **How to use it.** Paste this prompt into a Claude Code session. The word **`ultracode`** activates multi-agent orchestration (Workflow). The **ponytail** module must remain active throughout (`/ponytail full`). Every structural choice **goes through me** via `AskUserQuestion` — do not decide anything alone.
 
 ---
 
@@ -8,67 +11,67 @@ ultracode — `/ponytail full`
 
 ## Mission
 
-Unifier **`docs/SPEC-01-syncbox.md`** (spec fonctionnelle/technique, focus sur ses **questions ouvertes Phase 2 §10**, le **journal de décisions §7 (D1–D25)**, les **non-négociables §9**, le **modèle de domaine §6**) et **`docs/SPEC-02-architecture.md`** (cible architecturale, **4 forks A–D**, ordre de dé-risquage §5) en **une seule spec cohérente, complète et sans contradiction**.
+Unify **`docs/SPEC-01-syncbox.md`** (functional/technical spec, focused on its **Phase 2 open questions §10**, the **decision log §7 (D1–D25)**, the **non-negotiables §9**, the **domain model §6**) and **`docs/SPEC-02-architecture.md`** (target architecture, **4 forks A–D**, de-risking order §5) into **a single coherent, complete, contradiction-free spec**.
 
-Le but final : une spec « parfaite et unifiée » qui résout **toutes** les questions en suspens — par **recherche état-de-l'art sourcée** quand il y a un choix, et par **ma validation** sur chaque arbitrage — pour servir d'intrant au **prompt idéal de construction de l'app** (livrable final).
+The final goal: a “perfect and unified” spec that resolves **all** outstanding questions — through **sourced state-of-the-art research** whenever there is a choice, and through **my validation** on each arbitration — to serve as input for the **ideal app-building prompt** (final deliverable).
 
-## Principes non négociables (s'appliquent à chaque phase)
+## Non-Negotiable Principles (Apply to Every Phase)
 
-1. **Lens ponytail sur CHAQUE choix.** Remonter l'échelle : (1) ce composant/feature doit-il exister ? (2) la stdlib le fait ? (3) une feature native de la plateforme/OS le couvre ? (4) une dépendance déjà installée suffit ? (5) une ligne ? (6) sinon, le minimum qui marche. **Challenger explicitement SPEC-02** qui « écarte la maintenabilité » et « assume une complexité accrue » : pour chaque changement proposé (Tauri, JSON-RPC stdio, deemix embarqué, etc.), poser d'abord *« vs ce qui marche déjà aujourd'hui, ce changement doit-il avoir lieu ? »*. Réintégrer la maintenabilité comme garde-fou. Lancer `/ponytail-review` sur les choix d'architecture retenus et `/ponytail-audit` (mental) sur la surface de la spec finale.
-2. **Aucun choix sans état de l'art sourcé.** Toute option et toute reco s'appuie sur des sources **réelles, datées, vérifiées** (web). Pas d'affirmation de mémoire sur un outil/lib/version.
-3. **Tout passe par moi.** Les forks structurants et les choix produit/fonctionnels sont présentés via `AskUserQuestion` (reco ponytail **en premier**, alternatives sourcées, trade-offs vs les 3 priorités *robustesse > légèreté > perf* **et** impact maintenabilité). Ne rien figer sans ma réponse.
-4. **Préserver les non-négociables SPEC-01 §9** : sûreté Rekordbox (gardes RB fermé, `_mutate`, backup-avant-mutation, soft-delete, entiers de statut load-bearing), résolution de chemins volume-relatif/absolu, « ne jamais déplacer les fichiers » + quirk TCC, et le **contrat de tests `service/tests/`** comme référence de comportement.
-5. **Faithful reporting.** Si une question reste sans réponse fiable après recherche, le dire — ne pas inventer un consensus.
+1. **Ponytail lens on EVERY choice.** Climb the ladder: (1) should this component/feature exist? (2) does the stdlib do it? (3) does a native platform/OS feature cover it? (4) is an already installed dependency enough? (5) one line? (6) otherwise, the minimum that works. **Explicitly challenge SPEC-02**, which “sets maintainability aside” and “assumes increased complexity”: for every proposed change (Tauri, JSON-RPC stdio, embedded deemix, etc.), first ask *“vs what already works today, should this change happen?”*. Reintegrate maintainability as a guardrail. Run `/ponytail-review` on the retained architecture choices and `/ponytail-audit` (mental) on the surface area of the final spec.
+2. **No choice without sourced state of the art.** Every option and every recommendation is based on **real, dated, verified** sources (web). No memory-based claims about a tool/lib/version.
+3. **Everything goes through me.** Structural forks and product/functional choices are presented via `AskUserQuestion` (ponytail recommendation **first**, sourced alternatives, trade-offs vs the 3 priorities *robustness > lightness > performance* **and** maintainability impact). Do not freeze anything without my answer.
+4. **Preserve the SPEC-01 §9 non-negotiables**: Rekordbox safety (RB-closed guards, `_mutate`, backup-before-mutation, soft delete, load-bearing status integers), volume-relative/absolute path resolution, “never move files” + TCC quirk, and the **`service/tests/` test contract** as the behavior reference.
+5. **Faithful reporting.** If a question remains without a reliable answer after research, say so — do not invent a consensus.
 
-## Contradictions & lacunes déjà repérées (point de départ — à compléter, pas à présumer exhaustif)
+## Already Identified Contradictions & Gaps (Starting Point — to Complete, Not Presume Exhaustive)
 
-- **Fork A — label incohérent dans SPEC-02.** §4 définit `A2 = formats d'échange only` ; §2.4 + table « décisions validées » emploient `A2 = master.db en place seulement, sans XML`. Deux sens pour un même label → trancher le libellé **et** confirmer la décision réelle.
-- **« 4 forks à valider » vs « Décisions validées ».** SPEC-02 dit les deux. Clarifier le statut : ces forks sont-ils encore ouverts, ou déjà tranchés et à entériner ?
-- **Fork C1 ⟂ OAuth.** C1 (JSON-RPC stdin/stdout, **pas de serveur HTTP**) casse le callback Spotify que SPEC-01 §3.9 épingle sur `http://127.0.0.1:8765/...`. Sans serveur HTTP, pas de redirect loopback → résoudre l'interaction (listener loopback éphémère dédié OAuth ? autre mécanisme ?).
-- **Questions encore ouvertes après SPEC-02** (SPEC-01 §10) non tranchées par l'archi : §10.4 secrets au repos (keychain OS vs DB chiffrée), §10.5 outil de migration de schéma, §10.6 abstraction multi-OS (détection process RB Windows, corbeille OS, chemins système), §10.7 port service + callback OAuth, §10.9 structure UI/UX (§8.2 pistes A/B/C), §10.10 matching configurable (seuils 82 / marge 6 / pondérations ; politique unique de collision ISRC).
-- **Tension ponytail vs SPEC-02** : chaque « complexité choisie » (coque Tauri, transport réécrit, downloader embarqué) doit survivre à la question « YAGNI / ce qui marche déjà suffit-il ? ».
+- **Fork A — inconsistent label in SPEC-02.** §4 defines `A2 = exchange formats only`; §2.4 + the “validated decisions” table use `A2 = master.db in place only, without XML`. Two meanings for the same label → decide the wording **and** confirm the real decision.
+- **“4 forks to validate” vs “Validated decisions.”** SPEC-02 says both. Clarify the status: are these forks still open, or already decided and to be ratified?
+- **Fork C1 ⟂ OAuth.** C1 (JSON-RPC stdin/stdout, **no HTTP server**) breaks the Spotify callback that SPEC-01 §3.9 pins to `http://127.0.0.1:8765/...`. Without an HTTP server, no loopback redirect → resolve the interaction (dedicated ephemeral OAuth loopback listener? another mechanism?).
+- **Questions still open after SPEC-02** (SPEC-01 §10) not resolved by the architecture: §10.4 secrets at rest (OS keychain vs encrypted DB), §10.5 schema migration tool, §10.6 multi-OS abstraction (Windows RB process detection, OS trash, system paths), §10.7 service port + OAuth callback, §10.9 UI/UX structure (§8.2 tracks A/B/C), §10.10 configurable matching (thresholds 82 / margin 6 / weightings; single ISRC collision policy).
+- **Ponytail vs SPEC-02 tension**: every “chosen complexity” (Tauri shell, rewritten transport, embedded downloader) must survive the question “YAGNI / is what already works enough?”.
 
 ## Orchestration (Workflow)
 
-**Phase 0 — Ingestion & cartographie** *(agents parallèles, lecture seule)*
-- Lecteur SPEC-01 → extraire : D1–D25 (statut garder/changer/retirer), questions ouvertes §10, non-négociables §9, modèle de domaine §6, contrat de comportement §3.
-- Lecteur SPEC-02 → extraire : verdicts par couche §2, forks A–D + statut, décisions validées, ordre de dé-risquage §5.
-- Lecteur `docs/_research/` + `docs/_analysis/` → inventaire des sources déjà réunies (éviter de re-chercher l'acquis ; repérer le périmé/à-réactualiser).
-- **Sortie** : une **matrice unifiée** `{ sujet → position SPEC-01 → position SPEC-02 → contradiction ? → statut (tranché / à-rechercher / à-valider) }`.
+**Phase 0 — Ingestion & Mapping** *(parallel agents, read-only)*
+- SPEC-01 reader → extract: D1–D25 (status keep/change/remove), open questions §10, non-negotiables §9, domain model §6, behavior contract §3.
+- SPEC-02 reader → extract: verdicts by layer §2, forks A–D + status, validated decisions, de-risking order §5.
+- `docs/_research/` + `docs/_analysis/` reader → inventory sources already gathered (avoid re-searching what is already acquired; identify outdated/to-refresh material).
+- **Output**: a **unified matrix** `{ topic → SPEC-01 position → SPEC-02 position → contradiction? → status (decided / to-research / to-validate) }`.
 
-**Phase 1 — Diff, contradictions, lacunes** *(barrière : nécessite toute la phase 0)*
-- Un agent de synthèse croise les deux specs et produit : (a) liste **complète** des contradictions (seed ci-dessus + nouvelles) ; (b) questions **encore ouvertes** ; (c) choix dont l'**état de l'art manque** ; (d) classement par priorité et par type d'action.
+**Phase 1 — Diff, Contradictions, Gaps** *(barrier: requires all of Phase 0)*
+- A synthesis agent cross-checks both specs and produces: (a) **complete** list of contradictions (seed above + new ones); (b) questions **still open**; (c) choices whose **state of the art is missing**; (d) ranking by priority and action type.
 
-**Gate utilisateur 1** *(`AskUserQuestion`)* — me présenter la matrice + la liste contradictions/questions ; confirmer périmètre, priorités, et toute préférence forte **avant** la recherche lourde.
+**User Gate 1** *(`AskUserQuestion`)* — present me with the matrix + the list of contradictions/questions; confirm scope, priorities, and any strong preference **before** heavy research.
 
-**Phase 2 — Recherche état-de-l'art** *(pipeline : un fil par question/fork ; verify dès qu'une recherche finit)*
-- Par sujet : un agent recherche (style `deep-research`) fan-out WebSearch/WebFetch → **matrice d'options sourcée + datée** + **reco ponytail** (l'option la plus paresseuse qui tient les non-négociables).
-- **Verify adversarial** par sujet : un sceptique vérifie que les sources sont réelles/à jour et que la « lazy option » ne casse aucun non-négociable (par défaut : réfuter). Majorité requise pour valider.
-- **Sujets pré-identifiés** (compléter selon phase 1) : secrets au repos macOS+Windows ; outil de migration SQLite léger ; détection process Rekordbox sous Windows + corbeille OS cross-platform ; OAuth loopback **sans** serveur HTTP (impact Fork C1) ; état 2025–2026 signature/notarisation sidecar Tauri (#11992) ; deemix vs streamrip (maintenance + API Deezer actuelle + dimension légale GPL/DMCA) ; PyInstaller `--onedir` vs Nuitka (taille/cold-start mesurés) ; modèle de matching configurable (exposer ou non les seuils).
+**Phase 2 — State-of-the-Art Research** *(pipeline: one thread per question/fork; verify as soon as a research task finishes)*
+- Per topic: one agent researches (`deep-research` style) WebSearch/WebFetch fan-out → **sourced + dated options matrix** + **ponytail recommendation** (the laziest option that satisfies the non-negotiables).
+- **Adversarial verify** per topic: a skeptic verifies that sources are real/up to date and that the “lazy option” breaks no non-negotiable (default: refute). Majority required to validate.
+- **Pre-identified topics** (complete according to Phase 1): secrets at rest macOS+Windows; lightweight SQLite migration tool; Rekordbox process detection on Windows + cross-platform OS trash; OAuth loopback **without** HTTP server (Fork C1 impact); 2025–2026 state of Tauri sidecar signing/notarization (#11992); deemix vs streamrip (maintenance + current Deezer API + GPL/DMCA legal dimension); PyInstaller `--onedir` vs Nuitka (measured size/cold start); configurable matching model (whether to expose thresholds).
 
-**Gate utilisateur 2** *(`AskUserQuestion`, en lots)* — pour chaque fork/choix : reco ponytail **en premier**, alternatives, trade-offs vs priorités + maintenabilité, sources. Collecter mes décisions.
+**User Gate 2** *(`AskUserQuestion`, in batches)* — for each fork/choice: ponytail recommendation **first**, alternatives, trade-offs vs priorities + maintainability, sources. Collect my decisions.
 
-**Phase 3 — Synthèse de la spec unifiée**
-- Produire **`docs/SPEC-UNIFIED.md`** : une spec unique intégrant D1–D25, forks tranchés, réponses recherchées + validées, non-négociables, modèle de domaine, architecture cible. Forks réécrits avec **un seul libellé cohérent** et **statut clair (tranché)**. Chaque simplification ponytail porte un `ponytail:`-style rationale (ce qui est écarté, quand le rajouter). Mettre à jour/retirer SPEC-01 §10 et SPEC-02 §4 pour pointer vers la décision finale (pas de double source de vérité — appliquer le principe à la doc elle-même).
-- Enrichir `docs/_research/` des nouvelles recherches sourcées.
+**Phase 3 — Unified Spec Synthesis**
+- Produce **`docs/SPEC-UNIFIED.md`**: a single spec integrating D1–D25, decided forks, researched + validated answers, non-negotiables, domain model, target architecture. Forks rewritten with **one coherent label only** and **clear status (decided)**. Each ponytail simplification carries a `ponytail:`-style rationale (what is rejected, when to add it). Update/remove SPEC-01 §10 and SPEC-02 §4 to point to the final decision (no double source of truth — apply the principle to the docs themselves).
+- Enrich `docs/_research/` with the new sourced research.
 
-**Phase 4 — Revue adversariale (boucle jusqu'à convergence)**
-- *Completeness critic* : que manque-t-il ? contradiction résiduelle ? question §10 non répondue ? choix non sourcé ? non-négociable §9 perdu en route ?
-- *Ponytail-review* : où la spec sur-conçoit-elle encore ? quoi supprimer/fusionner ?
-- Reboucler tant que : contradictions ≠ 0, questions ouvertes ≠ 0, ou findings ponytail non traités.
+**Phase 4 — Adversarial Review (Loop Until Convergence)**
+- *Completeness critic*: what is missing? residual contradiction? unanswered §10 question? unsourced choice? §9 non-negotiable lost along the way?
+- *Ponytail-review*: where is the spec still over-designed? what should be removed/merged?
+- Loop again while: contradictions ≠ 0, open questions ≠ 0, or untreated ponytail findings.
 
-**Phase 5 — Le prompt idéal de construction**
-- À partir de `SPEC-UNIFIED.md` figée, générer **`docs/PROMPT-03-build.md`** : le prompt qui permet de construire l'app (objectif final), incluant stack tranchée, ordre de dé-risquage (POC d'abord), non-négociables, contrat de tests, et la lens ponytail comme contrainte de réalisation.
+**Phase 5 — The Ideal Build Prompt**
+- From the frozen `SPEC-UNIFIED.md`, generate **`docs/PROMPT-03-build.md`**: the prompt that enables building the app (final objective), including the decided stack, de-risking order (POC first), non-negotiables, test contract, and the ponytail lens as an implementation constraint.
 
-## Livrables
+## Deliverables
 
-1. `docs/SPEC-UNIFIED.md` — spec unique, complète, sourcée, **zéro contradiction**, forks tranchés.
-2. Journal de décisions consolidé (forks A–D entérinés + réponses aux 10 questions §10), traçable.
-3. `docs/_research/` enrichi (nouvelles recherches datées/sourcées).
-4. `docs/PROMPT-03-build.md` — le prompt de construction final.
+1. `docs/SPEC-UNIFIED.md` — single, complete, sourced spec, **zero contradictions**, decided forks.
+2. Consolidated decision log (ratified forks A–D + answers to the 10 §10 questions), traceable.
+3. Enriched `docs/_research/` (new dated/sourced research).
+4. `docs/PROMPT-03-build.md` — the final build prompt.
 
-## Règles d'interaction
+## Interaction Rules
 
-- **Tout fork/choix structurant ou produit → `AskUserQuestion`**, reco ponytail en tête. Ne pas avancer en phase 3 sans mes décisions.
-- Ponytail actif : livrable d'abord, explication courte ensuite. Pas de prose qui défend une simplification — la simplification se justifie par sa brièveté.
-- Langue : **français** (cohérent avec les docs existantes).
+- **Every structural or product fork/choice → `AskUserQuestion`**, ponytail recommendation first. Do not move into Phase 3 without my decisions.
+- Ponytail active: deliverable first, short explanation afterward. No prose defending a simplification — the simplification is justified by its brevity.
+- Language: **French** (consistent with the existing docs).

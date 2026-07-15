@@ -5,7 +5,7 @@ import type { LibraryTrack } from '../api/types'
 
 /** Rows that need the user's attention — the ONE review definition the
     source badges and the health selector share. */
-export const REVIEW_STATUSES = new Set(['new', 'conflict', 'missing'])
+export const REVIEW_STATUSES = new Set(['new', 'conflict', 'missing', 'acquisition_failed'])
 
 export function isReview(track: LibraryTrack): boolean {
   return REVIEW_STATUSES.has(track.status)
@@ -29,6 +29,8 @@ export type FilterChip = (typeof FILTER_CHIPS)[number]
     removed_from_source (M4-PLAN M4.7); a specific chip shows its status. */
 export function filterByChip(tracks: LibraryTrack[], chip: FilterChip): LibraryTrack[] {
   if (chip === 'review') return tracks.filter(isReview)
+  if (chip === 'missing')
+    return tracks.filter((t) => ['missing', 'acquisition_failed'].includes(t.status))
   if (chip === 'all')
     return tracks.filter((t) => t.status !== 'ignored' && t.status !== 'removed_from_source')
   return tracks.filter((t) => t.status === chip)
@@ -45,7 +47,7 @@ export function confTone(confidence: number, threshold: number): 'success' | 'ac
 /** Statuses the re-match/manual-match/mark-missing flows accept (mirror of
     the sidecar's _REMATCH_REFUSED complement). */
 export function isRematchable(track: LibraryTrack): boolean {
-  return ['new', 'matched', 'conflict', 'missing'].includes(track.status)
+  return ['new', 'matched', 'conflict', 'missing', 'acquisition_failed'].includes(track.status)
 }
 
 /** §5.6: only matched/ready rows are applicable to Rekordbox. */

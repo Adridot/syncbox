@@ -11,6 +11,7 @@ import type { LibraryTrack, MatchCandidate } from '../api/types'
 import { confTone, formatDuration } from '../lib/library'
 import { useSettingsStore } from '../stores/settings'
 import ModalShell from './ModalShell.vue'
+import SpotifyAttributionLink from './SpotifyAttributionLink.vue'
 
 const props = defineProps<{ track: LibraryTrack }>()
 const emit = defineEmits<{ close: []; updated: [track: LibraryTrack] }>()
@@ -68,6 +69,11 @@ const markMissing = () => act(() => api.post<LibraryTrack>(`/api/library/tracks/
           <b>{{ track.title }} — {{ track.artist }}</b>
         </template>
       </i18n-t>
+      <SpotifyAttributionLink
+        compact
+        kind="track"
+        :spotify-id="track.spotify_track_id"
+      />
 
       <div v-if="candidates === null" class="hint">{{ t('common.loading') }}</div>
       <div v-else-if="loadError" class="error-row">{{ loadError }}</div>

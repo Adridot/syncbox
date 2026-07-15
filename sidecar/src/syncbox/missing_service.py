@@ -1,5 +1,5 @@
-"""Unified missing-tracks center: 3 scopes, purchase links + manual relink
-ONLY (SPEC-UNIFIED 4/5.5/6.5 - the legal path; no download code exists).
+"""Unified missing-tracks center: three scopes with purchase links, optional
+acquisition state, and manual relink (SPEC-UNIFIED 4/5.5/6.5).
 
 Scopes:
 - 'library'    -> library_tracks rows in a missing-family status;
@@ -7,14 +7,12 @@ Scopes:
 - 'collection' -> Rekordbox snapshot rows whose file is missing on disk
                   (file_missing=True; nothing app-DB-persisted).
 
-Every entry carries purchase links (B2 gate: 'missing' and
-'purchase_link_unavailable' only - removed_from_source never reaches this
-module because it is not a missing-family status) and LOCAL relink
+Every entry carries purchase links (B2 gate: 'missing',
+'acquisition_failed', and 'purchase_link_unavailable' - removed_from_source
+never reaches this module because it is not a missing-family status) and LOCAL relink
 candidates discovered under <storage_root>/<SYNC_DIR_NAME>/inbox plus any
-user-chosen directories. Status cycle (5.5):
-missing -> purchase_linked | relinked | ignored, failures
-purchase_link_unavailable / manual_relink_needed; 'ignored' stores
-prior_status and restore_missing puts it back - never 'new' (D22).
+user-chosen directories. ``ignored`` stores the prior missing-family status,
+and restore_missing puts it back rather than resetting it to ``new`` (D22).
 
 relink_collection_file() is the ONE collection-scope write: FolderPath
 re-association inside safety.mutate(), stored in the 3.2 stored form, and
@@ -33,7 +31,12 @@ from syncbox.safety.mutate import mutate
 from syncbox.safety.paths import SYNC_DIR_NAME, stored_form, tcc_exists
 
 MISSING_STATUSES = frozenset(
-    {"missing", "purchase_link_unavailable", "manual_relink_needed"}
+    {
+        "missing",
+        "acquisition_failed",
+        "purchase_link_unavailable",
+        "manual_relink_needed",
+    }
 )
 RESOLUTION_STATUSES = frozenset(
     {
@@ -57,10 +60,11 @@ class AnlzConsentRequired(RuntimeError):
 
 
 def relink_roots(storage_root, user_roots=()) -> list[Path]:
-    """Search roots for relink discovery: the storage inbox + user dirs."""
+    """Search roots: inbox, retained acquisition outputs, then user dirs."""
     roots: list[Path] = []
     if storage_root:
-        roots.append(Path(storage_root) / SYNC_DIR_NAME / "inbox")
+        sync_root = Path(storage_root) / SYNC_DIR_NAME
+        roots.extend((sync_root / "inbox", sync_root / "acquisition"))
     roots.extend(Path(r) for r in user_roots)
     return roots
 
@@ -127,6 +131,7 @@ def list_missing(
                 "title": row["title"],
                 "artist": row["artist"],
                 "isrc": row["isrc"],
+                "spotify_track_id": row["spotify_track_id"],
                 "status": row["status"],
             }
             for row in rows

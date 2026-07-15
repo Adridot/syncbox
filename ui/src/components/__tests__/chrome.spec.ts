@@ -23,12 +23,15 @@ const global = () => ({ global: { plugins: [i18n, pinia] } })
 test('ModalShell closes on esc and backdrop click, not on inner click', async () => {
   const wrapper = mount(ModalShell, {
     ...global(),
-    slots: { default: '<p class="inner">content</p>' },
+    attrs: { 'aria-labelledby': 'modal-title' },
+    slots: { default: '<h2 id="modal-title">Title</h2><p class="inner">content</p>' },
     attachTo: document.body,
   })
   const backdrop = document.body.querySelector('.backdrop') as HTMLElement
+  const modal = document.body.querySelector('.modal') as HTMLElement
   const inner = document.body.querySelector('.inner') as HTMLElement
 
+  expect(modal.getAttribute('aria-labelledby')).toBe('modal-title')
   inner.click()
   expect(wrapper.emitted('close')).toBeUndefined()
 
@@ -74,7 +77,7 @@ test('RB banner re-polls /api/status on "J\'ai fermé Rekordbox"', async () => {
   await wrapper.get('button').trigger('click')
   await flushPromises()
   expect(fetchMock).toHaveBeenCalledWith(
-    'http://127.0.0.1:8765/api/status',
+    'http://127.0.0.1:8766/api/status',
     expect.anything(),
   )
   expect(status.rbOpen).toBe(false)

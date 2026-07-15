@@ -1,5 +1,5 @@
 """B2 legal purchase links - pure URL templating, zero network
-(SPEC-UNIFIED 5.13/6.5, validated by POC #8).
+(SPEC-UNIFIED 5.13/6.5, validated by POC #7).
 
 The app NEVER contacts a store: the user's browser opens these URLs. No
 scraping, no store API, no result resolution, no credential. The catalog is
@@ -11,8 +11,7 @@ from urllib.parse import quote
 
 from syncbox.matching import normalize  # D19: the one shared pipeline
 
-# ponytail: fixed 2-store catalog, no user editor in v1 - adding a store =
-# adding one entry at build time when a real DJ asks for it.
+# The v1 store catalog is fixed at build time.
 CATALOG = [
     {"name": "Beatport", "template": "https://www.beatport.com/search?q={query}"},
     {"name": "Bandcamp", "template": "https://bandcamp.com/search?q={query}&item_type=t"},
@@ -20,7 +19,9 @@ CATALOG = [
 
 # Only these statuses expose purchase links; removed_from_source is excluded
 # (SPEC-UNIFIED 5.13, SPEC-DESIGN 11.2 fix list).
-PURCHASABLE_STATUSES = frozenset({"missing", "purchase_link_unavailable"})
+PURCHASABLE_STATUSES = frozenset(
+    {"missing", "acquisition_failed", "purchase_link_unavailable"}
+)
 
 
 def purchase_links(artist, title, catalog=CATALOG) -> list[dict]:

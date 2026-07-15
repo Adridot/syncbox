@@ -41,6 +41,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from syncbox import (
+    acquisition,
     appdb,
     dedup,
     events_service,
@@ -62,17 +63,20 @@ from syncbox.safety.backup import list_backups, restore_backup
 from syncbox.safety.mutate import StaleSnapshotError, mutate
 from syncbox.safety.paths import (
     SYNC_DIR_NAME,
-    is_protected_path,
     paths_equal,
     resolve_stored_path,
     tcc_exists,
 )
 from syncbox.safety import process_guard
 from syncbox.safety.process_guard import MutationBlockedError
-from syncbox.server import JobBus, create_app
+from syncbox.server import JobBus, OAuthCallbackPortInUseError, create_app
 from syncbox.settings import DEFAULTS as SETTINGS_DEFAULTS
 from syncbox.settings import Settings, validate_directory
-from syncbox.spotify import NotConnectedError, SpotifyApiError
+from syncbox.spotify import (
+    AUTHORIZATION_TIMEOUT_SECONDS,
+    NotConnectedError,
+    SpotifyApiError,
+)
 
 # Statuses a single-track re-match refuses to clobber: 'ignored' would
 # silently unignore (D22 owns that transition), 'imported' is already in
@@ -106,9 +110,14 @@ class Deps:
         bus: JobBus | None = None,
         spotify_auth=None,
         spotify_client=None,
+        oauth_listener=None,
         cache=None,
         log_path=None,
         app_db_path=None,
+        data_dir=None,
+        secrets=None,
+        acquisition_installer=None,
+        acquisition_runner=None,
     ):
         self.conn = conn
         # File behind ``conn`` - needed by the all-data import (5.10), which
@@ -119,7 +128,12 @@ class Deps:
         self.bus = bus if bus is not None else JobBus()
         self.spotify_auth = spotify_auth
         self.spotify_client = spotify_client
+        self.oauth_listener = oauth_listener
         self.log_path = log_path
+        self.data_dir = Path(data_dir or (Path(app_db_path).parent if app_db_path else "."))
+        self.secrets = secrets
+        self.acquisition_installer = acquisition_installer or acquisition.install_component
+        self.acquisition_runner = acquisition_runner or acquisition.run_deezer_download
         self.lock = threading.RLock()
         self._injected_cache = cache  # tests inject a fake snapshot cache
         self._cache = None
@@ -151,12 +165,13 @@ class Deps:
         return self._cache
 
 
-def build_app(deps: Deps, *, oauth_callback=None):
+def build_app(deps: Deps):
     """Assemble the full sidecar app: transport routes (server.create_app)
     plus the REST routes below, sharing one JobBus."""
-    if oauth_callback is None and deps.spotify_auth is not None:
-        oauth_callback = deps.spotify_auth.handle_callback
-    app = create_app(bus=deps.bus, oauth_callback=oauth_callback, routes=routes(deps))
+    app = create_app(
+        bus=deps.bus,
+        routes=routes(deps),
+    )
     app.state.deps = deps
     return app
 
@@ -214,6 +229,14 @@ def _error_response(exc) -> JSONResponse | None:
                 "message": str(exc),
             },
             status_code=502,
+        )
+    if isinstance(exc, OAuthCallbackPortInUseError):
+        return JSONResponse(
+            {
+                "error": "oauth_callback_port_in_use",
+                "message": str(exc),
+            },
+            status_code=409,
         )
     if isinstance(exc, KeyError):
         message = str(exc.args[0]) if exc.args else "not found"
@@ -275,8 +298,7 @@ class _Progress:
     """Real job progress on the canonical SSE bus (F16).
 
     pct always derives from done/total actual work units. Publishing happens
-    from the worker thread back into the running loop via anyio.from_thread
-    (the shim the server-side JobBus ponytail note planned for M3).
+    from the worker thread back into the running loop via anyio.from_thread.
     """
 
     def __init__(self, bus: JobBus, kind: str):
@@ -498,7 +520,7 @@ def source_tracks(deps, request, body):
                 row["content_id"]: row["bit_rate"]
                 for row in deps.cache().get(deps.storage_root)
             }
-        except Exception:  # ponytail: optional enrichment, never load-bearing
+        except Exception:  # Optional enrichment must never block the track list.
             bit_rates = {}
     for track in tracks:
         track["bit_rate"] = (
@@ -537,9 +559,16 @@ def status_get(deps, request, body):
     HealthPill without waiting for a failing mutation. The UI polls it
     (interval + window focus + after any 423)."""
     connected = deps.spotify_auth is not None and deps.spotify_auth.connected()
+    authorization = (
+        deps.spotify_auth.authorization_status()
+        if deps.spotify_auth is not None
+        else {"pending": False, "result": None}
+    )
     return {
         "rb_open": process_guard.is_rekordbox_running(),
         "spotify_connected": connected,
+        "spotify_authorization_pending": authorization["pending"],
+        "spotify_authorization_result": authorization["result"],
     }
 
 
@@ -710,7 +739,8 @@ def events_list(deps, request, body):
         for row in deps.conn.execute(
             "SELECT event_id, COUNT(*) AS n_tracks, "
             "SUM(CASE WHEN status IN ('matched', 'ready') THEN 1 "
-            "         WHEN added_after_apply = 1 AND status = 'missing' THEN 1 "
+            "         WHEN added_after_apply = 1 "
+            "              AND status IN ('missing', 'acquisition_failed') THEN 1 "
             "         ELSE 0 END) AS pending_delta "
             "FROM event_tracks GROUP BY event_id"
         )
@@ -892,8 +922,7 @@ def events_reapply(deps, request, body):
 
 
 def events_delete(deps, request, body):
-    """dry_run defaults to TRUE: the destructive call must be explicit and
-    its confirmation text reflects the exact executed payload (D11/D23, B10)."""
+    """Preview by default; execution must echo the complete displayed plan."""
     event = _get_event(deps, request.path_params["event_id"])
     _require_rekordbox(deps)
     return events_service.delete_event(
@@ -904,6 +933,7 @@ def events_delete(deps, request, body):
         deps.storage_root,
         event,
         dry_run=bool(body.get("dry_run", True)),
+        plan=body.get("plan"),
         consent_to_permanent_delete=bool(body.get("consent_to_permanent_delete")),
         retention=deps.retention,
     )
@@ -924,6 +954,7 @@ def missing_list(deps, request, body):
         storage_root=deps.storage_root or None,
         user_roots=user_roots,
     )
+    _decorate_acquisition(deps, entries)
     return {"scope": scope, "entries": entries}
 
 
@@ -954,8 +985,6 @@ def missing_remove(deps, request, body):
     )
     if row is None:
         raise KeyError(f"content {content_id} not found in the Rekordbox snapshot")
-    if row["protected"]:
-        raise ConflictError(f"protected tracks are never deleted (5.4): {content_id}")
     if not row["file_missing"]:
         raise ConflictError(
             f"content {content_id} has a present file; remove applies to "
@@ -986,6 +1015,233 @@ def missing_relink(deps, request, body):
         retention=deps.retention,
     )
     return {"content_id": request.path_params["content_id"], "stored_path": stored}
+
+
+# --- optional Deezer acquisition (B1) -----------------------------------------------
+
+
+def _has_deezer_arl(deps) -> bool:
+    return bool(deps.secrets and deps.secrets.get(acquisition.DEEZER_ARL_SECRET))
+
+
+def _acquisition_ready(deps) -> bool:
+    return (
+        bool(deps.settings.get("deezer_acquisition_enabled"))
+        and _has_deezer_arl(deps)
+        and bool(acquisition.component_status(deps.data_dir).get("installed"))
+    )
+
+
+def _decorate_acquisition(deps, entries: list[dict]) -> None:
+    enabled = bool(deps.settings.get("deezer_acquisition_enabled"))
+    has_arl = _has_deezer_arl(deps)
+    component = acquisition.component_status(deps.data_dir)
+    ready = enabled and has_arl and bool(component.get("installed"))
+    for entry in entries:
+        reason = None
+        if not enabled:
+            reason = "disabled"
+        elif not has_arl:
+            reason = "missing_arl"
+        elif not component.get("installed"):
+            reason = "component_not_installed"
+        elif not entry.get("isrc"):
+            reason = "missing_isrc"
+        entry["acquisition"] = {
+            "provider": "deezer",
+            "available": ready and bool(entry.get("isrc")),
+            "reason": reason,
+        }
+
+
+def acquisition_status(deps, request, body):
+    return {
+        "provider": "deezer",
+        "enabled": bool(deps.settings.get("deezer_acquisition_enabled")),
+        "has_arl": _has_deezer_arl(deps),
+        "component": acquisition.component_status(deps.data_dir),
+    }
+
+
+def acquisition_arl_set(deps, request, body):
+    if deps.secrets is None:
+        raise ValueError("secrets store is not configured")
+    deps.secrets.set(acquisition.DEEZER_ARL_SECRET, acquisition.validate_arl(_require(body, "arl")))
+    return acquisition_status(deps, request, body)
+
+
+def acquisition_arl_delete(deps, request, body):
+    if deps.secrets is not None:
+        deps.secrets.delete(acquisition.DEEZER_ARL_SECRET)
+    return acquisition_status(deps, request, body)
+
+
+def acquisition_component_install(deps, request, body):
+    if not deps.settings.get("deezer_acquisition_enabled"):
+        raise ValueError("enable Deezer acquisition before installing the component")
+    try:
+        component = deps.acquisition_installer(deps.data_dir)
+    except Exception as exc:
+        raise ValueError("optional Deezer component installation failed") from exc
+    return {"component": component}
+
+
+def _acquisition_entry(deps, scope: str, ref: str) -> dict:
+    if scope in ("library", "event"):
+        table = {"library": "library_tracks", "event": "event_tracks"}[scope]
+        row = deps.conn.execute(f"SELECT * FROM {table} WHERE id = ?", (ref,)).fetchone()
+        if row is None:
+            raise KeyError(f"{scope} track {ref} not found")
+        if row["status"] not in missing_service.MISSING_STATUSES:
+            raise ConflictError(f"{scope} track {ref} is not missing")
+        return {
+            "scope": scope,
+            "ref": str(ref),
+            "title": row["title"],
+            "artist": row["artist"],
+            "isrc": acquisition.normalize_isrc(row["isrc"]),
+        }
+    if scope == "collection":
+        _require_rekordbox(deps)
+        row = next(
+            (r for r in deps.cache().get(deps.storage_root) if str(r["content_id"]) == str(ref)),
+            None,
+        )
+        if row is None or not row["file_missing"]:
+            raise KeyError(f"missing collection content {ref} not found")
+        return {
+            "scope": scope,
+            "ref": str(ref),
+            "title": row["title"],
+            "artist": row["artist"],
+            "isrc": acquisition.normalize_isrc(row["isrc"]),
+        }
+    raise ValueError(f"unknown acquisition scope {scope!r}")
+
+
+def _job_row(conn, job_id: int) -> dict:
+    row = conn.execute("SELECT * FROM acquisition_jobs WHERE id = ?", (job_id,)).fetchone()
+    if row is None:
+        raise KeyError(f"acquisition job {job_id} not found")
+    return dict(row)
+
+
+_JOB_TRANSITIONS = {
+    "queued": frozenset({"running", "failed"}),
+    "running": frozenset(
+        {"downloaded", "relinked", "relink_blocked", "relink_failed", "failed"}
+    ),
+}
+
+
+def _update_job(conn, job_id: int, **values) -> dict:
+    current = _job_row(conn, job_id)
+    next_status = values.get("status")
+    if next_status is not None and next_status != current["status"]:
+        allowed = _JOB_TRANSITIONS.get(current["status"], frozenset())
+        if next_status not in allowed:
+            raise ValueError(
+                f"invalid acquisition job transition "
+                f"{current['status']!r} -> {next_status!r}"
+            )
+    assignments = ", ".join(f"{key} = ?" for key in values)
+    conn.execute(
+        f"UPDATE acquisition_jobs SET {assignments}, updated_at = datetime('now') WHERE id = ?",
+        (*values.values(), job_id),
+    )
+    return _job_row(conn, job_id)
+
+
+def acquisition_job_get(deps, request, body):
+    return _job_row(deps.conn, request.path_params["job_id"])
+
+
+def acquisition_job_start(deps, request, body):
+    if not deps.settings.get("deezer_acquisition_enabled"):
+        raise ValueError("Deezer acquisition is disabled")
+    if deps.secrets is None:
+        raise ValueError("secrets store is not configured")
+    arl = deps.secrets.get(acquisition.DEEZER_ARL_SECRET)
+    if not arl:
+        raise ValueError("Deezer ARL is not configured")
+    if not acquisition.component_status(deps.data_dir).get("installed"):
+        raise ValueError("optional Deezer component is not installed")
+    _require_storage(deps)
+
+    scope = _require(body, "scope")
+    ref = str(body.get("row_id") or body.get("content_id") or body.get("id") or "")
+    if not ref:
+        raise ValueError("missing required field 'row_id' or 'content_id'")
+    entry = _acquisition_entry(deps, scope, ref)
+    cursor = deps.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, artist, isrc, status) "
+        "VALUES (?, ?, ?, ?, ?, 'queued')",
+        (entry["scope"], entry["ref"], entry["title"], entry["artist"], entry["isrc"]),
+    )
+    job_id = cursor.lastrowid
+    progress = _Progress(deps.bus, "deezer.acquisition")
+    try:
+        _update_job(deps.conn, job_id, status="running")
+        progress.publish(1, 3)
+        output_dir = acquisition.acquisition_output_dir(deps.storage_root, job_id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result = deps.acquisition_runner(deps.data_dir, arl, entry["isrc"], output_dir)
+        arl = ""
+        output_path = result["output_path"]
+        progress.publish(2, 3)
+
+        stored_path = None
+        status = "downloaded"
+        error = None
+        if scope in ("library", "event"):
+            table = {"library": "library_tracks", "event": "event_tracks"}[scope]
+            deps.conn.execute(
+                f"UPDATE {table} SET status = 'ready', staging_file_path = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (output_path, ref),
+            )
+        elif body.get("relink"):
+            try:
+                stored_path = missing_service.relink_collection_file(
+                    deps.db_path,
+                    deps.backups_root,
+                    deps.cache(),
+                    deps.storage_root,
+                    ref,
+                    output_path,
+                    anlz_consent=bool(body.get("anlz_consent")),
+                    retention=deps.retention,
+                )
+                status = "relinked"
+            except MutationBlockedError:
+                status = "relink_blocked"
+                error = "rekordbox_open"
+            except Exception as exc:
+                status = "relink_failed"
+                error = type(exc).__name__
+        job = _update_job(
+            deps.conn,
+            job_id,
+            status=status,
+            output_path=output_path,
+            stored_path=stored_path,
+            error=error,
+        )
+        progress.publish(3, 3)
+        progress.done(id=job_id, status=status, output_path=output_path)
+        return job
+    except Exception as exc:
+        arl = ""
+        if scope in ("library", "event"):
+            table = {"library": "library_tracks", "event": "event_tracks"}[scope]
+            deps.conn.execute(
+                f"UPDATE {table} SET status = 'acquisition_failed', "
+                "updated_at = datetime('now') WHERE id = ?",
+                (ref,),
+            )
+        job = _update_job(deps.conn, job_id, status="failed", error=type(exc).__name__)
+        progress.done(id=job_id, status="failed", error=type(exc).__name__)
+        return job
 
 
 # --- duplicates (5.4, A3 per 5.12) ---------------------------------------------------
@@ -1077,11 +1333,9 @@ def duplicates_resolve(deps, request, body):
     unknown = [c for c in losers if c not in states]
     if unknown:
         raise KeyError(f"unknown content ids: {unknown}")
-    # Owner amendment to 5.4 (2026-07-07): loser files in the protected zone
-    # are resolvable like any other — the per-group confirmation is the
-    # consent, and the file goes through the same trash-first contract below
-    # (permanent delete still requires the 428 consent). The keeper's file
-    # remains untouchable either way.
+    # Duplicate resolution is ownership-neutral after exact per-group
+    # confirmation. Every loser uses the same trash-first contract; the
+    # keeper's physical file remains untouchable.
 
     active = [c for c in losers if not states[c]["deleted"]]
     cache = deps.cache()
@@ -1162,11 +1416,11 @@ def untagged_patterns_remove(deps, request, body):
 
 
 def untagged_delete(deps, request, body):
-    """D15: the protected guard applies with a REAL skip report - protected
-    (and stale not-found/now-tagged) rows are skipped and reported, never
-    silently dropped. Soft-delete only: reversible via backup + reactivate
-    (D21). ponytail: no audio file deletion here - 5.8 asks for collection
-    removal; wire the 6.9 trash contract in if a real DJ asks for it."""
+    """Soft-delete untagged Rekordbox rows without deleting any audio file.
+
+    Stale not-found or now-tagged rows are skipped and reported. Ownership
+    does not affect this reversible database-only operation.
+    """
     _require_rekordbox(deps)
     content_ids = [str(c) for c in _require_list(body, "content_ids")]
     cache = deps.cache()
@@ -1176,8 +1430,6 @@ def untagged_delete(deps, request, body):
         row = by_id.get(content_id)
         if row is None:
             skipped.append({"content_id": content_id, "reason": "not_found"})
-        elif row["protected"]:
-            skipped.append({"content_id": content_id, "reason": "protected"})
         elif row["tag_count"]:
             skipped.append({"content_id": content_id, "reason": "tagged"})
         else:
@@ -1270,6 +1522,8 @@ SETTINGS_EXPORT_KIND = "syncbox-settings"
 
 def _body_path(body, *, must_exist=False) -> Path:
     path = Path(_require(body, "path")).expanduser()
+    if not path.is_absolute():
+        raise ValueError("path must be absolute")
     if must_exist:
         if not path.is_file():
             raise FileNotFoundError(str(path))
@@ -1342,17 +1596,6 @@ def data_import(deps, request, body):
     if deps.app_db_path is None:
         raise ValueError("all-data import needs a file-backed app DB")
     source = _body_path(body, must_exist=True)
-    probe = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
-    try:
-        is_syncbox = probe.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
-        ).fetchone()
-    except sqlite3.DatabaseError:
-        is_syncbox = None
-    finally:
-        probe.close()
-    if not is_syncbox:
-        raise ValueError("not a Syncbox data export")
     deps.conn.close()
     try:
         backup = appdb.import_data(deps.app_db_path, source)
@@ -1461,7 +1704,7 @@ def mytags_get(deps, request, body):
 # --- spotify ----------------------------------------------------------------------
 
 
-_PLAYLISTS_MAX_PAGES = 20  # ponytail: 50/page = 1000 playlists; raise if a real DJ overflows
+_PLAYLISTS_MAX_PAGES = 20  # 50/page bounds one request to 1,000 playlists.
 
 
 def spotify_playlists(deps, request, body):
@@ -1478,12 +1721,15 @@ def spotify_playlists(deps, request, body):
             if not item or not item.get("id"):
                 continue  # Spotify pads deleted playlists with nulls
             images = item.get("images") or []
+            page = item.get("items")
+            if not isinstance(page, dict):
+                page = item.get("tracks") or {}
             playlists.append(
                 {
                     "spotify_playlist_id": item["id"],
                     "name": item.get("name") or "",
                     "owner": (item.get("owner") or {}).get("display_name"),
-                    "tracks_total": (item.get("tracks") or {}).get("total") or 0,
+                    "tracks_total": page.get("total") or 0,
                     "image_url": images[0]["url"] if images else None,
                 }
             )
@@ -1494,9 +1740,74 @@ def spotify_playlists(deps, request, body):
 
 
 def spotify_authorize(deps, request, body):
+    if deps.spotify_auth is None or deps.oauth_listener is None:
+        return 503, {"error": "oauth not configured"}
+    created = deps.oauth_listener.start(
+        deps.spotify_auth.handle_callback,
+        oauth_lock=deps.lock,
+        timeout=AUTHORIZATION_TIMEOUT_SECONDS,
+    )
+    try:
+        return {"url": deps.spotify_auth.begin_authorization()}
+    except Exception:
+        if created:
+            deps.oauth_listener.stop()
+        raise
+
+
+def spotify_disconnect(deps, request, body):
+    """Disconnect Spotify and delete local playlist relationships.
+
+    The token deletion happens first so a later SQLite failure cannot leave
+    Syncbox able to make new Spotify requests. Followed sources and their
+    tracks/runs are deleted by cascade. Events remain usable as local
+    lifecycle records, with Spotify identifiers detached. Rekordbox and local
+    audio files are never opened by this endpoint.
+    """
     if deps.spotify_auth is None:
         return 503, {"error": "oauth not configured"}
-    return {"url": deps.spotify_auth.begin_authorization()}
+    if deps.oauth_listener is not None:
+        deps.oauth_listener.stop()
+    deps.spotify_auth.disconnect()
+
+    counts = {
+        "sources": deps.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0],
+        "library_tracks": deps.conn.execute(
+            "SELECT COUNT(*) FROM library_tracks"
+        ).fetchone()[0],
+        "sync_runs": deps.conn.execute("SELECT COUNT(*) FROM sync_runs").fetchone()[0],
+        "events_detached": deps.conn.execute(
+            "SELECT COUNT(*) FROM events "
+            "WHERE spotify_playlist_id IS NOT NULL "
+            "AND spotify_playlist_id NOT LIKE 'manual:%'"
+        ).fetchone()[0],
+        "event_tracks_detached": deps.conn.execute(
+            "SELECT COUNT(*) FROM event_tracks WHERE spotify_track_id IS NOT NULL"
+        ).fetchone()[0],
+        "acquisition_jobs_deleted": deps.conn.execute(
+            "SELECT COUNT(*) FROM acquisition_jobs WHERE scope IN ('library', 'event')"
+        ).fetchone()[0],
+    }
+    deps.conn.execute("BEGIN")
+    try:
+        deps.conn.execute("DELETE FROM sources")
+        deps.conn.execute(
+            "UPDATE events SET spotify_playlist_id = 'manual:' || slug "
+            "WHERE spotify_playlist_id IS NOT NULL "
+            "AND spotify_playlist_id NOT LIKE 'manual:%'"
+        )
+        deps.conn.execute(
+            "UPDATE event_tracks SET spotify_track_id = NULL "
+            "WHERE spotify_track_id IS NOT NULL"
+        )
+        deps.conn.execute(
+            "DELETE FROM acquisition_jobs WHERE scope IN ('library', 'event')"
+        )
+        deps.conn.execute("COMMIT")
+    except BaseException:
+        deps.conn.execute("ROLLBACK")
+        raise
+    return {"disconnected": True, "rekordbox_changed": False, **counts}
 
 
 def spotify_playlist_preview(deps, request, body):
@@ -1505,15 +1816,15 @@ def spotify_playlist_preview(deps, request, body):
     automatically (404 = private playlist, actionable)."""
     client = _sync_client(deps)
     playlist_id = request.path_params["playlist_id"]
-    payload = client.get(
-        f"/playlists/{playlist_id}"
-        "?fields=name,owner(display_name),tracks(total),images(url)"
-    )
+    payload = client.get(f"/playlists/{playlist_id}")
     images = payload.get("images") or []
+    page = payload.get("items")
+    if not isinstance(page, dict):
+        page = payload.get("tracks") or {}
     return {
         "name": payload.get("name"),
         "owner": (payload.get("owner") or {}).get("display_name"),
-        "tracks_total": (payload.get("tracks") or {}).get("total") or 0,
+        "tracks_total": page.get("total") or 0,
         "image_url": images[0]["url"] if images else None,
     }
 
@@ -1562,6 +1873,12 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/missing/{scope}", missing_list, ["GET"]),
         r("/api/missing/{scope}/{row_id:int}/status", missing_status, ["POST"]),
         r("/api/missing/{scope}/{row_id:int}/restore", missing_restore, ["POST"]),
+        r("/api/acquisition/deezer", acquisition_status, ["GET"]),
+        r("/api/acquisition/deezer/arl", acquisition_arl_set, ["PUT"]),
+        r("/api/acquisition/deezer/arl", acquisition_arl_delete, ["DELETE"]),
+        r("/api/acquisition/component/install", acquisition_component_install, ["POST"]),
+        r("/api/acquisition/jobs", acquisition_job_start, ["POST"]),
+        r("/api/acquisition/jobs/{job_id:int}", acquisition_job_get, ["GET"]),
         r("/api/duplicates/scan", duplicates_scan, ["POST"]),
         r("/api/duplicates/resolve", duplicates_resolve, ["POST"]),
         r("/api/duplicates/dismiss", duplicates_dismiss, ["POST"]),
@@ -1589,6 +1906,7 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/doctor/retention", doctor_retention, ["POST"]),
         r("/api/doctor/logs", doctor_logs, ["GET"]),
         r("/api/spotify/authorize", spotify_authorize, ["GET"]),
+        r("/api/spotify/session", spotify_disconnect, ["DELETE"]),
         r("/api/spotify/playlists", spotify_playlists, ["GET"]),
         r(
             "/api/spotify/playlists/{playlist_id}/preview",

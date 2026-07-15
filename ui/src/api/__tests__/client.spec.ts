@@ -107,6 +107,13 @@ test('unreachable sidecar throws NetworkError, not ApiError', async () => {
   expect(error).toBeInstanceOf(NetworkError)
 })
 
+test('loopback requests bypass the persistent WebKit HTTP cache', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true }))
+  vi.stubGlobal('fetch', fetchMock)
+  await api.get('/health')
+  expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'GET', cache: 'no-store' })
+})
+
 test('in-flight mutation count feeds jobRunning; GETs are ignored', async () => {
   let resolveFetch!: (v: unknown) => void
   vi.stubGlobal(

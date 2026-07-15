@@ -15,6 +15,7 @@ def settings(tmp_path):
 def test_defaults_apply_at_read_without_writing(settings):
     assert settings.get("backup_retention") == 15
     assert settings.get("language") == "en"
+    assert settings.get("deezer_acquisition_enabled") is False
     assert settings.all() == DEFAULTS
     # Reading must not have persisted anything (never re-saved at boot).
     stored = settings._conn.execute("SELECT COUNT(*) FROM settings").fetchone()[0]
@@ -43,7 +44,7 @@ def test_blank_non_credential_is_stored(settings):
 
 def test_unknown_key_rejected(settings):
     with pytest.raises(KeyError):
-        settings.update({"deezer_arl": "nope"})  # no such setting exists in v1
+        settings.update({"deezer_arl": "nope"})  # secrets never live in settings
     with pytest.raises(KeyError):
         settings.get("arl")
 

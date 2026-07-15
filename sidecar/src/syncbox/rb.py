@@ -18,8 +18,8 @@ import sqlcipher3
 from pyrekordbox.db6.database import BLOB
 from pyrekordbox.utils import deobfuscate
 
-from syncbox.safety.mutate import fingerprint
-from syncbox.safety.paths import is_protected_path, resolve_stored_path, tcc_exists
+from syncbox.safety.mutate import StaleSnapshotError, fingerprint
+from syncbox.safety.paths import classify_ownership, resolve_stored_path, tcc_exists
 
 
 def rekordbox_key() -> str:
@@ -34,12 +34,13 @@ def open_readonly(db_path) -> sqlcipher3.Connection:
 
 
 _CONTENT_SQL = """
-SELECT c.ID, c.Title, a.Name AS artist, c.Length, c.ISRC, c.BitRate,
+SELECT c.ID, c.Title, a.Name AS artist, r.Name AS remixer, c.Length, c.ISRC, c.BitRate,
        c.FolderPath, k.ScaleName, g.Name AS genre, c.DJPlayCount,
        c.StockDate, c.created_at, c.Rating, c.FileSize, c.SampleRate,
        c.BitDepth, c.FileType, c.Analysed
 FROM djmdContent c
 LEFT JOIN djmdArtist a ON a.ID = c.ArtistID
+LEFT JOIN djmdArtist r ON r.ID = c.RemixerID
 LEFT JOIN djmdKey k ON k.ID = c.KeyID
 LEFT JOIN djmdGenre g ON g.ID = c.GenreID
 WHERE c.rb_local_deleted = 0
@@ -68,7 +69,7 @@ def load_snapshot(db_path, storage_root) -> list[dict]:
         counts = {name: dict(conn.execute(sql)) for name, sql in _COUNT_SQL.items()}
         rows = []
         for (
-            content_id, title, artist, length, isrc, bit_rate, folder_path,
+            content_id, title, artist, remixer, length, isrc, bit_rate, folder_path,
             scale_name, genre, play_count, stock_date, created_at, rating,
             file_size, sample_rate, bit_depth, file_type, analysed,
         ) in conn.execute(_CONTENT_SQL):
@@ -80,16 +81,17 @@ def load_snapshot(db_path, storage_root) -> list[dict]:
                     "content_id": str(content_id),
                     "title": title,
                     "artist": artist,
+                    "remixer": remixer,
                     "duration_ms": int(length * 1000) if length else 0,
                     "isrc": isrc,
                     "bit_rate": bit_rate,
                     "file_path": folder_path,
                     "resolved_path": str(resolved) if resolved else None,
                     "file_missing": not tcc_exists(resolved) if resolved else True,
-                    "protected": (
-                        is_protected_path(folder_path, storage_root)
+                    "ownership": (
+                        classify_ownership(folder_path, storage_root)
                         if folder_path
-                        else False
+                        else "external"
                     ),
                     "key_name": scale_name,
                     "genre": genre,
@@ -133,9 +135,20 @@ class SnapshotCache:
             or current != self._fingerprint
             or str(storage_root) != self._storage_root
         ):
-            self._rows = self._loader(self._db_path, storage_root)
-            self._fingerprint = current
-            self._storage_root = str(storage_root)
+            for _ in range(3):
+                rows = self._loader(self._db_path, storage_root)
+                after = fingerprint(self._db_path)
+                if current == after:
+                    self._rows = rows
+                    self._fingerprint = after
+                    self._storage_root = str(storage_root)
+                    break
+                current = after
+            else:
+                raise StaleSnapshotError(
+                    f"{self._db_path} kept changing while its snapshot was loaded; "
+                    "nothing was written. Retry when Rekordbox is fully closed."
+                )
         return self._rows
 
     @property

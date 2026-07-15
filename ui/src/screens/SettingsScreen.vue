@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// Réglages (M4.11 — SPEC-DESIGN §4, SPEC-UNIFIED §5.10). Spotify card with
+// Settings (M4.11 — SPEC-DESIGN §4, SPEC-UNIFIED §5.10). Spotify card with
 // the user-supplied Client ID (R1) gating the connect flow; 2 editable paths
 // with SERVER-validated ticks re-checked on mount (B3 — never an optimistic
 // ✓) + full inline help (R3 arbitrated 2026-07-07: 2 paths kept, NO folder
-// name imposed — the protected zone is everything under <root>/rekordbox/);
-// retention; language; Avancé (G4 knobs, sum=1.00, locked invariants, reset).
-// The deprecated download-module card / ARL field are never built (§6.5).
+// name imposed under the permanent library); retention; language; Advanced
+// options (G4 knobs, sum=1.00, locked invariants, reset), plus the explicitly
+// enabled optional Deezer component and its write-only credential field.
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -15,7 +15,7 @@ import SpotifyClientIdHelp from '../components/SpotifyClientIdHelp.vue'
 import { replayOnboarding } from '../lib/onboarding'
 import { MACOS_DB_DEFAULT, usePathFields } from '../lib/usePathFields'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
-import { confirmDialog, hasShell, pickFile, pickSaveFile } from '../shell'
+import { confirmDialog, hasShell, openExternal, pickFile, pickSaveFile } from '../shell'
 import { type MatchWeights, useSettingsStore } from '../stores/settings'
 import { useStatusStore } from '../stores/status'
 
@@ -33,6 +33,12 @@ const DEFAULTS = {
   isrc_collision_policy: 'guarded' as const,
 }
 
+interface DeezerStatus {
+  enabled: boolean
+  has_arl: boolean
+  component: { installed: boolean; streamrip_commit?: string }
+}
+
 const clientId = ref('')
 const retention = ref(15)
 const language = ref('fr')
@@ -40,6 +46,13 @@ const threshold = ref(82)
 const margin = ref(6)
 const weights = reactive<MatchWeights>({ ...DEFAULTS.match_weights })
 const isrcPolicy = ref<string>('guarded')
+const deezerEnabled = ref(false)
+const deezerArl = ref('')
+const deezerStatus = ref<DeezerStatus | null>(null)
+const deezerBusy = ref(false)
+const spotifyBusy = ref(false)
+
+const PRIVACY_URL = `https://github.com/Adridot/syncbox/blob/v${__APP_VERSION__}/docs/PRIVACY.md`
 
 const banner = ref<{ tone: 'error' | 'success'; text: string } | null>(null)
 const connectAttempted = ref(false)
@@ -63,6 +76,7 @@ function syncFromStore() {
   margin.value = values.match_ambiguity_margin
   Object.assign(weights, values.match_weights)
   isrcPolicy.value = values.isrc_collision_policy
+  deezerEnabled.value = values.deezer_acquisition_enabled
 }
 
 onMounted(async () => {
@@ -73,6 +87,7 @@ onMounted(async () => {
     return
   }
   syncFromStore()
+  await loadDeezerStatus()
 })
 
 async function saveSetting(partial: Record<string, unknown>, success?: string) {
@@ -95,6 +110,23 @@ async function connect() {
   await spotify.connect()
   connectAttempted.value = true
 }
+
+async function disconnectSpotify() {
+  if (!(await confirmDialog(t('settings.spotify.disconnectConfirm')))) return
+  banner.value = null
+  spotifyBusy.value = true
+  try {
+    await api.delete('/api/spotify/session')
+    connectAttempted.value = false
+    spotify.error.value = null
+    await status.refresh()
+    banner.value = { tone: 'success', text: t('settings.spotify.disconnected') }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    spotifyBusy.value = false
+  }
+}
 const connectFailed = computed(
   () => connectAttempted.value && !status.spotifyConnected && !spotify.connecting.value,
 )
@@ -114,6 +146,60 @@ const saveAdvanced = () =>
     },
     t('settings.advanced.saved'),
   )
+
+async function loadDeezerStatus() {
+  deezerStatus.value = await api.get<DeezerStatus>('/api/acquisition/deezer')
+}
+
+async function saveDeezerEnabled() {
+  if (await saveSetting({ deezer_acquisition_enabled: deezerEnabled.value })) {
+    await loadDeezerStatus()
+  }
+}
+
+async function saveDeezerArl() {
+  banner.value = null
+  deezerBusy.value = true
+  try {
+    await api.put('/api/acquisition/deezer/arl', { arl: deezerArl.value.trim() })
+    deezerArl.value = ''
+    await loadDeezerStatus()
+    banner.value = { tone: 'success', text: t('settings.deezer.arlSaved') }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    deezerArl.value = ''
+    deezerBusy.value = false
+  }
+}
+
+async function deleteDeezerArl() {
+  banner.value = null
+  deezerBusy.value = true
+  try {
+    await api.delete('/api/acquisition/deezer/arl')
+    await loadDeezerStatus()
+    banner.value = { tone: 'success', text: t('settings.deezer.arlDeleted') }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    deezerBusy.value = false
+  }
+}
+
+async function installDeezerComponent() {
+  banner.value = null
+  deezerBusy.value = true
+  try {
+    await api.post('/api/acquisition/component/install')
+    await loadDeezerStatus()
+    banner.value = { tone: 'success', text: t('settings.deezer.installed') }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    deezerBusy.value = false
+  }
+}
 
 async function resetAdvanced() {
   if (await saveSetting({ ...DEFAULTS }, t('settings.advanced.resetDone'))) {
@@ -204,9 +290,9 @@ async function importData() {
 const derivedRows = computed(() => {
   const root = settings.values?.storage_root
   if (!root) return []
-  return ['protected', 'inbox', 'events', 'backups'].map((key) => ({
+  return ['permanent_library', 'inbox', 'events', 'backups'].map((key) => ({
     key,
-    path: key === 'protected' ? `${root}/rekordbox/` : `${root}/_syncbox/${key}`,
+    path: key === 'permanent_library' ? `${root}/rekordbox/` : `${root}/_syncbox/${key}`,
     label: t(`settings.paths.derived.${key}`),
     desc: t(`settings.paths.derived.${key}Desc`),
   }))
@@ -245,7 +331,7 @@ const derivedRows = computed(() => {
         </div>
         <button
           class="btn-primary"
-          :disabled="!settings.values?.spotify_client_id || spotify.connecting.value"
+          :disabled="!settings.values?.spotify_client_id || spotify.connecting.value || spotifyBusy"
           :title="
             !settings.values?.spotify_client_id ? t('settings.spotify.needClientId') : undefined
           "
@@ -258,6 +344,13 @@ const derivedRows = computed(() => {
                 ? t('settings.spotify.reconnect')
                 : t('settings.spotify.connect')
           }}
+        </button>
+        <button
+          class="btn-secondary spotify-disconnect"
+          :disabled="spotifyBusy || spotify.connecting.value"
+          @click="disconnectSpotify"
+        >
+          {{ t('settings.spotify.disconnect') }}
         </button>
       </div>
       <div v-if="spotify.error.value" class="inline-error">{{ spotify.error.value }}</div>
@@ -280,6 +373,66 @@ const derivedRows = computed(() => {
           </button>
         </div>
         <SpotifyClientIdHelp />
+        <button class="link privacy-link" @click="openExternal(PRIVACY_URL)">
+          {{ t('settings.spotify.privacy') }} ↗
+        </button>
+      </div>
+    </section>
+
+    <!-- Optional Deezer acquisition: disabled until explicit enablement. -->
+    <section class="card">
+      <h3>{{ t('settings.deezer.title') }}</h3>
+      <p class="card-sub">{{ t('settings.deezer.sub') }}</p>
+      <label class="toggle-row">
+        <input v-model="deezerEnabled" type="checkbox" @change="saveDeezerEnabled" />
+        <span>{{ t('settings.deezer.enable') }}</span>
+      </label>
+      <div class="client-id">
+        <div class="field-label">{{ t('settings.deezer.arlLabel') }}</div>
+        <div class="client-id-row">
+          <input
+            v-model="deezerArl"
+            type="password"
+            class="mono"
+            :placeholder="deezerStatus?.has_arl ? t('settings.deezer.arlStored') : t('settings.deezer.arlPlaceholder')"
+            :disabled="!deezerEnabled || deezerBusy"
+            @keydown.enter.prevent="saveDeezerArl"
+          />
+          <button
+            class="btn-secondary small"
+            :disabled="!deezerEnabled || deezerBusy || !deezerArl"
+            @click="saveDeezerArl"
+          >
+            {{ t('settings.deezer.saveArl') }}
+          </button>
+          <button
+            class="btn-secondary small"
+            :disabled="!deezerStatus?.has_arl || deezerBusy"
+            @click="deleteDeezerArl"
+          >
+            {{ t('settings.deezer.deleteArl') }}
+          </button>
+        </div>
+        <div class="gate-note">{{ t('settings.deezer.arlHelp') }}</div>
+      </div>
+      <div class="transfer-row">
+        <div class="transfer-text">
+          <div class="transfer-label">{{ t('settings.deezer.componentLabel') }}</div>
+          <div class="transfer-desc">
+            {{
+              deezerStatus?.component.installed
+                ? t('settings.deezer.componentInstalled')
+                : t('settings.deezer.componentMissing')
+            }}
+          </div>
+        </div>
+        <button
+          class="btn-secondary small"
+          :disabled="!deezerEnabled || deezerBusy || deezerStatus?.component.installed"
+          @click="installDeezerComponent"
+        >
+          {{ t('settings.deezer.install') }}
+        </button>
       </div>
     </section>
 
@@ -594,6 +747,14 @@ h1 {
   font-size: 12px;
   color: var(--warning-text);
   margin-top: 9px;
+}
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary-bright);
+  margin-top: 10px;
 }
 .client-id {
   margin-top: 14px;

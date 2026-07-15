@@ -26,6 +26,7 @@ DEFAULTS = {
     "match_ambiguity_margin": 6,
     "match_weights": {"title": 0.52, "artist": 0.36, "duration": 0.12},
     "isrc_collision_policy": "guarded",
+    "deezer_acquisition_enabled": False,
 }
 
 ISRC_COLLISION_POLICIES = ("guarded", "trust_isrc", "strict")
@@ -34,9 +35,8 @@ ISRC_COLLISION_POLICIES = ("guarded", "trust_isrc", "strict")
 # because settings forms round-trip masked/empty credential fields.
 CREDENTIAL_KEYS = frozenset({"spotify_client_id"})
 
-# ponytail: the key catalog grows with M3/M4 (event folders, matching
-# thresholds per SPEC-DESIGN 4); unknown keys are rejected so a typo cannot
-# silently create a parallel setting.
+# Unknown keys are rejected so a typo cannot silently create a parallel
+# setting.
 
 
 def _validate(key: str, value) -> None:

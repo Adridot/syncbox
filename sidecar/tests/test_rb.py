@@ -8,7 +8,7 @@ import pytest
 
 from syncbox import rb
 from syncbox.rb import SnapshotCache
-from syncbox.safety.paths import is_protected_path
+from syncbox.safety.mutate import StaleSnapshotError, fingerprint
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = REPO_ROOT / "poc" / "testdata" / "master.db"
@@ -76,20 +76,107 @@ def test_fingerprint_exposed_for_freshness_guard(tmp_path):
     db = make_db(tmp_path)
     cache = SnapshotCache(db, loader=lambda p, r: [])
     cache.get("/root")
-    from syncbox.safety.mutate import fingerprint
 
     assert cache.current_fingerprint == fingerprint(db)
 
 
-def test_protected_path_rule(tmp_path):
+def test_cache_retries_when_wal_changes_during_load(tmp_path):
+    db = make_db(tmp_path)
+    wal = tmp_path / "master.db-wal"
+    calls = []
+
+    def loader(_path, _root):
+        calls.append(1)
+        if len(calls) == 1:
+            wal.write_bytes(b"wal")
+        return [{"attempt": len(calls)}]
+
+    cache = SnapshotCache(db, loader=loader)
+
+    assert cache.get("/root") == [{"attempt": 2}]
+    assert len(calls) == 2
+    assert cache.current_fingerprint == fingerprint(db)
+
+
+def test_cache_fails_closed_when_database_keeps_changing(tmp_path):
+    db = make_db(tmp_path)
+    wal = tmp_path / "master.db-wal"
+    calls = []
+
+    def loader(_path, _root):
+        calls.append(1)
+        wal.write_bytes(b"x" * len(calls))
+        return []
+
+    cache = SnapshotCache(db, loader=loader)
+
+    with pytest.raises(StaleSnapshotError, match="kept changing"):
+        cache.get("/root")
+    assert len(calls) == 3
+    assert cache.current_fingerprint is None
+
+
+def test_snapshot_exposes_ownership_without_legacy_protection(monkeypatch, tmp_path):
     root = tmp_path / "DJ"
-    (root / "rekordbox" / "Collection").mkdir(parents=True)
-    inside = root / "rekordbox" / "Collection" / "track.aiff"
-    outside = root / "_syncbox" / "inbox" / "track.aiff"
-    assert is_protected_path(str(inside), root)
-    assert is_protected_path(f"/{root.name}/rekordbox/Collection/track.aiff", root)
-    assert not is_protected_path(str(outside), root)
-    assert not is_protected_path("/elsewhere/track.aiff", root)
+    paths = {
+        "event": root / "_syncbox" / "events" / "gig" / "track.aiff",
+        "library": f"/{root.name}/rekordbox/Collection/track.aiff",
+        "backup": root / "_syncbox" / "backups" / "track.aiff",
+        "external": tmp_path / "Downloads" / "track.aiff",
+    }
+
+    def content_row(content_id, path):
+        return (
+            content_id,
+            "Track",
+            "Artist",
+            "Remixer",
+            200,
+            None,
+            320,
+            str(path),
+            "8A",
+            "House",
+            0,
+            None,
+            "2026-07-11 12:00:00",
+            0,
+            1,
+            44_100,
+            16,
+            0,
+            1,
+        )
+
+    class Connection:
+        def __init__(self):
+            self.closed = False
+
+        def execute(self, sql):
+            if sql == rb._CONTENT_SQL:
+                return [
+                    content_row(content_id, path)
+                    for content_id, path in paths.items()
+                ]
+            return []
+
+        def close(self):
+            self.closed = True
+
+    conn = Connection()
+    monkeypatch.setattr(rb, "open_readonly", lambda _db: conn)
+    rows = rb.load_snapshot(tmp_path / "master.db", root)
+    ownership = {row["content_id"]: row["ownership"] for row in rows}
+
+    assert ownership == {
+        "event": "app_managed",
+        "library": "permanent_library",
+        "backup": "external",
+        "external": "external",
+    }
+    assert all("protected" not in row for row in rows)
+    assert all(row["remixer"] == "Remixer" for row in rows)
+    assert conn.closed
 
 
 # --- integration on the real fixture -------------------------------------------
@@ -105,6 +192,9 @@ def test_snapshot_reads_real_db_readonly(tmp_path):
     assert sample["content_id"] and isinstance(sample["content_id"], str)
     assert 30_000 < sample["duration_ms"] < 1_800_000
     assert sample["cue_count"] >= 0 and sample["playlist_count"] >= 0
+    assert "remixer" in sample
+    assert sample["ownership"] in {"app_managed", "permanent_library", "external"}
+    assert "protected" not in sample
     # 11.3 readout fields present on real data (poc/05 verified they exist)
     assert any(r["play_count"] not in (None, 0, "0") for r in rows)
     assert any(r["stock_date"] for r in rows)

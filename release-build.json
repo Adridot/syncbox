@@ -1,0 +1,57 @@
+{
+  "base_python": {
+    "build": [
+      "main",
+      "Jan 27 2026 23:32:07"
+    ],
+    "distribution": "cpython-3.14.2-macos-aarch64-none",
+    "openssl": "OpenSSL 3.5.5 27 Jan 2026",
+    "pyinstaller": "6.21.0",
+    "python": "3.14.2",
+    "sqlite": "3.50.4",
+    "zlib": "1.2.12"
+  },
+  "optional_python": {
+    "build": [
+      "main",
+      "Jan 27 2026 23:31:20"
+    ],
+    "distribution": "cpython-3.13.11-macos-aarch64-none",
+    "openssl": "OpenSSL 3.5.5 27 Jan 2026",
+    "pillow": "10.4.0",
+    "pyinstaller": "6.21.0",
+    "python": "3.13.11",
+    "sqlite": "3.50.4",
+    "zlib": "1.2.12"
+  },
+  "python_build_standalone": {
+    "base_archive": "cpython-3.14.2+20260127-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "base_archive_sha256": "2f82ed0cf902c8a2863a3fc5864909645c761e4e0a96525850c9ef8f7e3b79e7",
+    "optional_archive": "cpython-3.13.11+20260127-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "optional_archive_sha256": "718a87bf84d81cb81355488ca37be1f66c2252304be2090721016948de96e7ca",
+    "release": "20260127",
+    "source_archive_sha256": "9c1fe39cfabe451f4ed2643894ecaf81270c01260ffed63e148d7b6b2f2b8483"
+  },
+  "release": {
+    "source_date_epoch_basis": "versioned-release-metadata",
+    "source_date_epoch_utc": "2026-07-13T00:00:00Z",
+    "version": "0.2.2"
+  },
+  "schema": 1,
+  "source_date_epoch": 1783900800,
+  "toolchain": {
+    "apple_clang": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "apple_ld": "@(#)PROGRAM:ld PROJECT:ld-1266.8",
+    "architecture": "arm64",
+    "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+    "developer_dir": "/Library/Developer/CommandLineTools",
+    "macos_build": "25F84",
+    "macos_sdk": "26.4.1",
+    "macos_sdk_path": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+    "node": "v24.13.0",
+    "pnpm": "10.29.3",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+    "tauri_cli": "tauri-cli 2.11.4",
+    "uv": "uv 0.9.28 (0e1351e40 2026-01-29)"
+  }
+}

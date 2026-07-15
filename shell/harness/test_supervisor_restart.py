@@ -7,7 +7,8 @@ Run with the project venv python (build the shell first):
 Asserts the M4-PLAN 1.2 supervisor loop: an externally killed sidecar
 (crash, intent flag NOT set) is restarted with bounded backoff (1/2/4 s,
 3 attempts); the 4th crash exhausts the counter, logs BACKEND_DOWN and
-leaves nothing listening. The shell keeps running (UI shows the overlay).
+leaves nothing listening automatically. The harness then exercises the same
+manual restart command used by the overlay and verifies recovery.
 """
 
 import os
@@ -25,7 +26,7 @@ SHELL_BIN = os.environ.get("SYNCBOX_SHELL_BIN") or os.path.join(
     REPO, "shell/src-tauri/target/debug/syncbox-shell"
 )
 LOG = os.path.join(HERE, "build/supervisor-restart.log")
-PORT = 8765
+PORT = 8766
 
 
 def log_lines():
@@ -75,6 +76,7 @@ def main():
         **os.environ,
         "SYNCBOX_DATA_DIR": tempfile.mkdtemp(prefix="syncbox-harness-"),
         "SYNCBOX_EXIT_AFTER_SECS": "90",
+        "SYNCBOX_RESTART_AFTER_EXHAUSTION": "1",
     }
     log_file = open(LOG, "ab")
     print("launching shell...", flush=True)
@@ -95,16 +97,27 @@ def main():
             assert marker, f"missing attempt={round_n} marker"
             print(f"  crash #{round_n} -> {marker[0]}", flush=True)
 
-        # 4th crash exhausts the counter: BACKEND_DOWN, no listener, shell alive
+        # 4th crash exhausts the counter before the harness invokes the real
+        # manual restart command used by the overlay.
         [pid] = lsof_listeners()
         os.kill(pid, signal.SIGKILL)
         wait_for(lambda: count("BACKEND_DOWN") >= 1, 15, "BACKEND_DOWN marker")
-        time.sleep(1)
-        assert not lsof_listeners(), "sidecar restarted past the bound"
-        assert count("SIDECAR_SPAWNED") == 4, \
-            f"expected 4 spawns total, log shows {count('SIDECAR_SPAWNED')}"
         assert p1.poll() is None, "shell must stay alive to show the overlay"
-        print("  crash #4 -> BACKEND_DOWN, no further spawn, shell alive", flush=True)
+        wait_for(lambda: count("RESTART_SIDECAR_REQUESTED") >= 1, 5,
+                 "manual restart request")
+        lines_before_manual = log_lines()
+        request_index = next(
+            index for index, line in enumerate(lines_before_manual)
+            if "RESTART_SIDECAR_REQUESTED" in line
+        )
+        assert sum(
+            "SIDECAR_SPAWNED" in line for line in lines_before_manual[:request_index]
+        ) == 4, "sidecar restarted automatically past the bound"
+        wait_for(lambda: count("HARNESS_MANUAL_RESTART started=true") >= 1, 5,
+                 "manual restart result")
+        wait_for(health_ok, 20, "health after manual restart")
+        assert count("SIDECAR_SPAWNED") == 5
+        print("  crash #4 -> BACKEND_DOWN; manual restart -> healthy", flush=True)
 
         print("\nfull shell log:")
         for l in log_lines():

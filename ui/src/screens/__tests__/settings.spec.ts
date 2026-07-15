@@ -4,12 +4,19 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { i18n } from '../../i18n'
 import { router } from '../../router'
+import { useStatusStore } from '../../stores/status'
 import SettingsScreen from '../SettingsScreen.vue'
+
+vi.mock('../../shell', async () => {
+  const actual = await vi.importActual<typeof import('../../shell')>('../../shell')
+  return { ...actual, confirmDialog: vi.fn().mockResolvedValue(true) }
+})
 
 let pinia: ReturnType<typeof createPinia>
 beforeEach(() => {
   pinia = createPinia()
   setActivePinia(pinia)
+  i18n.global.locale.value = 'fr'
 })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -23,6 +30,7 @@ const STORED = {
   match_ambiguity_margin: 6,
   match_weights: { title: 0.52, artist: 0.36, duration: 0.12 },
   isrc_collision_policy: 'guarded',
+  deezer_acquisition_enabled: false,
 }
 
 function stubApi() {
@@ -51,6 +59,23 @@ function stubApi() {
       }
       if (path === '/api/settings')
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(STORED) })
+      if (path === '/api/acquisition/deezer')
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              enabled: false,
+              has_arl: false,
+              component: { installed: false },
+            }),
+        })
+      if (path === '/api/status')
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ rb_open: false, spotify_connected: false }),
+        })
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) })
     }),
   )
@@ -71,6 +96,10 @@ test('B3: stored paths are re-validated on mount — ✕ + server message, never
   // storage root: pre-filled but NOT FOUND server-side -> ✕ + inline message
   expect(ticks[1].attributes('data-state')).toBe('invalid')
   expect(wrapper.text()).toContain('storage_root: not found')
+  expect(wrapper.text()).toContain('Bibliothèque permanente (ton audio)')
+  expect(wrapper.text()).toContain('/gone/away/rekordbox/')
+  expect(wrapper.text()).toContain('Acquisition Deezer optionnelle')
+  expect(wrapper.text()).not.toContain('Zone protégée')
 })
 
 test('R1: the connect CTA is gated while spotify_client_id is empty, with an actionable note', async () => {
@@ -84,6 +113,27 @@ test('R1: the connect CTA is gated while spotify_client_id is empty, with an act
   // the inline help walks through creating the app, redirect URI verbatim
   expect(wrapper.text()).toContain('Créer mon app Spotify, pas à pas')
   expect(wrapper.text()).toContain('http://127.0.0.1:8765/callback')
+  expect(wrapper.text()).toContain('abonnement Spotify Premium actif')
+  expect(wrapper.text()).toContain('Données Spotify et confidentialité')
+})
+
+test('Spotify disconnect is explicit and refreshes the connected state', async () => {
+  stubApi()
+  const status = useStatusStore()
+  status.spotifyConnected = true
+  const wrapper = mountSettings()
+  await flushPromises()
+
+  await wrapper.get('.spotify-disconnect').trigger('click')
+  await flushPromises()
+
+  const fetchMock = vi.mocked(fetch)
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://127.0.0.1:8766/api/spotify/session',
+    expect.objectContaining({ method: 'DELETE' }),
+  )
+  expect(status.spotifyConnected).toBe(false)
+  expect(wrapper.text()).toContain('Spotify déconnecté')
 })
 
 test('G4: the weights sum is validated client-side before any PUT', async () => {

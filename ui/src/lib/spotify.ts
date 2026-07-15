@@ -20,3 +20,9 @@ function extract(kind: 'playlist' | 'track', input: string): string | null {
 
 export const extractPlaylistId = (input: string) => extract('playlist', input)
 export const extractTrackId = (input: string) => extract('track', input)
+
+export function spotifyUrl(kind: 'playlist' | 'track', id: string): string {
+  const valid = extract(kind, id)
+  if (!valid) throw new Error(`invalid Spotify ${kind} id`)
+  return `https://open.spotify.com/${kind}/${valid}`
+}

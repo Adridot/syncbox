@@ -121,7 +121,7 @@ def test_isrc_members_not_regrouped_by_fuzzy():
 def keeper_track(content_id, **kw):
     base = {
         "content_id": content_id,
-        "protected": False,
+        "ownership": "external",
         "file_missing": False,
         "bit_rate": 320,
         "quality_verdict": "ok",
@@ -131,15 +131,15 @@ def keeper_track(content_id, **kw):
     return base
 
 
-def test_protected_always_wins():
+def test_ownership_never_affects_keeper_priority():
     keeper, reason = choose_keeper(
         [
-            keeper_track("a", bit_rate=128, protected=True),
-            keeper_track("b", bit_rate=320),
+            keeper_track("a", bit_rate=128, ownership="permanent_library"),
+            keeper_track("b", bit_rate=320, ownership="app_managed"),
         ]
     )
-    assert keeper["content_id"] == "a"
-    assert reason == "protected"
+    assert keeper["content_id"] == "b"
+    assert reason == "quality"
 
 
 def test_present_file_beats_missing():
@@ -209,5 +209,5 @@ def test_deterministic_on_full_tie():
     tracks = [keeper_track("b"), keeper_track("a")]
     keeper1, reason = choose_keeper(tracks)
     keeper2, _ = choose_keeper(list(reversed(tracks)))
-    assert keeper1["content_id"] == keeper2["content_id"]
-    assert reason == "identical"
+    assert keeper1["content_id"] == keeper2["content_id"] == "b"
+    assert reason == "content_id"

@@ -1,11 +1,14 @@
 # ui — Vue 3 front end
 
-The Syncbox screens: Dashboard, Library, Events, Collection health
-(duplicates / untagged), Missing tracks, Settings, plus the 10-step
-onboarding. Vite + Vue 3 + TypeScript (strict), Pinia stores, vue-i18n
-(en/fr), no CSS framework (design tokens in `src/styles/`).
+The six routed Syncbox destinations are Dashboard, Library, Events,
+Collection Health, Missing, and Settings, plus the 10-step onboarding.
+Collection Health contains Duplicates, Missing, Untagged, Smart Fixes, and
+Backups tabs; Missing separates library, event, and collection scopes. Vite +
+Vue 3 + TypeScript (strict), Pinia stores, vue-i18n (en/fr), no CSS framework
+(design tokens in `src/styles/`).
 
-Wiring rules (see [docs/M4-PLAN.md](../docs/M4-PLAN.md) §4):
+Wiring rules (see [the unified specification](../docs/SPEC-UNIFIED.md),
+especially §§6.3 and 6.12):
 
 - One API client ([src/api/client.ts](src/api/client.ts)) — envelope handling
   for 423 (Rekordbox open), 409 (stale), 428 (consent) is centralized.

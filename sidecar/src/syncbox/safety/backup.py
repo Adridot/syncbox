@@ -1,4 +1,4 @@
-"""Timestamped Rekordbox database backups, rotation, and safe restore
+"""Timestamped Rekordbox database/support-file backups and safe restore
 (SPEC-01 1.3, SPEC-UNIFIED 3.1/5.1).
 
 A backup precedes every mutation. Restore validates the backup name
@@ -17,6 +17,8 @@ from pathlib import Path
 
 _PREFIX = "rekordbox-db-"
 _NAME = re.compile(r"^rekordbox-db-(\d{8}-\d{6})(?:-(\d+))?$")
+_EXTRA_DIR = "extra"
+_PENDING_EVENT_DELETE = ".pending-event-delete"
 
 
 def _timestamp() -> str:
@@ -37,8 +39,30 @@ def _assert_mutation_ready(db_path: Path) -> None:
     import_module("syncbox.safety.process_guard").assert_mutation_ready(db_path)
 
 
-def create_backup(db_path, backups_root, retention: int = 15) -> Path:
-    """Copy master.db (+ -wal/-shm when present) into a timestamped folder.
+def _extra_sources(db_path: Path, extra_files) -> list[tuple[Path, Path]]:
+    """Validate extra Rekordbox files and map them below the backup root."""
+    root = db_path.parent.resolve(strict=True)
+    mapped = []
+    for value in dict.fromkeys(Path(path) for path in extra_files):
+        if value.is_symlink() or not value.is_file():
+            raise FileNotFoundError(f"backup extra file is missing or unsafe: {value}")
+        source = value.resolve(strict=True)
+        try:
+            relative = source.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"backup extra file must live below the Rekordbox database directory: {value}"
+            ) from exc
+        if source == db_path.resolve(strict=True) or source in {
+            path.resolve(strict=True) for path in _sidecars(db_path) if path.is_file()
+        }:
+            continue
+        mapped.append((source, relative))
+    return mapped
+
+
+def create_backup(db_path, backups_root, retention: int = 15, *, extra_files=()) -> Path:
+    """Copy master.db, SQLite sidecars, and selected Rekordbox support files.
 
     Same-second collisions get a ``-<n>`` suffix starting at 2 (poc/09
     measured that this really happens). Keeps the ``retention`` most
@@ -49,6 +73,7 @@ def create_backup(db_path, backups_root, retention: int = 15) -> Path:
     backups_root = Path(backups_root)
     if not db_path.is_file():
         raise FileNotFoundError(f"database not found: {db_path}")
+    extras = _extra_sources(db_path, extra_files)
     backups_root.mkdir(parents=True, exist_ok=True)
 
     # Copy into a dot-prefixed staging dir first, then rename into the final
@@ -61,6 +86,10 @@ def create_backup(db_path, backups_root, retention: int = 15) -> Path:
         for sidecar in _sidecars(db_path):
             if sidecar.is_file():
                 shutil.copy2(sidecar, staging / sidecar.name)
+        for source, relative in extras:
+            destination = staging / _EXTRA_DIR / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -110,11 +139,15 @@ def list_backups(backups_root) -> list[dict]:
         return []
     out = []
     for child in reversed(_backup_dirs_oldest_first(root)):
-        files = sorted(f for f in child.iterdir() if f.is_file())
+        files = sorted(
+            f
+            for f in child.rglob("*")
+            if f.is_file() and f.name != _PENDING_EVENT_DELETE
+        )
         out.append(
             {
                 "name": child.name,
-                "files": [f.name for f in files],
+                "files": [str(f.relative_to(child)) for f in files],
                 "size_bytes": sum(f.stat().st_size for f in files),
             }
         )
@@ -131,8 +164,47 @@ def _rotate(backups_root: Path, retention: int, just_created: Path) -> None:
             return
         if stale == just_created:
             continue
+        if (stale / _PENDING_EVENT_DELETE).is_file():
+            continue
         shutil.rmtree(stale)
         excess -= 1
+
+
+def pin_backup(backup_dir) -> Path:
+    """Exclude an event-deletion recovery backup from retention rotation."""
+    backup_dir = Path(backup_dir)
+    if backup_dir.is_symlink() or not backup_dir.is_dir():
+        raise FileNotFoundError(f"backup directory is missing or unsafe: {backup_dir}")
+    marker = backup_dir / _PENDING_EVENT_DELETE
+    if marker.is_symlink() or (marker.exists() and not marker.is_file()):
+        raise ValueError(f"pending backup marker is unsafe: {marker}")
+    flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(marker, flags, 0o600)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    directory_fd = os.open(backup_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    return marker
+
+
+def unpin_backup(backup_dir) -> None:
+    """Return a completed or rolled-back event backup to normal rotation."""
+    backup_dir = Path(backup_dir)
+    marker = backup_dir / _PENDING_EVENT_DELETE
+    try:
+        marker.unlink()
+    except FileNotFoundError:
+        return
+    directory_fd = os.open(backup_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _resolve_backup_dir(name, backups_root: Path) -> Path:
@@ -158,6 +230,67 @@ def _resolve_backup_dir(name, backups_root: Path) -> Path:
     if not target.is_dir():
         raise FileNotFoundError(f"no such backup: {name!r}")
     return target
+
+
+def _backed_extra_targets(backup_dir: Path, db_path: Path) -> list[tuple[Path, Path]]:
+    root = backup_dir / _EXTRA_DIR
+    if not root.exists():
+        return []
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"invalid extra backup directory: {root}")
+    live_root = db_path.parent.resolve(strict=False)
+    targets = []
+    for source in sorted(root.rglob("*")):
+        if source.is_symlink():
+            raise ValueError(f"backup contains an unsafe symlink: {source}")
+        if not source.is_file():
+            continue
+        relative = source.relative_to(root)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"backup extra path escapes the database directory: {relative}")
+        target = (live_root / relative).resolve(strict=False)
+        try:
+            target.relative_to(live_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"backup extra path escapes the database directory: {relative}"
+            ) from exc
+        targets.append((source, target))
+    return targets
+
+
+def restore_extra_files(backup_dir, db_path, *, required_files=()) -> list[Path]:
+    """Atomically restore support files, validating required paths first."""
+    db_path = Path(db_path)
+    targets = _backed_extra_targets(Path(backup_dir), db_path)
+    available = {target.resolve(strict=False) for _, target in targets}
+    required = {Path(path).resolve(strict=False) for path in required_files}
+    missing = sorted(str(path) for path in required - available)
+    if missing:
+        raise FileNotFoundError(
+            "backup is missing required support files: " + ", ".join(missing)
+        )
+    restored = []
+    for source, target in targets:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(prefix=".syncbox-restore-", dir=target.parent)
+        os.close(fd)
+        temp = Path(temp_name)
+        try:
+            shutil.copy2(source, temp)
+            with temp.open("rb") as stream:
+                os.fsync(stream.fileno())
+            os.replace(temp, target)
+            directory_fd = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except BaseException:
+            temp.unlink(missing_ok=True)
+            raise
+        restored.append(target)
+    return restored
 
 
 def restore_backup(name, backups_root, db_path) -> Path | None:
@@ -188,7 +321,14 @@ def restore_backup(name, backups_root, db_path) -> Path | None:
     else:
         # retention=0 here: rotating during a restore could delete the very
         # backup being restored.
-        snapshot = create_backup(db_path, backups_root, retention=0)
+        current_extras = [
+            target
+            for _, target in _backed_extra_targets(source, db_path)
+            if target.is_file() and not target.is_symlink()
+        ]
+        snapshot = create_backup(
+            db_path, backups_root, retention=0, extra_files=current_extras
+        )
 
     # Ordering is load-bearing (a crash at any point must leave the live DB
     # either old or new, never torn, and never paired with a foreign wal):
@@ -209,4 +349,5 @@ def restore_backup(name, backups_root, db_path) -> Path | None:
     for backed_sidecar in _sidecars(backed_up_db):
         if backed_sidecar.is_file():
             shutil.copy2(backed_sidecar, db_path.with_name(backed_sidecar.name))
+    restore_extra_files(source, db_path)
     return snapshot

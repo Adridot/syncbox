@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from syncbox import rb
-from syncbox.rb_write import signed32, smartlist_payload
+from syncbox.rb_write import add_content, migrate_content_path, signed32, smartlist_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTDATA = REPO_ROOT / "poc" / "testdata"
@@ -44,6 +44,136 @@ def test_smartlist_payload_shape():
     small = smartlist_payload("1248102774", "999")
     assert 'Id="1248102774"' in small  # stays positive (real RB behavior)
     assert 'ValueLeft="999"' in small
+
+
+def test_add_content_rejects_a_missing_staged_file_before_writing(tmp_path):
+    with pytest.raises(FileNotFoundError, match="staged audio file is unavailable"):
+        add_content(object(), tmp_path / "gone.mp3", {}, storage_root=tmp_path)
+
+
+def test_migrate_content_path_delegates_anlz_without_committing():
+    class Row:
+        FolderPath = "/old/Track.mp3"
+        OrgFolderPath = "/old/Track.mp3"
+        FileNameL = "Track.mp3"
+
+    row = Row()
+
+    class Query:
+        def filter_by(self, **kwargs):
+            assert kwargs == {"ID": "10"}
+            return self
+
+        def one(self):
+            return row
+
+    class DB:
+        def __init__(self):
+            self.calls = []
+
+        def query(self, table):
+            return Query()
+
+        def get_anlz_paths(self, content):
+            return {"DAT": Path("/analysis/ANLZ0000.DAT")}
+
+        def update_content_path(self, content, path, **kwargs):
+            self.calls.append((content, path, kwargs))
+
+    db = DB()
+    migrate_content_path(
+        db,
+        "10",
+        "/Volume/rekordbox/Collection/Track.mp3",
+        update_anlz=True,
+        anlz_paths=[Path("/analysis/ANLZ0000.DAT")],
+    )
+    assert db.calls == [
+        (
+            row,
+            "/Volume/rekordbox/Collection/Track.mp3",
+            {"save": True, "check_path": False, "commit": False},
+        )
+    ]
+
+
+def test_migrate_content_path_rejects_changed_analysis_file_set():
+    class Row:
+        FolderPath = "/old/Track.mp3"
+
+    class Query:
+        def filter_by(self, **kwargs):
+            return self
+
+        def one(self):
+            return Row()
+
+    class DB:
+        def query(self, table):
+            return Query()
+
+        def get_anlz_paths(self, content):
+            return {"DAT": Path("/analysis/ANLZ9999.DAT")}
+
+        def update_content_path(self, *args, **kwargs):
+            raise AssertionError("changed ANLZ set must abort before writing")
+
+    with pytest.raises(ValueError, match="analysis files changed"):
+        migrate_content_path(
+            DB(),
+            "10",
+            "/Volume/rekordbox/Collection/Track.mp3",
+            update_anlz=True,
+            anlz_paths=[Path("/analysis/ANLZ0000.DAT")],
+        )
+
+
+def test_smartfix_writer_reassigns_shared_artist_references(monkeypatch):
+    from syncbox import rb_write
+
+    class Row:
+        Title = "Old"
+        ArtistID = "artist-old"
+        RemixerID = None
+
+    row = Row()
+
+    class Query:
+        def filter_by(self, **values):
+            assert values == {"ID": "10"}
+            return self
+
+        def one(self):
+            return row
+
+    class Database:
+        flushed = False
+
+        def query(self, _table):
+            return Query()
+
+        def flush(self):
+            self.flushed = True
+
+    ids = {"New Artist": "artist-new", "Known Remixer": "remixer-known"}
+    monkeypatch.setattr(
+        rb_write,
+        "find_or_create_artist",
+        lambda _db, name: type("Artist", (), {"ID": ids[name]})(),
+    )
+    database = Database()
+    rb_write.set_content_fields(
+        database,
+        "10",
+        {"title": "New", "artist": "New Artist", "remixer": "Known Remixer"},
+    )
+
+    assert (row.Title, row.ArtistID, row.RemixerID) == (
+        "New",
+        "artist-new",
+        "remixer-known",
+    )
+    assert database.flushed
 
 
 # --- integration: full write flow through mutate on the real fixture ------------
@@ -276,12 +406,21 @@ def test_smartfixes_runner_end_to_end(tmp_path):
 
     dry = smartfixes_run.dry_run(cache, tmp_path / "storage")
     assert dry["fingerprint"] is not None
-    # real fixture has structural fixes to make (poc/09 measured ~240)
+    # The representative fixture must contain at least one supported fix.
     assert len(dry["payload"]) > 0
     assert all(c["before"] != c["after"] for c in dry["payload"])
+    assert smartfixes_run.dry_run(cache, tmp_path / "storage") == dry
 
     result = smartfixes_run.execute(db_path, backups, cache, tmp_path / "storage", dry)
     assert result["fields_applied"] == len(dry["payload"])
+
+    written = {
+        row["content_id"]: row
+        for row in cache.get(tmp_path / "storage")
+    }
+    for change in dry["payload"]:
+        assert written[change["content_id"]][change["field"]] == change["after"]
+    assert len(list(backups.iterdir())) == 1
 
     # idempotence: a fresh dry-run after mutate is empty (5.11)
     dry2 = smartfixes_run.dry_run(cache, tmp_path / "storage")

@@ -3,9 +3,9 @@
 
 Legal scope (SPEC-UNIFIED 6.5/11.1): event tracks come from Spotify
 METADATA (an injected resolver over the read-only Spotify API), manual
-title/artist entry, or audio files the user already lawfully owns and
-drops into the event staging dir. No download code, no provider
-credential, no acquisition job - the staging dir is filled by the USER.
+title/artist entry, audio files the user already lawfully owns, or the
+separately enabled optional acquisition component. This module contains
+no provider credentials or download implementation.
 
 Write-path discipline: every master.db write below goes through
 safety.mutate() + rb_write helpers (3.1: no escape hatch); previews and
@@ -19,10 +19,8 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-from syncbox import relink
+from syncbox import event_delete, relink
 from syncbox.matching import match
-from syncbox.platform_os import delete_file
-from syncbox.rb import open_readonly
 from syncbox.rb_write import (
     add_content,
     create_or_repair_smart_playlist,
@@ -30,24 +28,25 @@ from syncbox.rb_write import (
     find_active_content_by_path,
     find_or_create_mytag,
     open_rekordbox,
-    soft_delete_content,
-    soft_delete_mytag,
-    soft_delete_playlist,
     tag_content,
-    untag_content,
 )
 from syncbox.safety.mutate import mutate
-from syncbox.safety.paths import SYNC_DIR_NAME, is_protected_path, stored_form
+from syncbox.safety.paths import SYNC_DIR_NAME, stored_form
 
 EVENT_FOLDER_NAME = "Event Imports"
 SITUATION_CATEGORY = "Situation"
 XML_NAME = "masterPlaylists6.xml"
 # SPEC-UNIFIED 11.2: applied when none of these remain, else partially_applied.
-PENDING_STATUSES = frozenset({"matched", "ready", "missing", "ambiguous"})
+PENDING_STATUSES = frozenset(
+    {"matched", "ready", "missing", "ambiguous", "acquisition_failed"}
+)
 APPLIED_EVENT_STATUSES = frozenset({"applied", "partially_applied"})
 # Statuses re-run through the matcher; ready/applied/ignored are never
 # re-matched (a staged or already-applied track must not flip back).
-REMATCHED_STATUSES = frozenset({"missing", "ambiguous", "matched"})
+REMATCHED_STATUSES = frozenset(
+    {"missing", "ambiguous", "matched", "acquisition_failed"}
+)
+CLAIMABLE_STATUSES = frozenset({"missing", "acquisition_failed"})
 
 _SLUG_JUNK = re.compile(r"[^a-z0-9]+")
 
@@ -249,7 +248,7 @@ def claim_staged_files(conn, event) -> list[dict]:
     now = _now()
     claimed = []
     for track in tracks:
-        if track["status"] != "missing":
+        if track["status"] not in CLAIMABLE_STATUSES:
             continue
         want = {
             "title": track["title"],
@@ -428,137 +427,17 @@ def apply_event(
     }
 
 
-# --- delete (SPEC-01 1.8, D11/D23, T8/T12) -----------------------------------------
-
-# One SQL text per question, shared verbatim by the dry-run executor
-# (rb.open_readonly, named params) and the in-mutation executor
-# (sqlalchemy text() on the same session) so the two previews can never
-# diverge.
-_TAG_SQL = """
-SELECT t.ID FROM djmdMyTag t JOIN djmdMyTag c ON c.ID = t.ParentID
-WHERE t.Name = :tag AND c.Name = :category AND c.ParentID = 'root'
-  AND t.rb_local_deleted = 0
-"""
-_TAGGED_SQL = """
-SELECT c.ID, c.Title, c.FolderPath FROM djmdSongMyTag l
-JOIN djmdContent c ON c.ID = l.ContentID
-WHERE l.MyTagID = :tag_id AND l.rb_local_deleted = 0 AND c.rb_local_deleted = 0
-ORDER BY c.ID
-"""
-_OTHER_TAGS_SQL = """
-SELECT COUNT(*) FROM djmdSongMyTag
-WHERE ContentID = :content_id AND MyTagID != :tag_id AND rb_local_deleted = 0
-"""
-_PLAYLISTS_SQL = """
-SELECT ID, Name FROM djmdPlaylist
-WHERE Name IN (:name, :legacy) AND Attribute != 1 AND rb_local_deleted = 0
-ORDER BY ID
-"""
+# --- exact delete planning and retained-track migration ----------------------------
 
 
 def _staging_files(staging_dir, cap: int = 10_000) -> list[Path]:
-    files = []
-    for count, path in enumerate(Path(staging_dir).rglob("*")):
-        if count >= cap:
-            break  # ponytail: staging dirs are app-managed and small; the cap
-            # only guards a runaway symlinked tree. Raise it if a real event
-            # ever legitimately holds more files.
-        if path.is_file():
-            files.append(path)
-    return sorted(files)
+    return event_delete._staging_files(staging_dir, cap=cap)
 
 
-def _delete_preview(query, event, storage_root) -> dict:
-    """The exact delete payload (SPEC-01 1.8). ``query(sql, params)`` is the
-    executor seam: read-only connection for dry-run, the LIVE mutation
-    session for the real delete (reading .Title after commit detaches).
-
-    Protection: a content survives when it carries any OTHER active MyTag
-    (superset of the 1.8 'another non-event MyTag' rule - cross-event
-    shares survive too, strictly safer) OR its path is under the protected
-    zone. Only event-only, unprotected contents are soft-deleted.
-    """
-    # ponytail: protection counts ANY other tag instead of classifying
-    # non-event categories - deletes a strict subset of what 1.8 allows,
-    # never more. Ceiling: a content tagged ONLY by two events outlives
-    # both deletes (harmless leftover, reversible). Upgrade path: join the
-    # tag's ParentID category and exempt 'Situation' if that leftover ever
-    # bothers a real user.
-    tag_rows = query(
-        _TAG_SQL, {"tag": event["default_tag"], "category": SITUATION_CATEGORY}
+def _delete_preview(query, event, storage_root, db_path, db_fingerprint) -> dict:
+    return event_delete.build_plan(
+        query, event, storage_root, db_path, db_fingerprint
     )
-    tag_id = str(tag_rows[0][0]) if tag_rows else None
-    contents = []
-    if tag_id is not None:
-        for content_id, title, folder_path in query(_TAGGED_SQL, {"tag_id": tag_id}):
-            content_id = str(content_id)
-            other_tags = query(
-                _OTHER_TAGS_SQL, {"content_id": content_id, "tag_id": tag_id}
-            )[0][0]
-            if other_tags:
-                action, reason = "keep", "carries_other_mytag"
-            elif folder_path and is_protected_path(folder_path, storage_root):
-                action, reason = "keep", "protected_path"
-            else:
-                action, reason = "soft_delete", "event_only"
-            contents.append(
-                {
-                    "content_id": content_id,
-                    "title": title,
-                    "action": action,
-                    "reason": reason,
-                }
-            )
-    playlists = [
-        {"playlist_id": str(playlist_id), "name": name}
-        for playlist_id, name in query(
-            _PLAYLISTS_SQL,
-            # Clean by current name AND legacy '<name> - Smart' (1.8).
-            {"name": event["name"], "legacy": f"{event['name']} - Smart"},
-        )
-    ]
-    staging = Path(event["staging_dir"]) if event["staging_dir"] else None
-    artifacts = (
-        [str(path) for path in _staging_files(staging)]
-        if staging is not None and staging.is_dir()
-        else []
-    )
-    return {
-        "tag_id": tag_id,
-        "contents": contents,
-        "playlists": playlists,
-        "artifacts": artifacts,
-    }
-
-
-def _cleanup_staging(staging_dir, *, consent: bool) -> list[str]:
-    """Remove the event's disk artifacts AFTER a successful commit only
-    (T8/T12: no orphans, never a premature deletion). Files go through
-    platform_os.delete_file (OS trash first, permanent only with consent);
-    directories are removed with rmdir only - a file that appeared
-    concurrently survives rather than being silently destroyed.
-    """
-    staging = Path(staging_dir)
-    if not staging.is_dir():
-        return []
-    removed = []
-    for path in _staging_files(staging):
-        delete_file(path, consent_to_permanent_delete=consent)
-        removed.append(str(path))
-    for folder in sorted(
-        (p for p in staging.rglob("*") if p.is_dir()),
-        key=lambda p: len(p.parts),
-        reverse=True,
-    ):
-        try:
-            folder.rmdir()
-        except OSError:
-            pass
-    try:
-        staging.rmdir()
-    except OSError:
-        pass
-    return removed
 
 
 def delete_event(
@@ -570,64 +449,19 @@ def delete_event(
     event,
     *,
     dry_run: bool = True,
+    plan=None,
     consent_to_permanent_delete: bool = False,
     retention: int = 15,
 ) -> dict:
-    """Delete an event. dry_run=True returns the EXACT preview payload with
-    zero writes (read-only connection - no backup, no RB-closed guard);
-    the real delete recomputes that preview INSIDE the mutation session
-    (SPEC-01 1.8) and executes exactly it, then - only after the durable
-    commit - removes the disk artifacts and the app-db rows.
-    """
-    event = get_event(conn, event["id"])
-    db_path = Path(db_path)
-
-    ro = open_readonly(db_path)
-    try:
-
-        def ro_query(sql, params):
-            return ro.execute(sql, params).fetchall()
-
-        preview = _delete_preview(ro_query, event, storage_root)
-    finally:
-        ro.close()
-    if dry_run:
-        return {"dry_run": True, **preview}
-
-    if preview["tag_id"] is not None or preview["playlists"]:
-        xml_path, xml_bytes = _xml_snapshot(db_path, event["staging_dir"])
-        with mutate(
-            db_path,
-            backups_root,
-            retention=retention,
-            open_db=open_rekordbox,
-            invalidate_cache=cache.invalidate,
-        ) as db:
-            from sqlalchemy import text
-
-            def live_query(sql, params):
-                return db.session.execute(text(sql), params).all()
-
-            # SPEC-01 1.8: the executed payload is the preview computed
-            # INSIDE this session, not the read-only one above.
-            preview = _delete_preview(live_query, event, storage_root)
-            tag_id = preview["tag_id"]
-            if tag_id is not None:
-                for entry in preview["contents"]:
-                    untag_content(db, entry["content_id"], tag_id)
-                    if entry["action"] == "soft_delete":
-                        soft_delete_content(db, entry["content_id"])
-                soft_delete_mytag(db, tag_id)
-            for playlist in preview["playlists"]:
-                soft_delete_playlist(db, playlist["playlist_id"])
-        if xml_bytes is not None:
-            xml_path.write_bytes(xml_bytes)  # byte-identical restore (1.6)
-    # Disk artifacts strictly AFTER the durable commit (T8/T12); the re-scan
-    # is deliberate so the fresh .xml.bak written above is cleaned too.
-    removed = (
-        _cleanup_staging(event["staging_dir"], consent=consent_to_permanent_delete)
-        if event["staging_dir"]
-        else []
+    return event_delete.delete_event(
+        conn,
+        db_path,
+        backups_root,
+        cache,
+        storage_root,
+        event,
+        dry_run=dry_run,
+        plan=plan,
+        consent_to_permanent_delete=consent_to_permanent_delete,
+        retention=retention,
     )
-    conn.execute("DELETE FROM events WHERE id = ?", (event["id"],))
-    return {"dry_run": False, "removed_files": removed, **preview}

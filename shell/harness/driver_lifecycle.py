@@ -4,11 +4,11 @@
 Assert-based script. Run with the project venv python:
     sidecar/.venv/bin/python shell/harness/driver_lifecycle.py
 
-Covers SPEC-UNIFIED 6.6 on the production sidecar on :8765 - the dev venv
+Covers SPEC-UNIFIED 6.6 on the production sidecar on :8766 - the dev venv
 (python -m syncbox, default) or the frozen binary (SYNCBOX_SIDECAR_BIN=
 sidecar/dist/syncbox-sidecar/syncbox-sidecar, M5.5):
   T1  process topology (psutil): single process, listener == spawned pid
-  T2  naive child-only kill -> no orphaned :8765 listener
+  T2  naive child-only kill -> no orphaned :8766 listener
   T3  tree-kill done right: own process group, killpg, port released, re-spawn
   T4  PRODUCTION shutdown handshake: open the SQLCipher secrets connection
       (GET /api/status), POST /shutdown -> clean exit + port release; then the
@@ -34,7 +34,7 @@ SIDECAR_CWD = os.path.join(REPO, "sidecar")
 #   SYNCBOX_SIDECAR_BIN=sidecar/dist/syncbox-sidecar/syncbox-sidecar \
 #       sidecar/.venv/bin/python shell/harness/driver_lifecycle.py
 SIDECAR_BIN = os.environ.get("SYNCBOX_SIDECAR_BIN")
-PORT = 8765
+PORT = 8766
 DATA_DIR = tempfile.mkdtemp(prefix="syncbox-harness-")
 RESULTS = []
 

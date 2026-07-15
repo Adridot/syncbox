@@ -3,12 +3,23 @@
 
 import asyncio
 import socket
+import threading
+import time
+import urllib.error
+import urllib.request
 
 import pytest
 from starlette.testclient import TestClient
 
 from syncbox import server
-from syncbox.server import JobBus, PortInUseError, create_app, ensure_port_free
+from syncbox.server import (
+    JobBus,
+    OAuthCallbackListener,
+    OAuthCallbackPortInUseError,
+    PortInUseError,
+    create_app,
+    ensure_port_free,
+)
 
 ALLOWED_ORIGINS = [
     "tauri://localhost",       # macOS WKWebView, measured in POC #4
@@ -43,6 +54,17 @@ def test_cors_rejects_non_loopback_origins(origin):
     assert "access-control-allow-origin" not in response.headers
 
 
+def test_health_identifies_the_sidecar_protocol_exactly():
+    response = TestClient(create_app()).get("/health")
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "service": server.SERVICE_NAME,
+        "protocol": server.PROTOCOL_VERSION,
+    }
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_jobbus_delivers_published_events():
     async def scenario():
         bus = JobBus()
@@ -57,6 +79,21 @@ def test_jobbus_delivers_published_events():
     event = asyncio.run(scenario())
     assert event["event"] == "job.progress"
     assert '"pct": 40' in event["data"]
+
+
+def test_jobbus_close_ends_active_streams():
+    async def scenario():
+        bus = JobBus()
+        stream = bus.stream()
+        consume = asyncio.ensure_future(anext(stream))
+        await asyncio.sleep(0)
+        bus.close()
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(consume, timeout=1)
+        with pytest.raises(StopAsyncIteration):
+            await anext(bus.stream())
+
+    asyncio.run(scenario())
 
 
 def test_events_endpoint_streams_sse():
@@ -86,35 +123,122 @@ def test_shutdown_sets_intent_then_triggers():
     assert order == [("trigger", True)]
 
 
-def test_callback_unconfigured_returns_503():
+def test_permanent_service_does_not_expose_oauth_callback():
     client = TestClient(create_app())
-    assert client.get("/callback?code=x").status_code == 503
+    assert client.get("/callback?code=x").status_code == 404
 
 
-def test_callback_works_regardless_of_host_header():
+def _callback_request(listener, query, *, host="localhost:8765"):
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{listener.port}/callback?{query}",
+        headers={"Host": host},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=2) as response:
+            return response.status, response.read().decode(), response.headers
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode(), exc.headers
+
+
+def test_temporary_callback_rejects_forgery_then_closes_after_success():
     seen = []
 
     def oauth_callback(params):
         seen.append(params)
+        if params.get("state") != "right":
+            return {"ok": False, "error": "state_mismatch"}
         return {"ok": True}
 
-    client = TestClient(create_app(oauth_callback=oauth_callback))
-    # Browser rewrote 127.0.0.1 -> localhost: the route must still answer.
-    response = client.get(
-        "/callback?code=abc&state=s1", headers={"Host": "localhost:8765"}
-    )
-    assert response.status_code == 200
-    assert "close this window" in response.text
-    assert seen == [{"code": "abc", "state": "s1"}]
+    listener = OAuthCallbackListener(port=0)
+    listener.start(oauth_callback, timeout=5)
+    assert listener.active
+    assert listener._server.config.access_log is False
+    assert listener._server.config.proxy_headers is False
+
+    status, body, headers = _callback_request(listener, "code=abc&state=wrong")
+    assert status == 400
+    assert '"error":"state_mismatch"' in body
+    assert headers["Cache-Control"] == "no-store"
+    assert listener.active  # forged callbacks must not cancel the real attempt
+
+    # Host is deliberately ignored; the redirect URI is never derived from it.
+    status, body, headers = _callback_request(listener, "code=abc&state=right")
+    assert status == 200
+    assert "close this window" in body
+    assert headers["Cache-Control"] == "no-store"
+    listener.wait_closed()
+    assert not listener.active
+    assert seen == [
+        {"code": "abc", "state": "wrong"},
+        {"code": "abc", "state": "right"},
+    ]
 
 
-def test_callback_error_returns_400():
-    client = TestClient(
-        create_app(oauth_callback=lambda params: {"ok": False, "error": "state_mismatch"})
+def test_temporary_callback_closes_after_terminal_denial_and_timeout():
+    denied = OAuthCallbackListener(port=0)
+    denied.start(
+        lambda params: {"ok": False, "error": "access_denied"}, timeout=5
     )
-    response = client.get("/callback?code=abc&state=wrong")
-    assert response.status_code == 400
-    assert response.json()["error"] == "state_mismatch"
+    assert _callback_request(denied, "error=access_denied&state=right")[0] == 400
+    denied.wait_closed()
+    assert not denied.active
+
+    expired = OAuthCallbackListener(port=0)
+    expired.start(lambda params: {"ok": True}, timeout=0.05)
+    expired.wait_closed()
+    assert not expired.active
+
+
+def test_slow_callback_uses_threadpool_and_shared_lock_without_blocking_shutdown():
+    started = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    callback_response = []
+
+    def slow_callback(params):
+        assert lock.locked()
+        started.set()
+        assert release.wait(timeout=3)
+        return {"ok": True}
+
+    listener = OAuthCallbackListener(port=0)
+    listener.start(slow_callback, oauth_lock=lock, timeout=5)
+    app = create_app()
+    with TestClient(app) as client:
+        worker = threading.Thread(
+            target=lambda: callback_response.append(
+                _callback_request(listener, "code=abc&state=s1")
+            )
+        )
+        worker.start()
+        assert started.wait(timeout=1)
+        timer = threading.Timer(2, release.set)
+        timer.start()
+        t0 = time.perf_counter()
+        response = client.post("/shutdown")
+        elapsed = time.perf_counter() - t0
+        release.set()
+        worker.join(timeout=3)
+        timer.cancel()
+
+    assert response.status_code == 202
+    assert elapsed < 1
+    listener.wait_closed()
+    assert callback_response[0][0] == 200
+
+
+def test_temporary_callback_collision_preserves_foreign_listener():
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    listener = OAuthCallbackListener(port=blocker.getsockname()[1])
+    try:
+        with pytest.raises(OAuthCallbackPortInUseError) as info:
+            listener.start(lambda params: {"ok": True})
+        assert "already in use" in str(info.value)
+        assert blocker.getsockname()[1] == listener.port
+    finally:
+        blocker.close()
 
 
 def test_port_collision_fails_clean_with_actionable_message():

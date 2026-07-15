@@ -16,6 +16,9 @@ from pathlib import Path
 
 from send2trash import send2trash
 
+# Deliberately independent from the macOS CFBundleIdentifier. Keeping the
+# product directory stable preserves the existing database, settings, and
+# encrypted OAuth secret store when the application identifier changes.
 APP_NAME = "Syncbox"
 
 
@@ -25,8 +28,8 @@ def app_data_dir() -> Path:
         base = Path(os.environ["APPDATA"])
     else:
         base = Path.home() / "Library" / "Application Support"
-        # ponytail: non-macOS POSIX falls through to the mac layout; Linux is
-        # out of scope (SPEC-UNIFIED 3.7).
+        # Non-macOS POSIX falls through to the macOS layout. Linux is outside
+        # the v1 scope (SPEC-UNIFIED 3.7).
     return base / APP_NAME
 
 
@@ -39,8 +42,7 @@ class PermanentDeleteConsentRequired(RuntimeError):
 
     Raised BEFORE any unlink. The UI must show the irreversible-delete
     warning (IrreversibleDeleteModal) and re-call with consent granted;
-    consent is per-call, never remembered (same posture as the Smart Fixes
-    protected opt-in).
+    consent is per-call and never remembered.
     """
 
     message_key = "safety.permanent_delete_consent"

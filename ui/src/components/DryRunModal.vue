@@ -30,16 +30,34 @@ const status = useStatusStore()
 const jobs = useJobsStore()
 
 const hasInvisible = computed(() =>
-  props.dry.payload.some((change) => invisibleOnlyChange(change.before, change.after)),
+  props.dry.payload.some(
+    (change) =>
+      typeof change.before === 'string' && invisibleOnlyChange(change.before, change.after),
+  ),
 )
+
+function segments(value: string | null) {
+  return value === null || value === '' ? [] : markInvisible(value)
+}
+
+function valuePlaceholder(value: string | null): string | null {
+  if (value === null) return t('smartfixes.dryrun.notSet')
+  if (value === '') return t('smartfixes.dryrun.emptyValue')
+  return null
+}
 </script>
 
 <template>
-  <ModalShell width="640px" @close="emit('close')">
+  <ModalShell
+    width="640px"
+    aria-labelledby="smartfixes-dryrun-title"
+    :aria-busy="busy"
+    @close="emit('close')"
+  >
     <div class="body">
       <div class="head">
         <span class="dryrun-chip mono">DRY-RUN</span>
-        <h3>{{ t('smartfixes.dryrun.title') }}</h3>
+        <h3 id="smartfixes-dryrun-title">{{ t('smartfixes.dryrun.title') }}</h3>
       </div>
       <i18n-t tag="p" class="lead" keypath="smartfixes.dryrun.lead">
         <template #exactly>
@@ -48,22 +66,45 @@ const hasInvisible = computed(() =>
       </i18n-t>
 
       <div class="rows">
-        <div v-for="(change, index) in dry.payload" :key="index" class="change">
+        <div
+          v-for="change in dry.payload"
+          :key="`${change.content_id}:${change.field}`"
+          class="change"
+        >
           <div class="change-head">
-            <span class="field mono">{{ change.field }}</span>
+            <span class="field mono">{{ t(`smartfixes.fields.${change.field}`) }}</span>
+            <span class="track-id mono">{{
+              t('smartfixes.dryrun.trackId', { id: change.content_id })
+            }}</span>
           </div>
           <div class="diff">
-            <span class="before mono">
-              <template v-for="(segment, si) in markInvisible(change.before)" :key="si">
-                <span v-if="segment.mark" class="ws-mark">{{ dots(segment.text) }}</span>
-                <template v-else>{{ segment.text }}</template>
+            <span
+              class="before mono"
+              :data-placeholder="valuePlaceholder(change.before) ? 'true' : undefined"
+            >
+              <template v-if="valuePlaceholder(change.before)">
+                {{ valuePlaceholder(change.before) }}
+              </template>
+              <template v-else>
+                <template v-for="(segment, si) in segments(change.before)" :key="si">
+                  <span v-if="segment.mark" class="ws-mark">{{ dots(segment.text) }}</span>
+                  <template v-else>{{ segment.text }}</template>
+                </template>
               </template>
             </span>
             <span class="arrow">→</span>
-            <span class="after mono">
-              <template v-for="(segment, si) in markInvisible(change.after)" :key="si">
-                <span v-if="segment.mark" class="ws-mark">{{ dots(segment.text) }}</span>
-                <template v-else>{{ segment.text }}</template>
+            <span
+              class="after mono"
+              :data-placeholder="valuePlaceholder(change.after) ? 'true' : undefined"
+            >
+              <template v-if="valuePlaceholder(change.after)">
+                {{ valuePlaceholder(change.after) }}
+              </template>
+              <template v-else>
+                <template v-for="(segment, si) in segments(change.after)" :key="si">
+                  <span v-if="segment.mark" class="ws-mark">{{ dots(segment.text) }}</span>
+                  <template v-else>{{ segment.text }}</template>
+                </template>
               </template>
             </span>
           </div>
@@ -78,29 +119,37 @@ const hasInvisible = computed(() =>
         <span class="ws-mark">·</span> {{ t('smartfixes.dryrun.wsLegend') }}
       </div>
 
-      <div v-if="stale" class="stale">
-        <span class="stale-glyph">⚠</span>
+      <div v-if="stale" class="stale" role="alert">
+        <span class="stale-glyph" aria-hidden="true">⚠</span>
         <div class="stale-text">{{ t('smartfixes.dryrun.stale') }}</div>
-        <button class="btn-secondary small" @click="emit('rerun')">
+        <button
+          type="button"
+          class="btn-secondary small"
+          :disabled="busy || jobs.jobRunning"
+          @click="emit('rerun')"
+        >
           {{ t('smartfixes.dryrun.rerun') }}
         </button>
       </div>
 
-      <div v-if="error" class="error-row">{{ error }}</div>
+      <div v-if="error" class="error-row" role="alert">{{ error }}</div>
 
       <div class="foot">
-        <span class="summary mono">{{
-          t('smartfixes.dryrun.summary', { n: dry.payload.length })
-        }}</span>
+        <span class="summary mono">{{ t('smartfixes.dryrun.summary', dry.payload.length) }}</span>
         <div class="foot-actions">
-          <button class="btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
+          <button type="button" class="btn-secondary" @click="emit('close')">
+            {{ t('common.cancel') }}
+          </button>
           <button
+            type="button"
             class="confirm"
             :disabled="status.rbOpen || busy || stale || jobs.jobRunning || !dry.payload.length"
             @click="emit('execute')"
           >
             {{
-              status.rbOpen
+              busy
+                ? t('common.loading')
+                : status.rbOpen
                 ? t('rbGuard.blocked')
                 : t('smartfixes.dryrun.confirm', dry.payload.length)
             }}
@@ -158,6 +207,7 @@ h3 {
 .change-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
 }
@@ -166,6 +216,10 @@ h3 {
   color: var(--text-muted-bright);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+.track-id {
+  color: var(--text-muted);
+  font-size: var(--size-meta);
 }
 .diff {
   display: flex;
@@ -179,11 +233,18 @@ h3 {
   text-decoration: line-through;
   opacity: 0.85;
 }
+.before[data-placeholder='true'] {
+  font-style: italic;
+  text-decoration: none;
+}
 .arrow {
   color: var(--text-muted);
 }
 .after {
   color: #5fe0b0;
+}
+.after[data-placeholder='true'] {
+  font-style: italic;
 }
 .mono {
   font-family: var(--font-mono);

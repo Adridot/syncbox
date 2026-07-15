@@ -2,7 +2,8 @@
 // Untagged (§5.8): 4 categories sorted junk < dup < alt < review, selection
 // bound to the VISIBLE filter (never hidden rows — the exact regression §9
 // calls out), D15 delete with the REAL skip report, and the minimal D7
-// junk-pattern editor (list / add / delete a regex).
+// junk-pattern editor (list / add / delete a regex). Removal is always a
+// reversible Rekordbox row soft-delete and never touches audio.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -94,7 +95,7 @@ async function deleteSelection() {
       soft_deleted: string[]
       skipped: Array<{ content_id: string; reason: string }>
     }>('/api/untagged/delete', { content_ids: [...selection.value] })
-    // D15: the skip report is REAL — protected/tagged/not-found are named
+    // The skip report is exact: stale tagged/not-found rows are named.
     const skippedText = result.skipped.length
       ? ' · ' +
         t('untagged.skipped', result.skipped.length) +
@@ -209,7 +210,9 @@ async function removePattern(id: number) {
             <div class="row-title mono">{{ track.title || t('missing.untitled') }}</div>
             <div class="row-artist">{{ track.artist }}</div>
           </div>
-          <span v-if="track.protected" class="protected-chip">🔒</span>
+          <span class="ownership-chip" :data-ownership="track.ownership">{{
+            t(`ownership.${track.ownership}`)
+          }}</span>
           <span class="cat-badge" :data-cat="track.category">{{
             t(`untagged.cat.${track.category}`)
           }}</span>
@@ -401,8 +404,10 @@ async function removePattern(id: number) {
 .mono {
   font-family: var(--font-mono);
 }
-.protected-chip {
-  font-size: 12px;
+.ownership-chip {
+  color: var(--text-muted-bright);
+  font-size: var(--size-meta);
+  white-space: nowrap;
 }
 .cat-badge {
   font-size: var(--size-meta);

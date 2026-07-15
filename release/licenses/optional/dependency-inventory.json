@@ -1,0 +1,1223 @@
+{
+  "artifact": "optional",
+  "artifact_version": "0.2.2",
+  "entries": [
+    {
+      "ecosystem": "bundled-native",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/pycares-4.11.0/00-LICENSE",
+          "sha256": "427bb3a5372024a26e2c290b24382512bcc7ca123431c4dd178dd613beea7eee"
+        },
+        {
+          "path": "texts/bundled-native/c-ares-1.34.5/c-ares-1.34.5-LICENSE.md",
+          "sha256": "460f5e768fda3752ca2169a95df062578a10fb126bfd65f3b9b1a1bed2f84807"
+        }
+      ],
+      "name": "c-ares",
+      "scope": "optional-static-extension",
+      "source": "https://github.com/c-ares/c-ares/tree/v1.34.5",
+      "version": "1.34.5"
+    },
+    {
+      "ecosystem": "bundled-native",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/aiohttp-3.14.1/00-LICENSE.txt",
+          "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+        },
+        {
+          "path": "texts/python/aiohttp-3.14.1/01-LICENSE",
+          "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+        },
+        {
+          "path": "texts/bundled-native/llhttp/llhttp-LICENSE-MIT",
+          "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+        }
+      ],
+      "name": "llhttp",
+      "scope": "optional-static-extension",
+      "source": "https://github.com/nodejs/llhttp/tree/96b15fb3bc00117d2db3df8e87fa6d3e9bcff328",
+      "version": "9.4.1 (aiohttp 3.14.1 submodule 96b15fb3bc00117d2db3df8e87fa6d3e9bcff328)"
+    },
+    {
+      "artifact_paths": [
+        "PIL/_imaging.cpython-313-darwin.so"
+      ],
+      "bundled_components": [
+        {
+          "artifact_aliases": {
+            "libXau.6.0.0.dylib": "PIL/.dylibs/libXau.6.0.0.dylib"
+          },
+          "artifact_paths": [
+            "PIL/.dylibs/libXau.6.0.0.dylib"
+          ],
+          "license": "MIT-open-group",
+          "license_files": [
+            {
+              "path": "texts/python/pillow-10.4.0/00-LICENSE",
+              "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+            }
+          ],
+          "name": "libXau",
+          "source": "https://www.x.org/archive/individual/lib/libXau-1.0.11.tar.xz",
+          "version": "1.0.11"
+        },
+        {
+          "artifact_aliases": {
+            "libjpeg.62.4.0.dylib": "PIL/.dylibs/libjpeg.62.4.0.dylib"
+          },
+          "artifact_paths": [
+            "PIL/.dylibs/libjpeg.62.4.0.dylib"
+          ],
+          "license": "IJG",
+          "license_files": [
+            {
+              "path": "texts/python/pillow-10.4.0/00-LICENSE",
+              "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+            }
+          ],
+          "name": "libjpeg-turbo",
+          "source": "https://github.com/libjpeg-turbo/libjpeg-turbo/tree/3.0.3",
+          "version": "3.0.3"
+        },
+        {
+          "artifact_aliases": {
+            "liblzma.5.dylib": "PIL/.dylibs/liblzma.5.dylib"
+          },
+          "artifact_paths": [
+            "PIL/.dylibs/liblzma.5.dylib"
+          ],
+          "license": "LicenseRef-XZ-Utils-Public-Domain",
+          "license_files": [
+            {
+              "path": "texts/python/pillow-10.4.0/00-LICENSE",
+              "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+            }
+          ],
+          "name": "XZ liblzma",
+          "source": "https://github.com/tukaani-project/xz/tree/v5.4.5",
+          "version": "5.4.5"
+        },
+        {
+          "artifact_aliases": {
+            "libopenjp2.2.5.2.dylib": "PIL/.dylibs/libopenjp2.2.5.2.dylib"
+          },
+          "artifact_paths": [
+            "PIL/.dylibs/libopenjp2.2.5.2.dylib"
+          ],
+          "license": "BSD-2-Clause",
+          "license_files": [
+            {
+              "path": "texts/python/pillow-10.4.0/00-LICENSE",
+              "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+            }
+          ],
+          "name": "OpenJPEG",
+          "source": "https://github.com/uclouvain/openjpeg/tree/v2.5.2",
+          "version": "2.5.2"
+        },
+        {
+          "artifact_aliases": {
+            "libtiff.6.dylib": "PIL/.dylibs/libtiff.6.dylib"
+          },
+          "artifact_paths": [
+            "PIL/.dylibs/libtiff.6.dylib"
+          ],
+          "license": "libtiff AND LicenseRef-libtiff-LZW",
+          "license_files": [
+            {
+              "path": "texts/python/pillow-10.4.0/00-LICENSE",
+              "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+            },
+            {
+              "path": "texts/bundled-native/libtiff-4.6.0/libtiff-4.6.0-LZW-LICENSE.txt",
+              "sha256": "c11eaa10dcf1bfaf9d3574900e5064edd63ed951388d8ecd15bc218712ba454c"
+            }
+          ],
+          "name": "libtiff",
+          "source": "https://gitlab.com/libtiff/libtiff/-/tree/v4.6.0",
+          "version": "4.6.0"
+        },
+        {
+          "artifact_aliases": {
+            "libxcb.1.1.0.dylib": "PIL/.dylibs/libxcb.1.1.0.dylib"
+          },
+          "artifact_paths": [
+            "PIL/.dylibs/libxcb.1.1.0.dylib"
+          ],
+          "license": "X11",
+          "license_files": [
+            {
+              "path": "texts/python/pillow-10.4.0/00-LICENSE",
+              "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+            }
+          ],
+          "name": "libxcb",
+          "source": "https://www.x.org/archive/individual/lib/libxcb-1.17.0.tar.xz",
+          "version": "1.17.0"
+        },
+        {
+          "artifact_aliases": {
+            "libz.1.3.1.dylib": "PIL/.dylibs/libz.1.3.1.dylib"
+          },
+          "artifact_paths": [
+            "PIL/.dylibs/libz.1.3.1.dylib"
+          ],
+          "license": "Zlib",
+          "license_files": [
+            {
+              "path": "texts/python/pillow-10.4.0/00-LICENSE",
+              "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+            }
+          ],
+          "name": "zlib",
+          "source": "https://github.com/madler/zlib/tree/v1.3.1",
+          "version": "1.3.1"
+        }
+      ],
+      "ecosystem": "bundled-native",
+      "license": "HPND",
+      "license_files": [
+        {
+          "path": "texts/python/pillow-10.4.0/00-LICENSE",
+          "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+        }
+      ],
+      "name": "Pillow macOS arm64 wheel native libraries",
+      "scope": "optional-dynamic-libraries",
+      "source": "https://files.pythonhosted.org/packages/cf/76/f658cbfa49405e5ecbfb9ba42d07074ad9792031267e782d409fd8fe7c69/pillow-10.4.0-cp313-cp313-macosx_11_0_arm64.whl",
+      "version": "10.4.0",
+      "wheel_sha256": "6209bb41dc692ddfee4942517c19ee81b86c864b626dbfca272ec0f7cff5d9fb"
+    },
+    {
+      "ecosystem": "native-runtime",
+      "license": "GPL-2.0-or-later WITH Bootloader-exception",
+      "license_files": [
+        {
+          "path": "texts/build-runtime/pyinstaller-bootloader-6.21.0/00-COPYING.txt",
+          "sha256": "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245"
+        }
+      ],
+      "name": "pyinstaller-bootloader",
+      "package_source": {
+        "source": "https://files.pythonhosted.org/packages/d5/4d/ec706c3fcf39e26888c35b39615ff4d5865d184069666c47492cff1fbe50/pyinstaller-6.21.0.tar.gz",
+        "source_sha256": "bb9fab705983e393a2d1cac77d6972513057ad800215fd861dc15ff5272e98fd",
+        "source_size": 4061519
+      },
+      "scope": "optional-executable-loader",
+      "source": "https://github.com/pyinstaller/pyinstaller/tree/v6.21.0",
+      "version": "6.21.0"
+    },
+    {
+      "archive": "cpython-3.13.11+20260127-aarch64-apple-darwin-install_only_stripped.tar.gz",
+      "archive_sha256": "718a87bf84d81cb81355488ca37be1f66c2252304be2090721016948de96e7ca",
+      "ecosystem": "native-runtime",
+      "embedded": "libpython3.13.dylib and PyInstaller-selected built-in modules",
+      "license": "LicenseRef-CPython-and-Statically-Linked-Components",
+      "license_files": [
+        {
+          "path": "texts/python-runtime/LICENSE.cpython.txt",
+          "sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd"
+        },
+        {
+          "path": "texts/python-runtime/LICENSE.bzip2.txt",
+          "sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441"
+        },
+        {
+          "path": "texts/python-runtime/LICENSE.expat.txt",
+          "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534"
+        },
+        {
+          "path": "texts/python-runtime/LICENSE.libffi.txt",
+          "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0"
+        },
+        {
+          "path": "texts/python-runtime/LICENSE.liblzma.txt",
+          "sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02"
+        },
+        {
+          "path": "texts/python-runtime/LICENSE.libuuid.txt",
+          "sha256": "122ee1f7e258f2c3c0e538a75c037684f420454bf3850ddc74ce750bbf5fe86b"
+        },
+        {
+          "path": "texts/python-runtime/LICENSE.mpdecimal.txt",
+          "sha256": "669512af7219f58be03a398766d7c9da11a3b3df9d3f05cb74c5ceca25c8da3b"
+        },
+        {
+          "path": "texts/python-runtime/LICENSE.openssl-3.txt",
+          "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        },
+        {
+          "path": "texts/python-runtime/LICENSE.sqlite.txt",
+          "sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719"
+        }
+      ],
+      "name": "python-build-standalone-cpython",
+      "scope": "optional-embedded-runtime",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20260127",
+      "source_archive_sha256": "9c1fe39cfabe451f4ed2643894ecaf81270c01260ffed63e148d7b6b2f2b8483",
+      "statically_linked_components": [
+        {
+          "license": "LicenseRef-CPython-Composite",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.cpython.txt",
+              "sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd"
+            }
+          ],
+          "name": "CPython",
+          "source": "https://www.python.org/ftp/python/3.13.11/Python-3.13.11.tar.xz",
+          "source_sha256": "16ede7bb7cdbfa895d11b0642fa0e523f291e6487194d53cf6d3b338c3a17ea2",
+          "version": "3.13.11"
+        },
+        {
+          "license": "bzip2-1.0.6",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.bzip2.txt",
+              "sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441"
+            }
+          ],
+          "name": "bzip2",
+          "source": "https://astral-sh.github.io/mirror/files/bzip2-1.0.8.tar.gz",
+          "source_sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269",
+          "version": "1.0.8"
+        },
+        {
+          "license": "MIT",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.expat.txt",
+              "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534"
+            }
+          ],
+          "name": "Expat",
+          "source": "https://github.com/libexpat/libexpat/releases/download/R_2_6_3/expat-2.6.3.tar.xz",
+          "source_sha256": "274db254a6979bde5aad404763a704956940e465843f2a9bd9ed7af22e2c0efc",
+          "version": "2.6.3"
+        },
+        {
+          "license": "MIT",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.libffi.txt",
+              "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0"
+            }
+          ],
+          "name": "libffi",
+          "source": "https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz",
+          "source_sha256": "b0dea9df23c863a7a50e825440f3ebffabd65df1497108e5d437747843895a4e",
+          "version": "3.4.6"
+        },
+        {
+          "license": "ISC",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.liblzma.txt",
+              "sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02"
+            }
+          ],
+          "name": "XZ liblzma",
+          "source": "https://github.com/tukaani-project/xz/releases/download/v5.8.1/xz-5.8.1.tar.gz",
+          "source_sha256": "507825b599356c10dca1cd720c9d0d0c9d5400b9de300af00e4d1ea150795543",
+          "version": "5.8.1"
+        },
+        {
+          "license": "BSD-3-Clause",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.libuuid.txt",
+              "sha256": "122ee1f7e258f2c3c0e538a75c037684f420454bf3850ddc74ce750bbf5fe86b"
+            }
+          ],
+          "name": "libuuid",
+          "source": "https://sourceforge.net/projects/libuuid/files/libuuid-1.0.3.tar.gz",
+          "source_sha256": "46af3275291091009ad7f1b899de3d0cea0252737550e7919d17237997db5644",
+          "version": "1.0.3"
+        },
+        {
+          "license": "BSD-2-Clause",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.mpdecimal.txt",
+              "sha256": "669512af7219f58be03a398766d7c9da11a3b3df9d3f05cb74c5ceca25c8da3b"
+            }
+          ],
+          "name": "mpdecimal",
+          "source": "https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-4.0.0.tar.gz",
+          "source_sha256": "942445c3245b22730fd41a67a7c5c231d11cb1b9936b9c0f76334fb7d0b4468c",
+          "version": "4.0.0"
+        },
+        {
+          "license": "Apache-2.0",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.openssl-3.txt",
+              "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+            }
+          ],
+          "name": "OpenSSL",
+          "source": "https://github.com/openssl/openssl/releases/download/openssl-3.5.5/openssl-3.5.5.tar.gz",
+          "source_sha256": "b28c91532a8b65a1f983b4c28b7488174e4a01008e29ce8e69bd789f28bc2a89",
+          "version": "3.5.5"
+        },
+        {
+          "license": "LicenseRef-SQLite-Public-Domain",
+          "license_files": [
+            {
+              "path": "texts/python-runtime/LICENSE.sqlite.txt",
+              "sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719"
+            }
+          ],
+          "name": "SQLite",
+          "source": "https://www.sqlite.org/2025/sqlite-autoconf-3500400.tar.gz",
+          "source_sha256": "a3db587a1b92ee5ddac2f66b3edb41b26f9c867275782d46c3a088977d6a5b18",
+          "version": "3.50.4"
+        }
+      ],
+      "system_dynamic_libraries_not_distributed": [
+        "libedit.3.dylib",
+        "libncurses.5.4.dylib",
+        "libpanel.5.4.dylib",
+        "libz.1.dylib 1.2.12"
+      ],
+      "version": "3.13.11+20260127"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/aiodns-3.6.1/00-LICENSE",
+          "sha256": "3e91cfa76821ab70d22998136d674d20ae888463a7e8a7f377166cfe1ee64feb"
+        }
+      ],
+      "name": "aiodns",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/85/2f/9d1ee4f937addda60220f47925dac6c6b3782f6851fd578987284a8d2491/aiodns-3.6.1.tar.gz",
+      "source_sha256": "b0e9ce98718a5b8f7ca8cd16fc393163374bc2412236b91f6c851d066e3324b6",
+      "source_size": 15143,
+      "version": "3.6.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/aiofiles-0.7.0/00-LICENSE",
+          "sha256": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14"
+        }
+      ],
+      "name": "aiofiles",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/06/f0/af90f3fb4066b0707b6a5af3ffd5fd9b3809bbb52f0153a3c7550e594de3/aiofiles-0.7.0.tar.gz",
+      "source_sha256": "a1c4fc9b2ff81568c83e21392a82f344ea9d23da906e4f6a52662764545e19d4",
+      "source_size": 13557,
+      "version": "0.7.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "PSF-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/aiohappyeyeballs-2.7.1/00-LICENSE",
+          "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+        }
+      ],
+      "name": "aiohappyeyeballs",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/ce/f4/eec0465c2f67b2664688d0240b3212d5196fd89e741df67ddb81f8d35658/aiohappyeyeballs-2.7.1.tar.gz",
+      "source_sha256": "065665c041c42a5938ed220bdcd7230f22527fbec085e1853d2402c8a3615d9d",
+      "source_size": 24757,
+      "version": "2.7.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0 AND MIT",
+      "license_files": [
+        {
+          "path": "texts/python/aiohttp-3.14.1/00-LICENSE.txt",
+          "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
+        },
+        {
+          "path": "texts/python/aiohttp-3.14.1/01-LICENSE",
+          "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
+        }
+      ],
+      "name": "aiohttp",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/82/78/8ea7308cac6934de8c74a14f3d5f65d1c89287426688be79538d0e5c013d/aiohttp-3.14.1.tar.gz",
+      "source_sha256": "307f2cff90a764d329e77040603fa032db89c5c24fdad50c4c15334cba744035",
+      "source_size": 7955794,
+      "version": "3.14.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/aiolimiter-1.2.1/00-LICENSE.txt",
+          "sha256": "738bacef848b9e5890c0558c71fe86510289a00e0de77686fcd4b6f0b1731fee"
+        }
+      ],
+      "name": "aiolimiter",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/f1/23/b52debf471f7a1e42e362d959a3982bdcb4fe13a5d46e63d28868807a79c/aiolimiter-1.2.1.tar.gz",
+      "source_sha256": "e02a37ea1a855d9e832252a105420ad4d15011505512a1a1d814647451b5cca9",
+      "source_size": 7185,
+      "version": "1.2.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/aiosignal-1.4.0/00-LICENSE",
+          "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+        }
+      ],
+      "name": "aiosignal",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz",
+      "source_sha256": "f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7",
+      "source_size": 25007,
+      "version": "1.4.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/appdirs-1.4.4/00-LICENSE.txt",
+          "sha256": "36ddb4d0a745a93ab203203d7190814b1b89727d254caff48c7a7afbbd47000b"
+        }
+      ],
+      "name": "appdirs",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/d7/d8/05696357e0311f5b5c316d7b95f46c669dd9c15aaeecbb48c7d0aeb88c40/appdirs-1.4.4.tar.gz",
+      "source_sha256": "7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41",
+      "source_size": 13470,
+      "version": "1.4.4"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/attrs-26.1.0/00-LICENSE",
+          "sha256": "882115c95dfc2af1eeb6714f8ec6d5cbcabf667caff8729f42420da63f714e9f"
+        }
+      ],
+      "name": "attrs",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/9a/8e/82a0fe20a541c03148528be8cac2408564a6c9a0cc7e9171802bc1d26985/attrs-26.1.0.tar.gz",
+      "source_sha256": "d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32",
+      "source_size": 952055,
+      "version": "26.1.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MPL-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/certifi-2026.6.17/00-LICENSE",
+          "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7"
+        }
+      ],
+      "name": "certifi",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/c9/c7/424b75da314c1045981bd9777432fad05a9e0c69daa4ed7e308bbaffe405/certifi-2026.6.17.tar.gz",
+      "source_sha256": "024c88eeec92ca068db80f02b8b07c9cef7b9fe261d1d535abfd5abd6f6af432",
+      "source_size": 134594,
+      "version": "2026.6.17"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT-0",
+      "license_files": [
+        {
+          "path": "texts/python/cffi-2.1.0/00-LICENSE",
+          "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
+        }
+      ],
+      "name": "cffi",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/57/5f/ff100cae70ebe9d8df1c01a00e510e45d9adb5c1fdda84791b199141de97/cffi-2.1.0.tar.gz",
+      "source_sha256": "efc1cdd798b1aaf39b4610bba7aad28c9bea9b910f25c784ccf9ec1fa719d1f9",
+      "source_size": 531036,
+      "version": "2.1.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/charset-normalizer-3.4.9/00-LICENSE",
+          "sha256": "6d0d41bfe170ac6c7dc248c9a63e254d0fb45a60d50a8257d0af92c6e249b887"
+        }
+      ],
+      "name": "charset-normalizer",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/bd/2a/23f34ec9d04624958e137efdc394888716353190e75f25dd22c7a2c7a8aa/charset_normalizer-3.4.9.tar.gz",
+      "source_sha256": "673611bbd43f0810bec0b0f028ddeaaa501190339cac411f347ac76917c3ae7b",
+      "source_size": 152439,
+      "version": "3.4.9"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "license_files": [
+        {
+          "path": "texts/python/click-8.4.2/00-LICENSE.txt",
+          "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
+        }
+      ],
+      "name": "click",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz",
+      "source_sha256": "9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6",
+      "source_size": 338000,
+      "version": "8.4.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/click-help-colors-0.9.4/00-LICENSE.txt",
+          "sha256": "c5956a87a5223e7248b7cd061c27348e3d038e9dde425b0be3fb111c794c7721"
+        }
+      ],
+      "name": "click-help-colors",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/6f/50/76f51d9c7fcd72a12da466801f7c1fa3884424c947787333c74327b4fcf3/click-help-colors-0.9.4.tar.gz",
+      "source_sha256": "f4cabe52cf550299b8888f4f2ee4c5f359ac27e33bcfe4d61db47785a5cc936c",
+      "source_size": 8048,
+      "version": "0.9.4"
+    },
+    {
+      "ecosystem": "python",
+      "license": "GPL-3.0-or-later",
+      "license_files": [
+        {
+          "path": "texts/python/deezer-py-1.3.6/00-LICENSE.txt",
+          "sha256": "1b3782ccad7b8614100cda30d3faf42fc39f2e97932908c543005053b654ca68"
+        }
+      ],
+      "name": "deezer-py",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/97/4e/18a8530aaed95350a34923556c68691e58440532495be9f4cd2ed684819d/deezer-py-1.3.6.tar.gz",
+      "source_sha256": "a3ef151f7971d69769e7393f71373eaf896bccd22167213872ae46e04e14a2d7",
+      "source_size": 24976,
+      "version": "1.3.6"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/frozenlist-1.8.0/00-LICENSE",
+          "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
+        }
+      ],
+      "name": "frozenlist",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/2d/f5/c831fac6cc817d26fd54c7eaccd04ef7e0288806943f7cc5bbf69f3ac1f0/frozenlist-1.8.0.tar.gz",
+      "source_sha256": "3ede829ed8d842f6cd48fc7081d7a41001a56f1f38603f9d49bf3020d59a31ad",
+      "source_size": 45875,
+      "version": "1.8.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "license_files": [
+        {
+          "path": "texts/python/idna-3.18/00-LICENSE.md",
+          "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
+        }
+      ],
+      "name": "idna",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/cd/63/9496c57188a2ee585e0f1db071d75089a11e98aa86eb99d9d7618fc1edce/idna-3.18.tar.gz",
+      "source_sha256": "ffb385a7e039654cef1ab9ef32c6fafe283c0c0467bba1d9029738ce4a14a848",
+      "source_size": 196711,
+      "version": "3.18"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/iso8601-2.1.0/00-LICENSE",
+          "sha256": "516b02cd11e78c37a04f9effadd85af0483dda7ab1e715eef1cc94f97dc49e13"
+        }
+      ],
+      "name": "iso8601",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/b9/f3/ef59cee614d5e0accf6fd0cbba025b93b272e626ca89fb70a3e9187c5d15/iso8601-2.1.0.tar.gz",
+      "source_sha256": "6b1d3829ee8921c4301998c909f7829fa9ed3cbdac0d3b16af2d743aed1ba8df",
+      "source_size": 6522,
+      "version": "2.1.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/m3u8-0.9.0/00-LICENSE",
+          "sha256": "9918459a0d55559d003169ca57e9513bbe9e83ac9a6b28169ce4485f81bbffdb"
+        }
+      ],
+      "name": "m3u8",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/f4/1f/6370b6c5ba1975f5299bdda0e953e381880accbad1d2daa8fb0da3548051/m3u8-0.9.0.tar.gz",
+      "source_sha256": "3ee058855c430dc364db6b8026269d2b4c1894b198bcc5c824039c551c05f497",
+      "source_size": 24669,
+      "version": "0.9.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/markdown-it-py-4.2.0/00-LICENSE",
+          "sha256": "4a2260d6e2cd0f5a151a1e86dbfe7d3ed552b1e2beabf9941c1ba5c49cbce484"
+        },
+        {
+          "path": "texts/python/markdown-it-py-4.2.0/01-LICENSE.markdown-it",
+          "sha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473"
+        }
+      ],
+      "name": "markdown-it-py",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz",
+      "source_sha256": "04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49",
+      "source_size": 82454,
+      "version": "4.2.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/mdurl-0.1.2/00-LICENSE",
+          "sha256": "7c605df6e28667a9603118e98274f64a49ce3eed0d26fccce9534a345e0ef955"
+        }
+      ],
+      "name": "mdurl",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz",
+      "source_sha256": "bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba",
+      "source_size": 8729,
+      "version": "0.1.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/multidict-6.7.1/00-LICENSE",
+          "sha256": "93d11a968e2f0f36373c40811ff6d20e173f58c3cab5884cd6617bbfd795492a"
+        }
+      ],
+      "name": "multidict",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/1a/c2/c2d94cbe6ac1753f3fc980da97b3d930efe1da3af3c9f5125354436c073d/multidict-6.7.1.tar.gz",
+      "source_sha256": "ec6652a1bee61c53a3e5776b6049172c53b6aaba34f18c9ad04f82712bac623d",
+      "source_size": 102010,
+      "version": "6.7.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "GPL-2.0-or-later",
+      "license_files": [
+        {
+          "path": "texts/python/mutagen-1.48.1/00-COPYING",
+          "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+        }
+      ],
+      "name": "mutagen",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/df/70/1675da133ea92227da41bf5b24e1c66be597ff736a1533ade41da986852f/mutagen-1.48.1.tar.gz",
+      "source_sha256": "8f95637ab9f6f305cec6bd1294e197debe207998e3e068596563c74f86b0a173",
+      "source_size": 1276978,
+      "version": "1.48.1"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/pathvalidate-2.5.2/00-LICENSE",
+          "sha256": "a93d75bcb0774e2990106380cadad6dcb2de193c55d435ffc56ba345a08b1dc2"
+        }
+      ],
+      "name": "pathvalidate",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/60/f7/ff244fdd8ed98e98d4f9acecfe74a890e5e3245ce55253ef88db51e94652/pathvalidate-2.5.2.tar.gz",
+      "source_sha256": "5ff57d0fabe5ecb7a4f1e4957bfeb5ad8ab5ab4c0fa71f79c6bbc24bd9b7d14d",
+      "source_size": 26715,
+      "version": "2.5.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "HPND",
+      "license_files": [
+        {
+          "path": "texts/python/pillow-10.4.0/00-LICENSE",
+          "sha256": "0cef99f9dfd4f7522c38333595416ffb96023db2b8338fe1088a5bfc977052e4"
+        }
+      ],
+      "name": "pillow",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/cd/74/ad3d526f3bf7b6d3f408b73fde271ec69dfac8b81341a318ce825f2b3812/pillow-10.4.0.tar.gz",
+      "source_sha256": "166c1cd4d24309b30d61f79f4a9114b7b2313d7450912277855ff5dfd7cd4a06",
+      "source_size": 46555059,
+      "version": "10.4.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/propcache-0.5.2/00-LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "texts/python/propcache-0.5.2/01-NOTICE",
+          "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+        }
+      ],
+      "name": "propcache",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/ec/44/c87281c333769159c50594f22610f77398a47ccbfbbf23074e744e86f87c/propcache-0.5.2.tar.gz",
+      "source_sha256": "01c4fc7480cd0598bb4b57022df55b9ca296da7fc5a8760bd8451a7e63a7d427",
+      "source_size": 50208,
+      "version": "0.5.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/pycares-4.11.0/00-LICENSE",
+          "sha256": "427bb3a5372024a26e2c290b24382512bcc7ca123431c4dd178dd613beea7eee"
+        }
+      ],
+      "name": "pycares",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/8d/ad/9d1e96486d2eb5a2672c4d9a2dd372d015b8d7a332c6ac2722c4c8e6bbbf/pycares-4.11.0.tar.gz",
+      "source_sha256": "c863d9003ca0ce7df26429007859afd2a621d3276ed9fef154a9123db9252557",
+      "source_size": 654473,
+      "version": "4.11.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-3-Clause",
+      "license_files": [
+        {
+          "path": "texts/python/pycparser-3.0/00-LICENSE",
+          "sha256": "0c846399369ea76ddd7b5c44fe6d16497415fcf015f5cbb508c24bf98b81c5b1"
+        }
+      ],
+      "name": "pycparser",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/1b/7d/92392ff7815c21062bea51aa7b87d45576f649f16458d78b7cf94b9ab2e6/pycparser-3.0.tar.gz",
+      "source_sha256": "600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29",
+      "source_size": 103492,
+      "version": "3.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-2-Clause AND LicenseRef-Public-Domain",
+      "license_files": [
+        {
+          "path": "texts/python/pycryptodomex-3.23.0/00-AUTHORS.rst",
+          "sha256": "1cb670b6cc5bc3a1c38d7e12cdf944442ca790425cf2a628ffbe3012445fe1e4"
+        },
+        {
+          "path": "texts/python/pycryptodomex-3.23.0/01-LICENSE.rst",
+          "sha256": "4e04660d77c1c64e89d79537919fb8240fa21484a7e3db29f358b2c7f84ea073"
+        }
+      ],
+      "name": "pycryptodomex",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/c9/85/e24bf90972a30b0fcd16c73009add1d7d7cd9140c2498a68252028899e41/pycryptodomex-3.23.0.tar.gz",
+      "source_sha256": "71909758f010c82bc99b0abf4ea12012c98962fbf0583c2164f8b84533c2e4da",
+      "source_size": 4922157,
+      "version": "3.23.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "BSD-2-Clause",
+      "license_files": [
+        {
+          "path": "texts/python/pygments-2.20.0/00-AUTHORS",
+          "sha256": "0db603a5f4499f690c4425477ff664c166da325d3acc3b5a8d4de3db072443d0"
+        },
+        {
+          "path": "texts/python/pygments-2.20.0/01-LICENSE",
+          "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17"
+        }
+      ],
+      "name": "pygments",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz",
+      "source_sha256": "6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f",
+      "source_size": 4955991,
+      "version": "2.20.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/requests-2.34.2/00-LICENSE",
+          "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+        },
+        {
+          "path": "texts/python/requests-2.34.2/01-NOTICE",
+          "sha256": "f5110972dedad2b4e9d314518daf3b7d72d6e02e499acd802181de6f74571dcc"
+        }
+      ],
+      "name": "requests",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz",
+      "source_sha256": "f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed",
+      "source_size": 142856,
+      "version": "2.34.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/rich-13.9.4/00-LICENSE",
+          "sha256": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15"
+        }
+      ],
+      "name": "rich",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/ab/3a/0316b28d0761c6734d6bc14e770d85506c986c85ffb239e688eeaab2c2bc/rich-13.9.4.tar.gz",
+      "source_sha256": "439594978a49a09530cff7ebc4b5c7103ef57baf48d5ea3184f21d9a2befa098",
+      "source_size": 223149,
+      "version": "13.9.4"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/simple-term-menu-1.6.6/00-LICENSE",
+          "sha256": "0bd8e876876f0ebc995f19d1e8f6a1f10d8b86e2608bddbcd642884dbb492a4f"
+        }
+      ],
+      "name": "simple-term-menu",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/d8/80/f0f10b4045628645a841d3d98b584a8699005ee03a211fc7c45f6c6f0e99/simple_term_menu-1.6.6.tar.gz",
+      "source_sha256": "9813d36f5749d62d200a5599b1ec88469c71378312adc084c00c00bfbb383893",
+      "source_size": 35493,
+      "version": "1.6.6"
+    },
+    {
+      "ecosystem": "python",
+      "license": "GPL-3.0-only",
+      "license_files": [
+        {
+          "path": "texts/python/streamrip-2.2.0/00-LICENSE",
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        }
+      ],
+      "name": "streamrip",
+      "scope": "optional-runtime",
+      "source": "https://github.com/nathom/streamrip.git?rev=189acda489927719aa8591f6acdd7d67aecf929b#189acda489927719aa8591f6acdd7d67aecf929b",
+      "version": "2.2.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/tomlkit-0.7.2/00-LICENSE",
+          "sha256": "f2f9b460ba719da6626add264d3782f275a4ff7aab677beda08b330911e23adb"
+        }
+      ],
+      "name": "tomlkit",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/65/ed/7b7216101bc48627b630693b03392f33827901b81d4e1360a76515e3abc4/tomlkit-0.7.2.tar.gz",
+      "source_sha256": "d7a454f319a7e9bd2e249f239168729327e4dd2d27b17dc68be264ad1ce36754",
+      "source_size": 159643,
+      "version": "0.7.2"
+    },
+    {
+      "ecosystem": "python",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python/urllib3-2.7.0/00-LICENSE.txt",
+          "sha256": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686"
+        }
+      ],
+      "name": "urllib3",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz",
+      "source_sha256": "231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c",
+      "source_size": 433602,
+      "version": "2.7.0"
+    },
+    {
+      "ecosystem": "python",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "path": "texts/python/yarl-1.24.2/00-LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "texts/python/yarl-1.24.2/01-NOTICE",
+          "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838"
+        }
+      ],
+      "name": "yarl",
+      "scope": "optional-runtime",
+      "source": "https://files.pythonhosted.org/packages/79/12/1e8f37460ea0f7eb59c221fdaf0ed75e7ac43e97f8093b9c6f411df50a78/yarl-1.24.2.tar.gz",
+      "source_sha256": "9ac374123c6fd7abf64d1fec93962b0bd4ee2c19751755a762a72dd96c0378f8",
+      "source_size": 210798,
+      "version": "1.24.2"
+    },
+    {
+      "distributed": false,
+      "ecosystem": "python-build",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python-build/altgraph-0.17.5/00-LICENSE",
+          "sha256": "6c194d6db0c64d45535d10c95142b9b0cda7b7dcc7f1ddee302b3d536f3dbe46"
+        }
+      ],
+      "name": "altgraph",
+      "scope": "optional-build-only",
+      "source": "https://files.pythonhosted.org/packages/7e/f8/97fdf103f38fed6792a1601dbc16cc8aac56e7459a9fff08c812d8ae177a/altgraph-0.17.5.tar.gz",
+      "source_sha256": "c87b395dd12fabde9c99573a9749d67da8d29ef9de0125c7f536699b4a9bc9e7",
+      "source_size": 48428,
+      "version": "0.17.5"
+    },
+    {
+      "distributed": false,
+      "ecosystem": "python-build",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python-build/macholib-1.16.4/00-LICENSE",
+          "sha256": "47082ab2bc0184123ec9f10fdf80c70723ee68f07d44382e17615c2a6ba70b09"
+        }
+      ],
+      "name": "macholib",
+      "scope": "optional-build-only",
+      "source": "https://files.pythonhosted.org/packages/10/2f/97589876ea967487978071c9042518d28b958d87b17dceb7cdc1d881f963/macholib-1.16.4.tar.gz",
+      "source_sha256": "f408c93ab2e995cd2c46e34fe328b130404be143469e41bc366c807448979362",
+      "source_size": 59427,
+      "version": "1.16.4"
+    },
+    {
+      "distributed": false,
+      "ecosystem": "python-build",
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "license_files": [
+        {
+          "path": "texts/python-build/packaging-26.2/00-LICENSE",
+          "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+        },
+        {
+          "path": "texts/python-build/packaging-26.2/01-LICENSE.APACHE",
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+        },
+        {
+          "path": "texts/python-build/packaging-26.2/02-LICENSE.BSD",
+          "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+        },
+        {
+          "path": "texts/python-build/packaging-26.2/03-__init__.py",
+          "sha256": "fc9c745d1883ff9f296a5b169f22eb2ee879f59a4608f20f5cb29d668f4e26f4"
+        },
+        {
+          "path": "texts/python-build/packaging-26.2/04-_spdx.py",
+          "sha256": "596ec35e2ca0ebcba9fd8343ff0a51625af548786257815f24b41f7e08613314"
+        }
+      ],
+      "name": "packaging",
+      "scope": "optional-build-only",
+      "source": "https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz",
+      "source_sha256": "ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661",
+      "source_size": 228134,
+      "version": "26.2"
+    },
+    {
+      "distributed": false,
+      "ecosystem": "python-build",
+      "license": "GPL-2.0-or-later WITH Bootloader-exception",
+      "license_files": [
+        {
+          "path": "texts/python-build/pyinstaller-6.21.0/00-COPYING.txt",
+          "sha256": "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245"
+        }
+      ],
+      "name": "pyinstaller",
+      "scope": "optional-build-only",
+      "source": "https://files.pythonhosted.org/packages/d5/4d/ec706c3fcf39e26888c35b39615ff4d5865d184069666c47492cff1fbe50/pyinstaller-6.21.0.tar.gz",
+      "source_sha256": "bb9fab705983e393a2d1cac77d6972513057ad800215fd861dc15ff5272e98fd",
+      "source_size": 4061519,
+      "version": "6.21.0"
+    },
+    {
+      "distributed": false,
+      "ecosystem": "python-build",
+      "license": "GPL-2.0-or-later AND Apache-2.0",
+      "license_files": [
+        {
+          "path": "texts/python-build/pyinstaller-hooks-contrib-2026.6/00-LICENSE",
+          "sha256": "91d0baaff00773038e72c0a1fc9d5d2d38706b7a2b9c04f34296608f931b9cd0"
+        }
+      ],
+      "name": "pyinstaller-hooks-contrib",
+      "scope": "optional-build-only",
+      "source": "https://files.pythonhosted.org/packages/94/5b/c9fe0db5e83ee1c39b2258fa21d23b15e1a60786b6c5990ee5074ead8bb6/pyinstaller_hooks_contrib-2026.6.tar.gz",
+      "source_sha256": "bef5002c32f4f50bd55b005da12cff64eca8783e7eaf86a06a62410164bab725",
+      "source_size": 173354,
+      "version": "2026.6"
+    },
+    {
+      "distributed": false,
+      "ecosystem": "python-build",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/python-build/setuptools-83.0.0/00-LICENSE",
+          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/01-LICENSE",
+          "sha256": "ade78d04982d69972d444a8e14a94f87a2334dd3855cc80348ea8e240aa0df2d"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/02-LICENSE",
+          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/03-LICENSE",
+          "sha256": "458502e12d97bbf64438606a20044aa85eb05fb0a8a807bb35dbec253fd1fc04"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/04-LICENSE",
+          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/05-LICENSE",
+          "sha256": "9755a18519666e5f0f4cae3daad3d7012bcae48a600b31237d75e9fe134e6683"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/06-LICENSE",
+          "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/07-LICENSE",
+          "sha256": "09f1c8c9e941af3e584d59641ea9b87d83c0cb0fd007eb5ef391a7e2643c1a46"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/08-LICENSE",
+          "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/09-LICENSE.APACHE",
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/10-LICENSE.BSD",
+          "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/11-__init__.py",
+          "sha256": "4f05cb1d9097c1281d17044b3f15bad364fa99289eba74851cce9fa7ca605bbf"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/12-_spdx.py",
+          "sha256": "596ec35e2ca0ebcba9fd8343ff0a51625af548786257815f24b41f7e08613314"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/13-LICENSE",
+          "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/14-LICENSE",
+          "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/15-LICENSE.txt",
+          "sha256": "30c23618679108f3e8ea1d2a658c7ca417bdfc891c98ef1a89fa4ff0c9828654"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/16-LICENSE",
+          "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/17-NOTICE",
+          "sha256": "2dddf08818297a3b89d43d95ff659d8da85741108c9136dfa3a4d856c0623bd8"
+        },
+        {
+          "path": "texts/python-build/setuptools-83.0.0/18-NOTICE",
+          "sha256": "09c9bcea95ca086f8bc5bed174e40bc835b297d40fb5f86bbbb570fe0a5581a7"
+        }
+      ],
+      "name": "setuptools",
+      "scope": "optional-build-only",
+      "source": "https://files.pythonhosted.org/packages/34/26/f5d29e25ffdb535afef2d35cdb55b325298f96debd670da4c325e08d70f4/setuptools-83.0.0.tar.gz",
+      "source_sha256": "025bccbbf0fa05b6192bc64ae1e7b16e001fd6d6d4d5de03c97b1c1ade523bef",
+      "source_size": 1154254,
+      "version": "83.0.0"
+    }
+  ],
+  "inputs": {
+    "cargo_lock_sha256": null,
+    "pnpm_lock_sha256": null,
+    "python_lock_sha256": "4892b89b57df930a7172d3ee845e959fd6f6ad401065c42e3dbc0c5ff5f8a6db",
+    "release_build_sha256": "a878358ecbbeddb2113b42752e9568a2ea256a7e61262442005b6986c17893ab"
+  },
+  "project": {
+    "assets": [],
+    "license": "MIT",
+    "license_sha256": "f1fdd49c763a464ac0747ea03a6fd4a14c78f10faab375b2543c1d702dbc0b39",
+    "name": "Syncbox",
+    "source": "https://github.com/Adridot/syncbox"
+  },
+  "reviewed_licenses": [
+    {
+      "decision": "owner-approved for Syncbox v1 distribution",
+      "license": "MPL-2.0",
+      "name": "certifi"
+    },
+    {
+      "decision": "owner-approved for Syncbox v1 distribution",
+      "license": "GPL-3.0-or-later",
+      "name": "deezer-py"
+    },
+    {
+      "decision": "owner-approved for Syncbox v1 distribution",
+      "license": "GPL-2.0-or-later",
+      "name": "mutagen"
+    },
+    {
+      "decision": "owner-approved for Syncbox v1 distribution",
+      "license": "GPL-2.0-or-later WITH Bootloader-exception",
+      "name": "pyinstaller-bootloader"
+    },
+    {
+      "decision": "owner-approved for Syncbox v1 distribution",
+      "license": "GPL-3.0-only",
+      "name": "streamrip"
+    }
+  ],
+  "schema": 1
+}

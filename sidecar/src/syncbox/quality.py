@@ -1,17 +1,17 @@
-"""A3 fake-320/FLAC diagnostic - read-only spectral verdict
-(SPEC-UNIFIED 5.12, calibrated by POC #7).
+"""A3 read-only spectral diagnostic with the conservative fallback enabled.
 
 Rules that are load-bearing:
 - read-only everywhere: decode by the exact resolved path (Path.exists/stat
   first, never enumerate the parent - TCC pattern), file never moved/copied,
   zero network, NEVER called inside _mutate;
-- 3-level verdict ok / incertain / lossy_source_probable, never binary; the
-  320/V0 boundary lands in incertain or ok, never lossy;
+- a spectral cutoff alone cannot distinguish a lossy transcode from a
+  legitimate band-limited master, so every sub-threshold result is incertain
+  and neutral for the keeper;
 - any failure (missing file, undecodable AAC/m4a/opus, cloud read error,
   too short/silent) degrades to NEUTRAL 'ok' - no unhandled exception;
 - the cutoff frequency is an intermediate value, never persisted; only the
-  verdict feeds the D6 keeper (binary effect: lossy_source_probable is
-  penalized, incertain/ok are both neutral).
+  verdict could feed the D6 keeper. This fallback never emits the penalizing
+  lossy_source_probable verdict.
 """
 
 from dataclasses import dataclass
@@ -20,11 +20,10 @@ from pathlib import Path
 import miniaudio
 import numpy as np
 
-# Calibrated boundaries (POC #7, synthetic labeled set; LAME lowpass anchors
-# from research note 12). Margins to every genuine class measured >= 330 Hz.
-LOSSY_CONTAINER_LOSSY_BELOW_HZ = 19100
+# Synthetic stereo LAME anchors put 320 CBR near 20.1 kHz and V0 at the full
+# spectrum. Lossless material needs more headroom before it is called full
+# spectrum. Lower cutoffs remain ambiguous rather than triggering a penalty.
 LOSSY_CONTAINER_OK_FROM_HZ = 19800
-LOSSLESS_CONTAINER_LOSSY_BELOW_HZ = 19500
 LOSSLESS_CONTAINER_OK_FROM_HZ = 20800
 
 ANALYSIS_MAX_FRAMES = 60  # 30-60 s window per 5.12 (1 s frames, ~1 Hz bins)
@@ -48,15 +47,11 @@ def classify(container: str, cutoff_hz: float) -> tuple[str, str]:
     if container == "lossless":
         if cutoff_hz >= LOSSLESS_CONTAINER_OK_FROM_HZ:
             return "ok", "lossless_container_full_spectrum"
-        if cutoff_hz >= LOSSLESS_CONTAINER_LOSSY_BELOW_HZ:
-            return "incertain", "lossless_container_cutoff_in_320_v0_zone"
-        return "lossy_source_probable", "sharp_cutoff_in_lossless_container"
+        return "incertain", "spectral_cutoff_ambiguous"
     if container == "lossy":
         if cutoff_hz >= LOSSY_CONTAINER_OK_FROM_HZ:
             return "ok", "cutoff_consistent_with_320_v0_source"
-        if cutoff_hz >= LOSSY_CONTAINER_LOSSY_BELOW_HZ:
-            return "incertain", "cutoff_in_256_class_zone"
-        return "lossy_source_probable", "cutoff_indicates_le192_source"
+        return "incertain", "spectral_cutoff_ambiguous"
     # Unknown container that still decoded: conservative neutral.
     return "ok", "unknown_container_neutral"
 
@@ -64,21 +59,21 @@ def classify(container: str, cutoff_hz: float) -> tuple[str, str]:
 def _averaged_db_spectrum(path: Path):
     decoded = miniaudio.decode_file(str(path))  # DecodeError on aac/m4a/opus
     sr = decoded.sample_rate
-    pcm = np.asarray(decoded.samples, dtype=np.float32) / 32768.0
-    if decoded.nchannels > 1:
-        pcm = pcm.reshape(-1, decoded.nchannels).mean(axis=1)
+    pcm = np.asarray(decoded.samples, dtype=np.float32).reshape(
+        -1, decoded.nchannels
+    ) / 32768.0
     frame = sr
     n_frames = min(len(pcm) // frame, ANALYSIS_MAX_FRAMES)
     if n_frames < 1:
         return None
-    window = np.hanning(frame)
+    window = np.hanning(frame)[:, None]
     acc = np.zeros(frame // 2 + 1)
     used = 0
     for i in range(n_frames):
         chunk = pcm[i * frame : (i + 1) * frame]
         if np.max(np.abs(chunk)) < 1e-4:  # skip silence
             continue
-        acc += np.abs(np.fft.rfft(chunk * window)) ** 2
+        acc += np.mean(np.abs(np.fft.rfft(chunk * window, axis=0)) ** 2, axis=1)
         used += 1
     if used == 0:
         return None

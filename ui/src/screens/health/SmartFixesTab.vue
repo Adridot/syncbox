@@ -3,8 +3,8 @@
 // descriptive text, not options (M4-PLAN §1.4). Strict dry-run → confirm →
 // mutate; the dry-run reads the snapshot only (RB may be open), the execute
 // is RB-guarded and re-asserts freshness (409 → stale banner in the modal).
-// No protected opt-in here (owner amendment 2026-07-07): Smart Fixes are
-// metadata-only behind an automatic backup; the guard stays on file deletes.
+// Smart Fixes are metadata-only behind an automatic backup. Ownership does
+// not change the exact dry-run and confirmation flow.
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -16,12 +16,9 @@ import { useJobsStore } from '../../stores/jobs'
 const { t } = useI18n()
 const jobs = useJobsStore()
 
-// Only the fixes the server actually runs (smartfixes.py CATALOG). 'extract'
-// (artist/remixer from title) and 'case' (casing) are DEFERRED, not shipped:
-// POC #9 excluded casing (13 legit all-caps titles clobbered) and extraction
-// needs RemixerID write support + its own calibration. The ✓ list must match
-// behavior — advertising a fix that never fires is worse than omitting it.
-const FAMILIES = ['junkchars', 'encoding'] as const
+// This descriptive list mirrors the fixed server catalog. It is deliberately
+// not configurable: ambiguous values stay unchanged.
+const FAMILIES = ['cleanup', 'encoding', 'credits'] as const
 
 const dry = ref<SmartFixesDryRun | null>(null)
 const stale = ref(false)
@@ -92,21 +89,39 @@ async function execute() {
       </i18n-t>
 
       <!-- fixed catalog: descriptive, NOT selectable (§5.11) -->
-      <div class="families">
-        <div v-for="family in FAMILIES" :key="family" class="family">
-          <span class="family-tick">✓</span>
+      <div class="families" role="list">
+        <div v-for="family in FAMILIES" :key="family" class="family" role="listitem">
+          <span class="family-tick" aria-hidden="true">✓</span>
           <span>{{ t(`smartfixes.families.${family}`) }}</span>
         </div>
       </div>
+      <p class="limits-note">{{ t('smartfixes.limitsNote') }}</p>
 
-      <div v-if="banner" class="banner" :data-tone="banner.tone" role="status">
+      <div
+        v-if="banner"
+        class="banner"
+        :data-tone="banner.tone"
+        :role="banner.tone === 'error' ? 'alert' : 'status'"
+      >
         <span class="banner-text">{{ banner.text }}</span>
-        <button class="banner-close" @click="banner = null">✕</button>
+        <button
+          type="button"
+          class="banner-close"
+          :aria-label="t('common.close')"
+          @click="banner = null"
+        >
+          ✕
+        </button>
       </div>
 
       <div class="foot">
-        <div class="protected-note">{{ t('smartfixes.backupNote') }}</div>
-        <button class="dryrun-cta" :disabled="busy || jobs.jobRunning" @click="runDryRun()">
+        <div class="backup-note">{{ t('smartfixes.backupNote') }}</div>
+        <button
+          type="button"
+          class="dryrun-cta"
+          :disabled="busy || jobs.jobRunning"
+          @click="runDryRun()"
+        >
           {{ busy && !dry ? t('common.loading') : t('smartfixes.dryRunCta') }}
         </button>
       </div>
@@ -149,7 +164,7 @@ h3 {
 }
 .families {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
   margin-top: 16px;
 }
@@ -167,6 +182,12 @@ h3 {
 .family-tick {
   color: var(--teal);
   font-weight: 700;
+}
+.limits-note {
+  color: var(--text-muted-bright);
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin: 12px 0 0;
 }
 .banner {
   display: flex;
@@ -203,11 +224,11 @@ h3 {
   gap: 12px;
   margin-top: 18px;
 }
-.protected-note {
+.backup-note {
   font-size: 12.5px;
   color: var(--text-secondary);
 }
-.protected-note b {
+.backup-note b {
   color: var(--text-secondary-bright);
 }
 .dryrun-cta {

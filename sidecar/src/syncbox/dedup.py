@@ -97,10 +97,8 @@ def find_duplicate_groups(tracks: list[dict], dismissed: set[str] = frozenset())
         if fuzz.token_sort_ratio(signatures[i], signatures[j]) / 100 >= threshold:
             uf.union(i, j)
 
-    # ponytail: pairwise inside a duration sliding window (dup candidates sit
-    # within 2000 ms of each other), O(n * window); a full O(n^2) scan only for
-    # the rare unknown-duration tracks at the stricter 0.93 threshold. Upgrade
-    # to rapidfuzz.process blocking if a real collection measures slow.
+    # Known-duration candidates only need comparison inside the 2000 ms
+    # window. Unknown-duration candidates use the stricter 0.93 threshold.
     for wi, i in enumerate(known):
         for j in known[wi + 1 :]:
             if pool[j]["duration_ms"] - pool[i]["duration_ms"] > DURATION_TOLERANCE_MS:
@@ -160,19 +158,18 @@ def _quality_rank(track) -> tuple:
 
 def _keeper_sort_key(track) -> tuple:
     return (
-        1 if track.get("protected") else 0,  # (1) protected is always keeper
-        0 if track.get("file_missing") else 1,  # (2) present file beats missing
-        _quality_rank(track),  # (3) verdict, then bitrate bucket
-        -(track.get("date_created_order") or 0),  # (4) older wins, stable
+        0 if track.get("file_missing") else 1,  # (1) present file beats missing
+        _quality_rank(track),  # (2) verdict, then bitrate bucket
+        -(track.get("date_created_order") or 0),  # (3) older wins, stable
         str(track["content_id"]),  # full determinism
     )
 
 
 REASON_LEVELS = [
-    ("protected", lambda t: bool(t.get("protected"))),
     ("file_present", lambda t: not t.get("file_missing")),
     ("quality", _quality_rank),
     ("date", lambda t: -(t.get("date_created_order") or 0)),
+    ("content_id", lambda t: str(t["content_id"])),
 ]
 
 

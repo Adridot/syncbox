@@ -16,6 +16,7 @@ import ErrorState from '../components/ErrorState.vue'
 import JobRow from '../components/JobRow.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ReMatchModal from '../components/ReMatchModal.vue'
+import SpotifyAttributionLink from '../components/SpotifyAttributionLink.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import {
   FILTER_CHIPS,
@@ -345,34 +346,43 @@ async function onSourceAdded(source: Source) {
             </span>
           </button>
           <div class="divider" />
-          <button
+          <div
             v-for="source in visibleSources"
             :key="source.id"
-            class="source-row"
-            :data-active="selectedSource === source.id"
+            class="source-entry"
             :data-disabled="!source.enabled"
-            @click="selectedSource = source.id"
           >
-            <img
-              v-if="source.cover_url"
-              class="cover art"
-              :src="source.cover_url"
-              alt=""
-              loading="lazy"
-            />
-            <span v-else class="cover" :data-pending="source.status === 'pending'">{{
-              (source.name || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 1).toUpperCase() || '?'
-            }}</span>
-            <span class="source-text">
-              <span class="source-name">{{ source.name || source.spotify_playlist_id }}</span>
-              <span class="source-meta mono">{{
-                t('library.add.tracksUnit', { n: (tracksBySource[source.id] ?? []).length })
+            <button
+              class="source-row"
+              :data-active="selectedSource === source.id"
+              @click="selectedSource = source.id"
+            >
+              <img
+                v-if="source.cover_url"
+                class="cover art"
+                :src="source.cover_url"
+                alt=""
+                loading="lazy"
+              />
+              <span v-else class="cover" :data-pending="source.status === 'pending'">{{
+                (source.name || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 1).toUpperCase() || '?'
               }}</span>
-            </span>
-            <span v-if="reviewCounts[source.id]" class="review-badge mono">{{
-              reviewCounts[source.id]
-            }}</span>
-          </button>
+              <span class="source-text">
+                <span class="source-name">{{ source.name || source.spotify_playlist_id }}</span>
+                <span class="source-meta mono">{{
+                  t('library.add.tracksUnit', { n: (tracksBySource[source.id] ?? []).length })
+                }}</span>
+              </span>
+              <span v-if="reviewCounts[source.id]" class="review-badge mono">{{
+                reviewCounts[source.id]
+              }}</span>
+            </button>
+            <SpotifyAttributionLink
+              compact
+              kind="playlist"
+              :spotify-id="source.spotify_playlist_id"
+            />
+          </div>
         </div>
       </aside>
 
@@ -383,6 +393,11 @@ async function onSourceAdded(source: Source) {
           <span class="context-sub">{{ contextSub }}</span>
           <span class="spacer" />
           <template v-if="currentSource">
+            <SpotifyAttributionLink
+              compact
+              kind="playlist"
+              :spotify-id="currentSource.spotify_playlist_id"
+            />
             <button class="ghost" :disabled="jobs.jobRunning" @click="syncOne(currentSource)">
               ↻ {{ t('library.syncOne') }}
             </button>
@@ -479,7 +494,15 @@ async function onSourceAdded(source: Source) {
                 />
               </span>
               <div class="cell-title">
-                <div class="row-title">{{ track.title }}</div>
+                <div class="row-title-line">
+                  <div class="row-title">{{ track.title }}</div>
+                  <SpotifyAttributionLink
+                    v-if="track.spotify_track_id"
+                    compact
+                    kind="track"
+                    :spotify-id="track.spotify_track_id"
+                  />
+                </div>
                 <div class="row-meta">
                   <span class="artist">{{ track.artist }}</span>
                   <template v-if="track.confidence">
@@ -500,7 +523,7 @@ async function onSourceAdded(source: Source) {
               <span class="cell-status"><StatusBadge :status="track.status" /></span>
               <span class="cell-actions">
                 <router-link
-                  v-if="track.status === 'missing'"
+                  v-if="['missing', 'acquisition_failed'].includes(track.status)"
                   class="action"
                   to="/missing/library"
                   :title="t('library.actions.resolve')"
@@ -720,6 +743,19 @@ h1 {
 .source-row[data-disabled='true'] {
   opacity: 0.6;
 }
+.source-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.source-entry .source-row {
+  min-width: 0;
+  flex: 1;
+}
+.source-entry[data-disabled='true'] {
+  opacity: 0.6;
+}
 .cover {
   width: 30px;
   height: 30px;
@@ -737,7 +773,7 @@ h1 {
   background: linear-gradient(135deg, var(--warning), var(--danger));
 }
 .cover.art {
-  object-fit: cover;
+  object-fit: contain;
   background: var(--surface-raised);
 }
 .cover.neutral {
@@ -1011,6 +1047,14 @@ h1 {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.row-title-line .row-title {
+  min-width: 0;
 }
 .row-meta {
   display: flex;

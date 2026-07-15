@@ -80,20 +80,22 @@ class FakeCache:
 def test_library_scope_lists_missing_family_only_with_gated_links(conn):
     seed_library(
         conn,
-        ["missing", "purchase_link_unavailable", "manual_relink_needed",
-         "matched", "removed_from_source", "ignored"],
+        ["missing", "acquisition_failed", "purchase_link_unavailable",
+         "manual_relink_needed", "matched", "removed_from_source", "ignored"],
     )
     entries = list_missing(conn, "library")
     assert [e["status"] for e in entries] == [
-        "missing", "purchase_link_unavailable", "manual_relink_needed"
+        "missing", "acquisition_failed", "purchase_link_unavailable",
+        "manual_relink_needed"
     ]
-    # B2 gate: missing + purchase_link_unavailable get links; the
-    # manual_relink_needed failure does not (5.13), and removed_from_source
-    # never even reaches the center (excluded above).
-    assert len(entries[0]["purchase_links"]) == 2
+    # B2 remains available after an acquisition failure. The manual-relink
+    # failure does not expose links, and removed_from_source never reaches the
+    # center.
+    for entry in entries[:3]:
+        assert len(entry["purchase_links"]) == 2
     assert {l["store"] for l in entries[0]["purchase_links"]} == {"Beatport", "Bandcamp"}
-    assert len(entries[1]["purchase_links"]) == 2
-    assert entries[2]["purchase_links"] == []
+    assert entries[0]["spotify_track_id"] == "t0"
+    assert entries[3]["purchase_links"] == []
 
 
 def test_event_scope_lists_missing_event_tracks(conn):
@@ -103,6 +105,7 @@ def test_event_scope_lists_missing_event_tracks(conn):
     assert len(entries) == 1
     assert entries[0]["scope"] == "event"
     assert entries[0]["title"] == "First Dance"
+    assert entries[0]["spotify_track_id"] is None
     assert len(entries[0]["purchase_links"]) == 2
 
 
@@ -137,12 +140,16 @@ def test_relink_candidates_come_from_inbox_and_user_roots(conn, tmp_path):
     user_dir = tmp_path / "downloads"
     user_dir.mkdir()
     (user_dir / "deadmau5 - Song 0 (extended).mp3").write_bytes(b"\x00")
+    acquisition_dir = storage / "_syncbox" / "acquisition" / "job-1"
+    acquisition_dir.mkdir(parents=True)
+    (acquisition_dir / "deadmau5 - Song 0 (acquired).mp3").write_bytes(b"\x00")
 
     entries = list_missing(
         conn, "library", storage_root=storage, user_roots=[user_dir]
     )
     paths = [c["path"] for c in entries[0]["relink_candidates"]]
     assert any("inbox" in p for p in paths)
+    assert any("acquisition" in p for p in paths)
     assert any("downloads" in p for p in paths)
     assert tracks[0]["status"] == "missing"
 
@@ -284,8 +291,8 @@ def test_relink_collection_file_writes_stored_form_and_preserves_links(tmp_path)
     links_before = (target["tag_count"], target["cue_count"], target["playlist_count"])
     assert sum(links_before) > 0  # the preservation assertion must bite
 
-    # target file under <storage_root>/rekordbox/ -> MUST be stored
-    # volume-relative (3.2)
+    # Target file under <storage_root>/rekordbox/ is stored as the canonical
+    # absolute path accepted by Rekordbox 7 on macOS (3.2).
     new_file = storage / "rekordbox" / "Collection" / "Relinked.mp3"
     new_file.parent.mkdir(parents=True)
     new_file.write_bytes(b"\x00")
@@ -293,7 +300,7 @@ def test_relink_collection_file_writes_stored_form_and_preserves_links(tmp_path)
     stored = relink_collection_file(
         db_path, backups, cache, storage, content_id, new_file, anlz_consent=True
     )
-    assert stored == f"/{storage.name}/rekordbox/Collection/Relinked.mp3"
+    assert stored == str(new_file.resolve())
     # mutate invalidated the snapshot cache on commit
     assert cache.current_fingerprint is None
 

@@ -14,6 +14,7 @@ Load-bearing mechanics owned by Syncbox, not pyrekordbox:
 - a soft-deleted artist found by name is self-healed (reactivated, 1.6).
 """
 
+import stat
 import uuid
 from pathlib import Path
 
@@ -295,15 +296,17 @@ def add_content(db, staging_path, metadata: dict, *, storage_root):
     from datetime import datetime
 
     path = Path(staging_path)
+    try:
+        file_stat = path.stat()
+    except OSError as exc:
+        raise FileNotFoundError(f"staged audio file is unavailable: {path}") from exc
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise ValueError(f"staged audio path is not a regular file: {path}")
     content_id = _new_id(db, tables.DjmdContent)
     artist = find_or_create_artist(db, metadata.get("artist") or "Unknown Artist")
     device = db.get_device().first()
     now = datetime.now()
     duration_ms = metadata.get("duration_ms") or 0
-    try:
-        file_size = path.stat().st_size
-    except OSError:
-        file_size = 0
     row = tables.DjmdContent.create(
         ID=content_id,
         MasterSongID=content_id,
@@ -315,11 +318,11 @@ def add_content(db, staging_path, metadata: dict, *, storage_root):
         Length=duration_ms // 1000 if duration_ms else None,
         FolderPath=stored_form(path, storage_root),
         FileNameL=path.name,
-        # ponytail: unrecognized extensions land as FileType 0 (unknown) -
-        # Rekordbox re-derives the real type at import/analysis. Extend the
+        # Unrecognized extensions land as FileType 0 (unknown); Rekordbox
+        # re-derives the real type at import/analysis. Extend the
         # map only when a real event stages another container.
         FileType=_FILE_TYPE_BY_EXT.get(path.suffix.lower(), 0),
-        FileSize=file_size,
+        FileSize=file_stat.st_size,
         DeviceID=device.ID if device else None,
         MasterDBID=device.MasterDBID if device else None,
         StockDate=now.strftime("%Y-%m-%d"),
@@ -434,16 +437,62 @@ def relink_content_path(db, content_id: str, stored_path: str) -> None:
     db.flush()
 
 
+def migrate_content_path(
+    db,
+    content_id: str,
+    stored_path: str,
+    *,
+    update_anlz: bool,
+    anlz_paths=(),
+) -> None:
+    """Update one content path without letting pyrekordbox own the commit.
+
+    When analysis files exist, pyrekordbox updates their PPTH tags together
+    with FolderPath, OrgFolderPath, and FileNameL. The surrounding Syncbox
+    mutation remains the sole database transaction owner.
+    """
+    row = db.query(tables.DjmdContent).filter_by(ID=str(content_id)).one()
+    if update_anlz:
+        expected = {Path(path).resolve(strict=False) for path in anlz_paths}
+        current = {
+            Path(path).resolve(strict=False)
+            for path in db.get_anlz_paths(row).values()
+            if path is not None
+        }
+        if current != expected:
+            raise ValueError(
+                f"analysis files changed after preview for content {content_id}"
+            )
+        db.update_content_path(
+            row,
+            stored_path,
+            save=True,
+            check_path=False,
+            commit=False,
+        )
+        return
+    old_path = row.FolderPath
+    row.FolderPath = stored_path
+    if row.OrgFolderPath == old_path:
+        row.OrgFolderPath = stored_path
+    row.FileNameL = Path(stored_path).name
+    db.flush()
+
+
 def set_content_fields(db, content_id: str, changes: dict) -> None:
-    """Smart Fixes writer: {'title': str, 'artist': str}. The artist change
-    goes through find-or-create (artist rows are SHARED - editing the row
-    in place would rename every track of that artist)."""
+    """Write title or artist-reference Smart Fixes on one content row.
+
+    Artist and remixer rows are shared, so references are reassigned through
+    find-or-create instead of renaming an existing artist row in place.
+    """
     row = db.query(tables.DjmdContent).filter_by(ID=str(content_id)).one()
     for field, value in changes.items():
         if field == "title":
             row.Title = value
         elif field == "artist":
             row.ArtistID = find_or_create_artist(db, value).ID
+        elif field == "remixer":
+            row.RemixerID = find_or_create_artist(db, value).ID
         else:
             raise ValueError(f"unsupported smart-fix field: {field}")
     db.flush()

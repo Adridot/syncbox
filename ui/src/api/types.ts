@@ -78,13 +78,39 @@ export interface EventTrack {
   prior_status: string | null
 }
 
+export type FileOwnership = 'app_managed' | 'permanent_library' | 'external'
+
+export type EventDeleteTrackAction =
+  | 'already_permanent'
+  | 'migrate_to_collection'
+  | 'delete_with_event'
+  | 'soft_delete_only'
+
+export interface EventDeleteTrackPlan {
+  content_id: string
+  title: string | null
+  artist: string | null
+  source_path: string | null
+  ownership: FileOwnership
+  retaining_mytags: string[]
+  action: EventDeleteTrackAction
+  destination_path: string | null
+  anlz_update_required: boolean
+}
+
 export interface EventDeletePreview {
   dry_run: boolean
+  plan_version: number
+  event_id: number
+  event_name: string
+  fingerprint: Fingerprint
   tag_id: string | null
-  contents: Array<{ content_id: string; title: string | null; action: 'keep' | 'soft_delete'; reason: string }>
+  tracks: EventDeleteTrackPlan[]
   playlists: Array<{ playlist_id: string; name: string }>
-  artifacts: string[]
-  removed_files?: unknown[]
+  xml_artifacts: string[]
+  staging_artifacts: string[]
+  expected_file_deletions: string[]
+  validation: unknown
 }
 
 export interface MatchCandidate {
@@ -105,7 +131,7 @@ export interface DuplicateMember {
   artist: string | null
   bit_rate: number | null
   file_missing: boolean
-  protected: boolean
+  ownership: FileOwnership
   playlist_count: number
   cue_count: number
   resolved_path: string | null
@@ -135,25 +161,27 @@ export interface MissingEntry {
   content_id?: string
   title: string | null
   artist: string | null
+  spotify_track_id?: string | null
   status?: string
   file_path?: string | null
   resolved_path?: string | null
   purchase_links: Array<{ store: string; url: string }>
   relink_candidates: Array<{ path: string; score: number; format: string; duration_s?: number }>
+  acquisition?: { provider: 'deezer'; available: boolean; reason?: string | null }
 }
 
 export interface UntaggedTrack {
   content_id: string
   title: string | null
   artist: string | null
-  protected: boolean
+  ownership: FileOwnership
   category: 'junk' | 'dup_of_tagged' | 'alt_version' | 'review'
 }
 
 export interface SmartFixChange {
   content_id: string
-  field: string
-  before: string
+  field: 'title' | 'artist' | 'remixer'
+  before: string | null
   after: string
 }
 

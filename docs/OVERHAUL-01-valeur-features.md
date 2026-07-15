@@ -1,389 +1,394 @@
-# Syncbox — Rapport d'overhaul produit (analyse de valeur des features)
+# Syncbox — Product Overhaul Report (Feature Value Analysis)
 
-> **Objet.** Analyse de valeur objective de **toutes** les fonctionnalités de Syncbox, carte de redondance vs Rekordbox natif et concurrents, catalogue de candidates issu d'une recherche web/GitHub approfondie, puis **overhaul du périmètre produit** pour aboutir à une app « utile à tous les DJs ».
+> **Historical product-analysis record.** This report preserves the evidence
+> and decisions available when it was written. Current macOS v1 scope and
+> verdicts are authoritative only in [SPEC-UNIFIED.md](SPEC-UNIFIED.md),
+> [DISTRIBUTION.md](DISTRIBUTION.md), and the final release handoff.
+
+> **Purpose.** Objective value analysis of **all** Syncbox features, redundancy map vs native Rekordbox and competitors, catalog of candidates from in-depth web/GitHub research, then **product scope overhaul** to arrive at an app “useful to all DJs”.
 >
-> **Statut.** Sortie du prompt [`PROMPT-01b-analyse-valeur-features-overhaul.md`](PROMPT-01b-analyse-valeur-features-overhaul.md). Lecture seule, aucun code modifié. Intrant : l'inventaire fonctionnel de [`SPEC-01-syncbox.md`](SPEC-01-syncbox.md) (preuves `fichier:ligne`) + [`SPEC-UNIFIED.md`](SPEC-UNIFIED.md) (architecture déjà tranchée : Tauri + sidecar Python, acquisition optionnelle). **Le présent document décide le PÉRIMÈTRE et la VALEUR, pas la stack** (règle d'or 6).
+> **Status.** Output from prompt [`PROMPT-01b-analyse-valeur-features-overhaul.md`](PROMPT-01b-analyse-valeur-features-overhaul.md). Read-only, no code modified. Input: the functional inventory from [`SPEC-01-syncbox.md`](SPEC-01-syncbox.md) (`file:line` evidence) + [`SPEC-UNIFIED.md`](SPEC-UNIFIED.md) (architecture already decided: Tauri + Python sidecar, optional acquisition). **This document decides SCOPE and VALUE, not the stack** (golden rule 6).
 >
-> **Méthode.** Recherche multi-agents (8 clusters web/GitHub, vérification adversariale, critique de complétude — 17 agents, 158 items sourcés). Chaque jugement cite sa preuve : `fichier:ligne`, URL, ou capacité native identifiée. *Fait* / *inférence* / *opinion* séparés. Les arbitrages de goût ont été posés au propriétaire (§8).
+> **Method.** Multi-agent research (8 web/GitHub clusters, adversarial verification, completeness critique — 17 agents, 158 sourced items). Every judgment cites its evidence: `file:line`, URL, or identified native capability. *Fact* / *inference* / *opinion* separated. Taste-based tradeoffs were submitted to the owner (§8).
 
 ---
 
-> ⚠️ **MISE À JOUR — Gates 1/2 (2026-06-16, repli dans [SPEC-UNIFIED.md](SPEC-UNIFIED.md)).** Ce rapport reste la **trace** de l'analyse de valeur. Deux décisions postérieures **prévalent** sur les listes v1/v2 ci-dessous : (1) **A2 dedup par empreinte (Chromaprint) → différée v2** (résiduel étroit après ISRC+fuzzy + binaire `fpcalc` **LGPL 2.1** à notariser — cf. §5 corrigé et [_research/11](_research/11_Chromaprint-empreinte.md)) ; (2) **SoundCloud → v2/B4** (tire ffmpeg, ~+40-80 Mo). **Périmètre v1 réel = 4 ajouts** : A1 Smart Fixes, A3 faux-320/FLAC, B1 streamrip **Deezer-only**, B2 Track Matcher légal (+ D7). **Fait foi sur le périmètre v1 : [SPEC-UNIFIED §7.4](SPEC-UNIFIED.md).** Les §1, §6, §7.2 et §8 ci-dessous gardent leur verdict **pré-Gate-2** (A2 listée en v1) à titre historique — ne pas les lire comme le périmètre courant.
+> ⚠️ **CURRENT OVERRIDE.** This report remains the value-analysis record. A2/Chromaprint and SoundCloud/ffmpeg are deferred to v2. The delivered v1 additions are A1 Smart Fixes, optional B1 Deezer-only acquisition, B2 legal purchase links, and the conservative A3 spectral fallback. Full A3 classification is `NO-GO`; the fallback emits only keeper-neutral `ok` or `incertain`. [SPEC-UNIFIED §7.4](SPEC-UNIFIED.md) is authoritative. The older v1/v2 lists below remain unchanged as historical evidence and must not be read as current scope.
 
-## 1. Résumé exécutif (le verdict)
+## 1. Executive Summary (the Verdict)
 
-Syncbox doit se positionner comme **le couteau suisse gratuit, open-source et local-first du DJ Rekordbox** — celui qui fait deux choses que personne ne fait gratuitement et localement à la fois :
+Syncbox should position itself as **the free, open-source, local-first Swiss Army knife for Rekordbox DJs** — the one that does two things nobody does both for free and locally:
 
-1. **Transformer une playlist Spotify en vrais fichiers possédés, taggés et jouables sur CDJ/USB.** L'intégration Spotify native (re-ajoutée 24 sept. 2025) est **streaming-only** : pas de download, pas d'offline, pas d'export USB, pas d'import dans la collection ([rekordbox.com](https://rekordbox.com/en/2025/09/rekordbox-for-mac-win-spotify-support/), [TechCrunch 24/09/2025](https://techcrunch.com/2025/09/24/spotify-now-integrates-directly-with-dj-software-from-rekordbox-serato-and-djay/)). C'est exactement la lacune que Syncbox comble.
-2. **Entretenir la collection mieux que le natif, sans abonnement ni cloud.** Le dedup natif est rudimentaire (recherche par titre, manuel, sans empreinte — [source](https://www.clonefileschecker.com/blog/how-to-remove-duplicate-songs-on-rekordbox-software-playlist/)), le Relocate natif est filename-only et abandonne sur les homonymes ([FAQ rekordbox](https://rekordbox.com/en/support/faq/v6/)), et le Backup natif est manuel, grossier et destructif à la restauration ([deejayplaza](https://www.deejayplaza.com/en/articles/rekordbox-backup)). Les outils qui font mieux sont **payants** (Lexicon $199–399 à vie, RCT, Music Library Doctor).
+1. **Turn a Spotify playlist into real owned files, tagged and playable on CDJ/USB.** Native Spotify integration (re-added Sept. 24, 2025) is **streaming-only**: no download, no offline, no USB export, no collection import ([rekordbox.com](https://rekordbox.com/en/2025/09/rekordbox-for-mac-win-spotify-support/), [TechCrunch 2025-09-24](https://techcrunch.com/2025/09/24/spotify-now-integrates-directly-with-dj-software-from-rekordbox-serato-and-djay/)). That is exactly the gap Syncbox fills.
+2. **Maintain the collection better than native, without subscription or cloud.** Native dedup is rudimentary (search by title, manual, no fingerprint — [source](https://www.clonefileschecker.com/blog/how-to-remove-duplicate-songs-on-rekordbox-software-playlist/)), native Relocate is filename-only and gives up on homonyms ([rekordbox FAQ](https://rekordbox.com/en/support/faq/v6/)), and native Backup is manual, coarse, and destructive on restore ([deejayplaza](https://www.deejayplaza.com/en/articles/rekordbox-backup)). The tools that do better are **paid** (Lexicon $199–399 lifetime, RCT, Music Library Doctor).
 
-**Décisions structurantes (validées avec le propriétaire, §8) :**
+**Structural decisions (validated with the owner, §8):**
 
-| Axe | Décision |
+| Axis | Decision |
 |---|---|
-| Portée | **Companion Rekordbox-only.** Pas de conversion cross-app (Lexicon possède déjà ce terrain). Profondeur Rekordbox + sourcing comme angle. |
-| Téléchargement | **Module optionnel, OFF par défaut**, moteur **streamrip** (deemix se meurt, cf. §5). Mise en avant du **chemin légal ISRC → achat lossless**. |
-| Gratuit vs Pro | **Oui** : offrir gratuitement et localement ce que Rekordbox gate (backup versionné réversible — déjà fait, à conserver). |
-| Différenciation | **Hygiène + sync solides d'abord.** Le propriétaire a **écarté** l'analyse locale (energy/key/vocal), l'ordonnancement harmonique, ReplayGain et les auto-cues. La différenciation vient du **cœur fait mieux et gratuit**, pas de nouvelles couches d'analyse. |
-| Analyse audio | **Aucune analyse locale.** On lit seulement les valeurs key/energy déjà fournies par Rekordbox ou un import MIK. |
+| Scope | **Rekordbox-only companion.** No cross-app conversion (Lexicon already owns that space). Rekordbox depth + sourcing as the angle. |
+| Downloading | **Optional module, OFF by default**, **streamrip** engine (deemix is dying, see §5). Highlight the **legal ISRC → lossless purchase** path. |
+| Free vs Pro | **Yes**: offer for free and locally what Rekordbox gates (reversible versioned backup — already done, to keep). |
+| Differentiation | **Solid hygiene + sync first.** The owner **ruled out** local analysis (energy/key/vocal), harmonic ordering, ReplayGain, and auto-cues. Differentiation comes from the **core done better and free**, not from new analysis layers. |
+| Audio analysis | **No local analysis.** Only read key/energy values already provided by Rekordbox or a MIK import. |
 
-**Ce qu'on GARDE** (cœur solide, couvert par tests) : Spotify sync, Match ISRC+fuzzy, Events, Duplicates, Missing Files, Untagged, Sûreté/Backup, Doctor, Settings, i18n FR/EN.
-**Ce qu'on AJOUTE en v1** : dedup par **empreinte audio (Chromaprint)** *(→ **différé v2** par Gate 2, voir bannière en tête)*, **Smart Fixes** (nettoyage métadonnées en masse), **détection faux-320/faux-FLAC**, **Track Matcher légal** (lister les manquants + liens d'achat ISRC), bascule acquisition vers **streamrip** *(Deezer-only en v1 ; SoundCloud → v2)*.
-**Ce qu'on RETIRE** : Live Import M3U8, `tag_rules` legacy, script CLI cleanup, auto-update dormant (déjà acté D8/D9/D10/D24).
-**Ce qu'on EXCLUT explicitement** : analyse locale, set-prep harmonique, ReplayGain, auto-cues, transition-tagging, conversion cross-app, mobile/cloud, édition de beatgrid, streaming jouable in-app (bloqué par les licences).
+**What we KEEP** (solid core, covered by tests): Spotify sync, ISRC+fuzzy Match, Events, Duplicates, Missing Files, Untagged, Safety/Backup, Doctor, Settings, FR/EN i18n.
+**What we ADD in v1**: dedup by **audio fingerprint (Chromaprint)** *(→ **deferred to v2** by Gate 2, see banner at top)*, **Smart Fixes** (bulk metadata cleanup), **fake-320/fake-FLAC detection**, **legal Track Matcher** (list missing tracks + ISRC purchase links), switch acquisition to **streamrip** *(Deezer-only in v1; SoundCloud → v2)*.
+**What we REMOVE**: Live Import M3U8, legacy `tag_rules`, CLI cleanup script, dormant auto-update (already decided D8/D9/D10/D24).
+**What we explicitly EXCLUDE**: local analysis, harmonic set prep, ReplayGain, auto-cues, transition tagging, cross-app conversion, mobile/cloud, beatgrid editing, playable in-app streaming (blocked by licenses).
 
 ---
 
-## 2. Personas & cadre d'évaluation
+## 2. Personas & Evaluation Framework
 
-### 2.1 Personas DJ (largeur d'audience)
+### 2.1 DJ Personas (Audience Breadth)
 
-| # | Persona | Workflow | Douleur principale | Ce qu'il valorise |
+| # | Persona | Workflow | Main Pain Point | What They Value |
 |---|---|---|---|---|
-| **P1** | **DJ mobile / open-format** (mariages, soirées privées) | Gros catalogue multi-genres, beaucoup d'imports depuis playlists clients (Spotify), Rekordbox + contrôleur/USB | Sourcer vite des titres demandés ; bibliothèque qui gonfle et se salit | Sync Spotify→fichiers, events par soirée, hygiène |
-| **P2** | **DJ club électronique / mixage harmonique** | Rekordbox + CDJ, achète sur Beatport, key/energy importants | Précision analyse, prépa de set, garder le matos lossless | Fichiers lossless possédés, USB fiable, cues préservés |
-| **P3** | **Collectionneur / digger** multi-genres | Très grosse bibliothèque, multi-sources, disques externes | **Doublons, fichiers manquants après déplacement de disque, métadonnées incohérentes** | Hygiène avancée, dedup par empreinte, relocate robuste |
-| **P4** | **DJ débutant** | Rekordbox Free, petit budget, peu sûr de lui | **Peur de casser/perdre sa base**, ne comprend pas « références vs fichiers » | Sûreté, backup automatique, simplicité |
-| **P5** | **DJ pro multi-appareils** | Plusieurs machines, USB/CDJ, historique de jeu | Portabilité, sauvegarde, fiabilité du « jamais joué » | Backup versionné, intégrité, export USB sûr |
-| **P6** | **Producteur-DJ** | Joue ses prods + edits, SoundCloud/Bandcamp, tags custom | Métadonnées custom, sources hors-catalogue (SC/Bandcamp) | Tags personnels, sourcing flexible, pas d'écrasement |
+| **P1** | **Mobile / open-format DJ** (weddings, private parties) | Large multi-genre catalog, many imports from client playlists (Spotify), Rekordbox + controller/USB | Quickly sourcing requested tracks; library keeps growing and getting messy | Spotify→files sync, per-event organization, hygiene |
+| **P2** | **Electronic club DJ / harmonic mixing** | Rekordbox + CDJ, buys on Beatport, key/energy are important | Analysis accuracy, set prep, keeping lossless gear-ready files | Owned lossless files, reliable USB, preserved cues |
+| **P3** | **Collector / multi-genre digger** | Very large library, multi-source, external drives | **Duplicates, missing files after drive moves, inconsistent metadata** | Advanced hygiene, fingerprint dedup, robust relocate |
+| **P4** | **Beginner DJ** | Rekordbox Free, small budget, not very confident | **Fear of breaking/losing the database**, does not understand “references vs files” | Safety, automatic backup, simplicity |
+| **P5** | **Pro multi-device DJ** | Multiple machines, USB/CDJ, play history | Portability, backup, “never played” reliability | Versioned backup, integrity, safe USB export |
+| **P6** | **Producer-DJ** | Plays own productions + edits, SoundCloud/Bandcamp, custom tags | Custom metadata, sources outside catalogs (SC/Bandcamp) | Personal tags, flexible sourcing, no overwriting |
 
-Échelle **Largeur d'audience** : 0 = un seul persona, 5 = tous. La douleur **n°1 du marché est l'hygiène de bibliothèque** (validée : *« My DJ collection is a complete mess »* est l'une des questions les plus fréquentes — [Digital DJ Tips](https://www.digitaldjtips.com/dj-library-is-a-mess/) ; tout un marché payant dessus : Lexicon, RCT, Music Library Doctor).
+**Audience breadth** scale: 0 = one persona, 5 = all. The **market’s #1 pain point is library hygiene** (validated: *“My DJ collection is a complete mess”* is one of the most frequent questions — [Digital DJ Tips](https://www.digitaldjtips.com/dj-library-is-a-mess/); there is an entire paid market around it: Lexicon, RCT, Music Library Doctor).
 
-### 2.2 Barème de scoring
+### 2.2 Scoring Rubric
 
-Chaque critère noté **0–5** (5 = meilleur, y compris pour *Effort* où 5 = faible effort, et *Risque* où 5 = risque négligeable). Le **score global** est un jugement pondéré explicité, pas une moyenne aveugle (pondération indicative : Utilité ×2, Audience ×2, Complémentarité ×2, Différenciation ×1.5, Effort ×1, Risque ×1.5).
+Each criterion is scored **0–5** (5 = best, including for *Effort*, where 5 = low effort, and *Risk*, where 5 = negligible risk). The **global score** is an explicit weighted judgment, not a blind average (indicative weighting: Utility ×2, Audience ×2, Native Complementarity ×2, Differentiation ×1.5, Effort ×1, Risk ×1.5).
 
-- **Utilité** — valeur réelle pour le DJ ciblé.
-- **Largeur d'audience** — combien de personas (0–5).
-- **Complémentarité au natif** — 5 = comble une vraie lacune Rekordbox ; 0 = doublon total d'une fonction native gratuite (inverse de la redondance).
-- **Différenciation** — vs Lexicon, MIK, DJ.Studio, Mixxx, RCT, Music Library Doctor…
-- **Effort** — 5 = faible, 0 = très lourd (indicatif, sans décider la techno).
-- **Risque** — légal / technique / maintenance — 5 = négligeable, 0 = bloquant.
+- **Utility** — real value for the targeted DJ.
+- **Audience breadth** — how many personas (0–5).
+- **Native complementarity** — 5 = fills a real Rekordbox gap; 0 = total duplicate of a free native feature (inverse of redundancy).
+- **Differentiation** — vs Lexicon, MIK, DJ.Studio, Mixxx, RCT, Music Library Doctor…
+- **Effort** — 5 = low, 0 = very heavy (indicative, without deciding the technology).
+- **Risk** — legal / technical / maintenance — 5 = negligible, 0 = blocking.
 
-Verdicts : `GARDER` · `GARDER-MAIS-CORRIGER` · `SIMPLIFIER` · `FUSIONNER` · `CHANGER` · `RETIRER` · `À-DÉCIDER`.
+Verdicts: `KEEP` · `KEEP-BUT-FIX` · `SIMPLIFY` · `MERGE` · `CHANGE` · `REMOVE` · `TO-DECIDE`.
 
-### 2.3 Invariants du domaine (vrais quel que soit le périmètre)
+### 2.3 Domain Invariants (True Regardless of Scope)
 
-1. **Sûreté Rekordbox** : aucune écriture si Rekordbox/`rekordboxAgent` tourne ; **backup horodaté avant chaque mutation** ; unit-of-work `_mutate` ; suppressions = soft-delete réversible ; restore avec snapshot préalable (`safety.py:20-80`, `adapter.py:505-534`, [SPEC-01 §3.1](SPEC-01-syncbox.md)).
-2. **Résolution de chemins** : volume-relatif sous `rekordbox/`, absolu ailleurs ; les deux formes égales (`paths.py:58-74`, mémoire projet `rekordbox-path-resolution`).
-3. **Ne jamais déplacer les fichiers** (TCC macOS sur dossiers cloud ; listing KO mais `Path.exists()` OK).
-4. **Préserver cues / beatgrids / My Tags à chaque écriture.** Les cues vivent dans **master.db (`djmdCue`) ET dans les fichiers ANLZ** ([pyrekordbox docs](https://pyrekordbox.readthedocs.io/en/latest/tutorial/anlz.html), [Deep Symmetry](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html)). ⚠️ **CORRECTION (2026-06-16, repli SPEC-UNIFIED)** : la version initiale attribuait à [SPEC-01 §3.1](SPEC-01-syncbox.md) la phrase « les cues vivent dans `DjmdCues`, pas dans les ANLZ » — **cette phrase n'existe pas dans SPEC-01** (zéro occurrence « ANLZ ») ; c'était une paraphrase erronée. **Décision Gate 1 (tranchée)** : pyrekordbox **n'écrit jamais les ANLZ** (cf. invariant 6) → Syncbox ne les modifie pas, et ses mutations restent **intégralement réversibles** via le backup `master.db`. Le backup F8 **ne couvre pas les ANLZ** (limite **documentée**, pas étendue — cf. [SPEC-UNIFIED §3.1/§5.1](SPEC-UNIFIED.md)) ; un restore peut désynchroniser des cues que **Rekordbox lui-même** aurait écrits côté ANLZ entre deux opérations Syncbox — cas de bord assumé.
-5. **Fichiers locaux jouables sur CDJ/USB** (la raison d'être face au streaming).
-6. **Limite d'écriture pyrekordbox** : écrit `master.db` (DjmdContent/MyTag/Cues/Playlist/Key/Color) mais **ne crée pas les fichiers ANLZ** (parse seulement) — [readthedocs](https://pyrekordbox.readthedocs.io/en/latest/tutorial/anlz.html). Borne la faisabilité de toute écriture de cues/beatgrids.
+1. **Rekordbox safety**: no write if Rekordbox/`rekordboxAgent` is running; **timestamped backup before every mutation**; `_mutate` unit-of-work; deletions = reversible soft-delete; restore with prior snapshot (`safety.py:20-80`, `adapter.py:505-534`, [SPEC-01 §3.1](SPEC-01-syncbox.md)).
+2. **Path resolution**: volume-relative under `rekordbox/`, absolute elsewhere; both forms equal (`paths.py:58-74`, project memory `rekordbox-path-resolution`).
+3. **Never move files** (macOS TCC on cloud folders; listing fails but `Path.exists()` works).
+4. **Preserve cues / beatgrids / My Tags on every write.** Cues live in **master.db (`djmdCue`) AND in ANLZ files** ([pyrekordbox docs](https://pyrekordbox.readthedocs.io/en/latest/tutorial/anlz.html), [Deep Symmetry](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html)). ⚠️ **CORRECTION (2026-06-16, folded into SPEC-UNIFIED)**: the initial version attributed the sentence “cues live in `DjmdCues`, not in ANLZ” to [SPEC-01 §3.1](SPEC-01-syncbox.md) — **that sentence does not exist in SPEC-01** (zero “ANLZ” occurrences); it was an erroneous paraphrase. **Gate 1 decision (settled)**: pyrekordbox **never writes ANLZ** (see invariant 6) → Syncbox does not modify them, and its mutations remain **fully reversible** through the `master.db` backup. F8 backup **does not cover ANLZ** (**documented** limitation, not extended — see [SPEC-UNIFIED §3.1/§5.1](SPEC-UNIFIED.md)); a restore may desynchronize cues that **Rekordbox itself** wrote on the ANLZ side between two Syncbox operations — accepted edge case.
+5. **Local files playable on CDJ/USB** (the reason for existing against streaming).
+6. **pyrekordbox write limit**: writes `master.db` (DjmdContent/MyTag/Cues/Playlist/Key/Color) but **does not create ANLZ files** (parse only) — [readthedocs](https://pyrekordbox.readthedocs.io/en/latest/tutorial/anlz.html). Bounds feasibility of any cue/beatgrid writing.
 
 ---
 
-## 3. Audit de valeur des features existantes
+## 3. Value Audit of Existing Features
 
-> Inventaire source : [SPEC-01 §2](SPEC-01-syncbox.md). Scores selon §2.2. Les correctifs de bugs déjà actés (D1–D25) ne sont pas re-débattus ; on ajoute la **dimension valeur/marché**.
+> Source inventory: [SPEC-01 §2](SPEC-01-syncbox.md). Scores according to §2.2. Already decided bug fixes (D1–D25) are not re-litigated; the **value/market dimension** is added.
 
-### F1 — Sync de playlists Spotify (sources permanentes + MyTags par défaut)
-`library.py:45-263`, `stores/library.ts`, `event_import.py`. Suivre une playlist Spotify, diffing par track (new/matched/ready/imported/missing/removed), héritage des MyTags de la source à l'import.
-- **Utilité / personas** : cœur du flux d'alimentation. P1 (mobile, playlists clients), P6 (prods/edits), un peu P2/P3.
-- **Redondance vs natif** : **complément fort.** Spotify natif = streaming-only, pas d'import collection, pas d'auto-tag depuis une source ([rekordbox.com](https://rekordbox.com/en/2025/09/rekordbox-for-mac-win-spotify-support/)). Le natif n'a **aucune** notion de « suivre une playlist et la matérialiser en fichiers taggés ».
-- **Vs concurrents** : Lexicon **Track Matcher** est metadata/fuzzy-only, **sans ISRC et sans download** ([manual](https://www.lexicondj.com/manual/track-matcher)) ; Music Library Doctor fait un import Spotify→crate similaire mais payant ([site](https://musiclibrarydoctor.com/)) ; Trackmatch (OSS) s'arrête au diff sans acquérir ([repo](https://github.com/L3-N0X/Trackmatch)).
-- ⚠️ **Risque plateforme** : Spotify a durci l'accès Web API (vague de restrictions, fév. 2026 — [Headphonesty](https://www.headphonesty.com/2026/02/spotify-crackdown-thousands-third-party-music-apps/)) ; **mais la lecture basique de playlists (le scope de Syncbox) reste disponible**. Minimiser la dépendance aux endpoints sensibles.
-- **Scores** : Util 5 · Audience 4 · Complément 5 · Diff 4 · Effort 3 · Risque 3 → **Global : ÉLEVÉ**.
-- **Verdict : GARDER** (OAuth PKCE only, D3). Ne dépend d'aucun endpoint déprécié.
+### F1 — Spotify Playlist Sync (Permanent Sources + Default MyTags)
+`library.py:45-263`, `stores/library.ts`, `event_import.py`. Follow a Spotify playlist, track-level diffing (new/matched/ready/imported/missing/removed), source MyTag inheritance on import.
+- **Utility / personas**: core intake flow. P1 (mobile, client playlists), P6 (productions/edits), somewhat P2/P3.
+- **Redundancy vs native**: **strong complement.** Native Spotify = streaming-only, no collection import, no source-based auto-tagging ([rekordbox.com](https://rekordbox.com/en/2025/09/rekordbox-for-mac-win-spotify-support/)). Native has **no** notion of “follow a playlist and materialize it into tagged files”.
+- **Vs competitors**: Lexicon **Track Matcher** is metadata/fuzzy-only, **without ISRC and without download** ([manual](https://www.lexicondj.com/manual/track-matcher)); Music Library Doctor does a similar Spotify→crate import but is paid ([site](https://musiclibrarydoctor.com/)); Trackmatch (OSS) stops at diffing without acquisition ([repo](https://github.com/L3-N0X/Trackmatch)).
+- ⚠️ **Platform risk**: Spotify tightened Web API access (restriction wave, Feb. 2026 — [Headphonesty](https://www.headphonesty.com/2026/02/spotify-crackdown-thousands-third-party-music-apps/)); **but basic playlist reading (Syncbox’s scope) remains available**. Minimize dependency on sensitive endpoints.
+- **Scores**: Utility 5 · Audience 4 · Complement 5 · Diff 4 · Effort 3 · Risk 3 → **Global: HIGH**.
+- **Verdict: KEEP** (OAuth PKCE only, D3). Depends on no deprecated endpoint.
 
-### F2 — Matching Spotify → Rekordbox (ISRC exact puis fuzzy)
-`matching.py:27-132`. ISRC d'abord (confiance 100), puis fuzzy `title*0.52+artist*0.36+duration*0.12`, seuil 82, flag `ambiguous`.
-- **Utilité / personas** : moteur transversal (sync, events, dedup, missing). Tous personas.
-- **Redondance vs natif** : **aucun équivalent natif.** Complément total.
-- **Vs concurrents** : l'**ISRC-first** est un vrai edge — Lexicon Track Matcher est fuzzy-only ([manual](https://www.lexicondj.com/manual/track-matcher)). OneTagger fait de l'ISRC-first matching mais écrit des tags de fichier, pas dans master.db ([repo](https://github.com/Marekkon5/onetagger)).
-- **Scores** : Util 5 · Audience 5 · Complément 5 · Diff 5 · Effort 3 · Risque 4 → **Global : TRÈS ÉLEVÉ** (joyau, à préserver tel quel + D19 normalisation unifiée).
-- **Verdict : GARDER.**
+### F2 — Spotify → Rekordbox Matching (Exact ISRC then Fuzzy)
+`matching.py:27-132`. ISRC first (confidence 100), then fuzzy `title*0.52+artist*0.36+duration*0.12`, threshold 82, `ambiguous` flag.
+- **Utility / personas**: cross-cutting engine (sync, events, dedup, missing). All personas.
+- **Redundancy vs native**: **no native equivalent.** Total complement.
+- **Vs competitors**: **ISRC-first** is a real edge — Lexicon Track Matcher is fuzzy-only ([manual](https://www.lexicondj.com/manual/track-matcher)). OneTagger does ISRC-first matching but writes file tags, not master.db ([repo](https://github.com/Marekkon5/onetagger)).
+- **Scores**: Utility 5 · Audience 5 · Complement 5 · Diff 5 · Effort 3 · Risk 4 → **Global: VERY HIGH** (gem, preserve as-is + D19 unified normalization).
+- **Verdict: KEEP.**
 
-### F3 — Acquisition / téléchargement (Deezer + Deemix → **streamrip**)
-`acquisition.py`, `collection_acquisition.py`, `electron/deemix.ts`. Résolution Deezer (ISRC puis recherche, seuils 85/70), pilotage Deemix `:6595`, jobs SSE.
-- **Utilité / personas** : forte valeur d'usage (Spotify→fichier jouable), surtout P1. **Mais** : les pros (P2/P5) achètent en lossless ; zone légale grise.
-- **Redondance vs natif** : **complément** (le natif ne télécharge pas).
-- ⚠️ **Faisabilité (recherche, critique)** : **deemix se meurt en 2026** — Deezer a changé son API/login, les ARL échouent souvent, et Deezer mène une **campagne DMCA active contre les downloaders ARL** ([TorrentFreak](https://torrentfreak.com/deezer-targets-pirate-apps-maliciously-retrieving-publishing-encryption-keys-210212/)). **streamrip** est mieux maintenu, multi-services (Qobuz/Tidal/Deezer/SoundCloud), avec dedup d'historique ([repo](https://github.com/nathom/streamrip)).
-- **Vs concurrents** : DJ.Studio « legalize » fait l'achat Beatport puis remplace la version streaming ([help.dj.studio](https://help.dj.studio/en/articles/12332505-beatport-beatsource-streaming-vs-shop-in-dj-studio)) ; Lexicon Beatport auto-replace ([manual](https://www.lexicondj.com/manual/beatport-integration)). Le chemin **légal ISRC→achat** est sous-exploité et propre côté ToS (Beatport API v4 — [docs](https://api.beatport.com/v4/docs/)).
-- **Scores** : Util 4 · Audience 3 · Complément 5 · Diff 4 · Effort 2 · Risque 1 → **Global : MITIGÉ** (forte valeur, fort risque).
-- **Verdict : CHANGER.** Module **optionnel, OFF par défaut**, moteur **streamrip** ; ajouter le **Track Matcher légal** (lister les manquants + liens d'achat ISRC) comme alternative mise en avant. Lire le vrai chemin de sortie du downloader (D18), retirer les globals process (F3-spec).
+### F3 — Acquisition / Downloading (Deezer + Deemix → **streamrip**)
+`acquisition.py`, `collection_acquisition.py`, `electron/deemix.ts`. Deezer resolution (ISRC then search, thresholds 85/70), Deemix `:6595` control, SSE jobs.
+- **Utility / personas**: high usage value (Spotify→playable file), especially P1. **But**: pros (P2/P5) buy lossless; legal gray zone.
+- **Redundancy vs native**: **complement** (native does not download).
+- ⚠️ **Feasibility (research, critique)**: **deemix is dying in 2026** — Deezer changed its API/login, ARLs often fail, and Deezer is running an **active DMCA campaign against ARL downloaders** ([TorrentFreak](https://torrentfreak.com/deezer-targets-pirate-apps-maliciously-retrieving-publishing-encryption-keys-210212/)). **streamrip** is better maintained, multi-service (Qobuz/Tidal/Deezer/SoundCloud), with history dedup ([repo](https://github.com/nathom/streamrip)).
+- **Vs competitors**: DJ.Studio “legalize” does the Beatport purchase then replaces the streaming version ([help.dj.studio](https://help.dj.studio/en/articles/12332505-beatport-beatsource-streaming-vs-shop-in-dj-studio)); Lexicon Beatport auto-replace ([manual](https://www.lexicondj.com/manual/beatport-integration)). The **legal ISRC→purchase** path is under-exploited and clean with respect to ToS (Beatport API v4 — [docs](https://api.beatport.com/v4/docs/)).
+- **Scores**: Utility 4 · Audience 3 · Complement 5 · Diff 4 · Effort 2 · Risk 1 → **Global: MIXED** (high value, high risk).
+- **Verdict: CHANGE.** **Optional module, OFF by default**, **streamrip** engine; add the **legal Track Matcher** (list missing tracks + ISRC purchase links) as the highlighted alternative. Read the downloader’s real output path (D18), remove process globals (F3-spec).
 
-### F4 — Events (sets DJ temporaires + smart playlist + MyTag)
-`event_import.py`, `EventWorkspace.vue`. Création 3 modes, staging, apply qui crée un **smart playlist Rekordbox natif** + un MyTag d'event (catégorie « Situation »).
-- **Utilité / personas** : P1 surtout (une soirée = un event), un peu P2.
-- **Redondance vs natif** : **complément.** Le smart playlist natif existe ([deejayplaza](https://www.deejayplaza.com/en/articles/rekordbox-intelligent-playlist)) — et Syncbox **l'émet** plutôt que de le réimplémenter (bon réflexe). La valeur Syncbox = scaffolding playlist Spotify → event → tags + smart playlist auto.
-- **Vs concurrents** : DJ.Studio prépare des sets et écrit dans Rekordbox, mais c'est un set-builder payant ([dj.studio](https://dj.studio/automix)).
-- **Scores** : Util 4 · Audience 3 · Complément 4 · Diff 3 · Effort 3 · Risque 3 → **Global : MOYEN-ÉLEVÉ**.
-- **Verdict : GARDER-MAIS-SIMPLIFIER.** Retirer **Live Import M3U8** (D10), gater le delete sur `mutationAllowed` (D23), aperçu exact avant suppression (D11).
+### F4 — Events (Temporary DJ Sets + Smart Playlist + MyTag)
+`event_import.py`, `EventWorkspace.vue`. 3-mode creation, staging, apply creates a **native Rekordbox smart playlist** + an event MyTag (“Situation” category).
+- **Utility / personas**: mostly P1 (one party = one event), somewhat P2.
+- **Redundancy vs native**: **complement.** Native smart playlists exist ([deejayplaza](https://www.deejayplaza.com/en/articles/rekordbox-intelligent-playlist)) — and Syncbox **emits** one instead of reimplementing it (good instinct). Syncbox value = Spotify playlist → event → tags + auto smart playlist scaffolding.
+- **Vs competitors**: DJ.Studio prepares sets and writes into Rekordbox, but it is a paid set builder ([dj.studio](https://dj.studio/automix)).
+- **Scores**: Utility 4 · Audience 3 · Complement 4 · Diff 3 · Effort 3 · Risk 3 → **Global: MEDIUM-HIGH**.
+- **Verdict: KEEP-BUT-SIMPLIFY.** Remove **Live Import M3U8** (D10), gate delete on `mutationAllowed` (D23), exact preview before deletion (D11).
 
-### F5 — Duplicates (ISRC + fuzzy, keeper, soft-delete)
+### F5 — Duplicates (ISRC + Fuzzy, Keeper, Soft-Delete)
 `dedup.py`, `adapter.py:1197-1279`, `DuplicatesView.vue`.
-- **Utilité / personas** : **douleur n°1**, tous personas, surtout P3.
-- **Redondance vs natif** : **complément fort.** Le dedup natif = taper « duplicate » dans la barre de recherche (titre-string, manuel, sans empreinte, sans auto-delete — [source](https://www.clonefileschecker.com/blog/how-to-remove-duplicate-songs-on-rekordbox-software-playlist/)).
-- **Vs concurrents** : Lexicon « Find Duplicates » et RCT utilisent l'**empreinte audio** (cross-format) que Syncbox **n'a pas** ([Lexicon manual](https://www.lexicondj.com/manual/find-duplicates), [RCT](https://atgr-production-team.sellfy.store/p/rct/)) ; l'OSS koraysels/rekordbox-library-fixer aussi ([repo](https://github.com/koraysels/rekordbox-library-fixer)). C'est le **gap de différenciation** → on ajoute Chromaprint (cf. C-B).
-- **Scores** : Util 5 · Audience 5 · Complément 5 · Diff 3 (→4 avec empreinte) · Effort 3 · Risque 3 → **Global : ÉLEVÉ**.
-- **Verdict : GARDER + CHANGER keeper (D5/D6) + AJOUTER couche empreinte.**
+- **Utility / personas**: **#1 pain point**, all personas, especially P3.
+- **Redundancy vs native**: **strong complement.** Native dedup = type “duplicate” in the search bar (title-string, manual, no fingerprint, no auto-delete — [source](https://www.clonefileschecker.com/blog/how-to-remove-duplicate-songs-on-rekordbox-software-playlist/)).
+- **Vs competitors**: Lexicon “Find Duplicates” and RCT use **audio fingerprints** (cross-format), which Syncbox **does not have** ([Lexicon manual](https://www.lexicondj.com/manual/find-duplicates), [RCT](https://atgr-production-team.sellfy.store/p/rct/)); OSS koraysels/rekordbox-library-fixer does too ([repo](https://github.com/koraysels/rekordbox-library-fixer)). This is the **differentiation gap** → add Chromaprint (see C-B).
+- **Scores**: Utility 5 · Audience 5 · Complement 5 · Diff 3 (→4 with fingerprint) · Effort 3 · Risk 3 → **Global: HIGH**.
+- **Verdict: KEEP + CHANGE keeper (D5/D6) + ADD fingerprint layer.**
 
-### F6 — Missing Files (relink / redownload / remove)
+### F6 — Missing Files (Relink / Redownload / Remove)
 `maintenance.py`, `adapter.py:1027-1195`.
-- **Utilité / personas** : douleur majeure (déplacement de disque), P3/P5.
-- **Redondance vs natif** : **complément partiel.** Le Relocate natif existe mais est **filename-only et abandonne sur les homonymes** ([FAQ](https://rekordbox.com/en/support/faq/v6/) ; confirmé par le comportement de [rekordbox-repair](https://github.com/edkennard/rekordbox-repair)). Le scoring ISRC/nom de Syncbox est meilleur.
-- **Vs concurrents** : Lexicon « Find Lost Tracks », RCT relocate, rekordbox-repair (OSS, refuse les matchs ambigus — bon principe à conserver).
-- ⚠️ Bug B1 (redownload prend le 1er hit sans seuil) → **D14**.
-- **Scores** : Util 5 · Audience 5 · Complément 4 · Diff 3 · Effort 3 · Risque 3 → **Global : ÉLEVÉ**.
-- **Verdict : GARDER-MAIS-CORRIGER** (seuils + ambiguous comme le flux event).
+- **Utility / personas**: major pain point (drive move), P3/P5.
+- **Redundancy vs native**: **partial complement.** Native Relocate exists but is **filename-only and gives up on homonyms** ([FAQ](https://rekordbox.com/en/support/faq/v6/); confirmed by [rekordbox-repair](https://github.com/edkennard/rekordbox-repair) behavior). Syncbox’s ISRC/name scoring is better.
+- **Vs competitors**: Lexicon “Find Lost Tracks”, RCT relocate, rekordbox-repair (OSS, refuses ambiguous matches — good principle to keep).
+- ⚠️ Bug B1 (redownload takes the first hit without threshold) → **D14**.
+- **Scores**: Utility 5 · Audience 5 · Complement 4 · Diff 3 · Effort 3 · Risk 3 → **Global: HIGH**.
+- **Verdict: KEEP-BUT-FIX** (thresholds + ambiguous like the event flow).
 
-### F7 — Untagged (diagnostic 4 catégories)
+### F7 — Untagged (4-Category Diagnostic)
 `maintenance.py`, `adapter.py:561-647`. junk / dup_of_tagged / alt_version / review.
-- **Utilité / personas** : hygiène de métadonnées, P3/P6.
-- **Redondance vs natif** : **aucun équivalent natif** → complément total.
-- **Vs concurrents** : adjacent à librarydojo/Sensei (suggestions de smart playlists/tags pour Rekordbox — [librarydojo](https://librarydojo.com/)) et Choon (auto-tag IA → MyTags — [choon.app](https://choon.app/)), mais ceux-ci sont des suggesteurs IA payants ; Syncbox = diagnostic déterministe.
-- ⚠️ Heuristiques junk **personnelles/françaises** (`discours`, `psg`, `bereal`…) + bug artiste 1-token (B5) + regex `feat` greedy (B7) → **D7**.
-- **Scores** : Util 4 · Audience 4 · Complément 5 · Diff 4 · Effort 3 · Risque 2 → **Global : ÉLEVÉ**.
-- **Verdict : GARDER-MAIS-CORRIGER.** Règles **structurelles universelles** (stub `spotify:track:`, titre vide, artiste `rekordbox`) **+ motifs configurables par l'utilisateur** ; corriger B5/B7.
+- **Utility / personas**: metadata hygiene, P3/P6.
+- **Redundancy vs native**: **no native equivalent** → total complement.
+- **Vs competitors**: adjacent to librarydojo/Sensei (smart playlist/tag suggestions for Rekordbox — [librarydojo](https://librarydojo.com/)) and Choon (AI auto-tag → MyTags — [choon.app](https://choon.app/)), but those are paid AI suggesters; Syncbox = deterministic diagnostic.
+- ⚠️ **Personal/French** junk heuristics (`discours`, `psg`, `bereal`…) + 1-token artist bug (B5) + greedy `feat` regex (B7) → **D7**.
+- **Scores**: Utility 4 · Audience 4 · Complement 5 · Diff 4 · Effort 3 · Risk 2 → **Global: HIGH**.
+- **Verdict: KEEP-BUT-FIX.** **Universal structural** rules (stub `spotify:track:`, empty title, artist `rekordbox`) **+ user-configurable patterns**; fix B5/B7.
 
-### F8 — Sûreté & Backup (garde RB, backup avant mutation, soft-delete, restore)
+### F8 — Safety & Backup (RB Guard, Backup Before Mutation, Soft-Delete, Restore)
 `safety.py:20-80`, `adapter.py:171-318,505-534`, `DoctorView.vue`.
-- **Utilité / personas** : **invariant + joyau.** Adresse la **peur n°1** (base corrompue / cues perdus — fils Pioneer forum récurrents : [exemple](https://community.pioneerdj.com/hc/en-us/community/posts/22979193547545)). Tous personas, surtout P4/P5.
-- **Redondance vs natif** : **complément fort.** Le Backup Library natif est **manuel, grossier (tout master.db), et destructif à la restauration** ([deejayplaza](https://www.deejayplaza.com/en/articles/rekordbox-backup)). Syncbox = automatique, horodaté, avant **chaque** mutation, rotation N, soft-delete réversible, restore réversible.
-- **Vs concurrents** : la sauvegarde DB de Lexicon est **cloud et payante (Ultimate $399)** ([features](https://www.lexicondj.com/features)) ; le local versionné de Syncbox est sans doute **plus sûr et plus granulaire** pour l'usager Rekordbox. **C'est l'application directe de la décision « offrir gratuitement l'équivalent Pro ».**
-- ⚠️ Voir correction §2.3-4 : cues aussi dans ANLZ — vérifier la complétude du backup en Phase 2.
-- **Scores** : Util 5 · Audience 5 · Complément 5 · Diff 4 · Effort 3 · Risque 4 → **Global : TRÈS ÉLEVÉ**.
-- **Verdict : GARDER** (étendre la suppression de fichiers à la **corbeille OS** D12 ; couvrir ANLZ).
+- **Utility / personas**: **invariant + gem.** Addresses the **#1 fear** (corrupted database / lost cues — recurring Pioneer forum threads: [example](https://community.pioneerdj.com/hc/en-us/community/posts/22979193547545)). All personas, especially P4/P5.
+- **Redundancy vs native**: **strong complement.** Native Backup Library is **manual, coarse (whole master.db), and destructive on restore** ([deejayplaza](https://www.deejayplaza.com/en/articles/rekordbox-backup)). Syncbox = automatic, timestamped, before **every** mutation, N rotation, reversible soft-delete, reversible restore.
+- **Vs competitors**: Lexicon DB backup is **cloud and paid (Ultimate $399)** ([features](https://www.lexicondj.com/features)); Syncbox’s local versioning is probably **safer and more granular** for the Rekordbox user. **This is the direct application of the decision “offer the Pro equivalent for free”.**
+- ⚠️ See correction §2.3-4: cues also in ANLZ — verify backup completeness in Phase 2.
+- **Scores**: Utility 5 · Audience 5 · Complement 5 · Diff 4 · Effort 3 · Risk 4 → **Global: VERY HIGH**.
+- **Verdict: KEEP** (extend file deletion to **OS trash** D12; cover ANLZ).
 
-### F9 — Doctor (diagnostics + gestion backups + logs)
+### F9 — Doctor (Diagnostics + Backup Management + Logs)
 `diagnostics.py`, `DoctorView.vue`.
-- **Redondance vs natif** : complément (le natif n'a pas de centre de diagnostic).
-- **Scores** : Util 3 · Audience 4 · Complément 4 · Diff 2 · Effort 4 · Risque 4 → **Global : MOYEN**.
-- **Verdict : GARDER** + opportunité d'y loger des **analytics de collection** très bon marché (orphelins, jamais joués — cf. C-F, SHOULD).
+- **Redundancy vs native**: complement (native has no diagnostic center).
+- **Scores**: Utility 3 · Audience 4 · Complement 4 · Diff 2 · Effort 4 · Risk 4 → **Global: MEDIUM**.
+- **Verdict: KEEP** + opportunity to host very cheap **collection analytics** (orphans, never played — see C-F, SHOULD).
 
-### F10 — Settings + i18n FR/EN
+### F10 — Settings + FR/EN i18n
 `SettingsView.vue`, `i18n/index.ts:21-63`.
-- **Redondance** : n/a (infra). **Audience 5.**
-- **Scores** : Util 3 · Audience 5 · Complément n/a · Diff 1 · Effort 4 · Risque 4 → **Global : MOYEN** (mais nécessaire).
-- **Verdict : GARDER** (i18n D13). **Généralisation obligatoire** : retirer les chemins codés en dur (`config.py:15-19`, D1), valider tous les chemins (F15).
+- **Redundancy**: n/a (infra). **Audience 5.**
+- **Scores**: Utility 3 · Audience 5 · Complement n/a · Diff 1 · Effort 4 · Risk 4 → **Global: MEDIUM** (but necessary).
+- **Verdict: KEEP** (i18n D13). **Mandatory generalization**: remove hardcoded paths (`config.py:15-19`, D1), validate all paths (F15).
 
-### F11 — Features mortes / vestigiales (déjà actées)
-| Feature | Emplacement | Score | Verdict |
+### F11 — Dead / Vestigial Features (Already Decided)
+| Feature | Location | Score | Verdict |
 |---|---|---|---|
-| **Live Import M3U8** | `live_import.py`, `EventsView.vue:66-125` | Audience 1 · Complément 2 | **RETIRER** (D10) — contourne la garde RB, source de B12 |
-| **`tag_rules` (table legacy)** | `repositories/tags.py`, `library.ts:23` | superseded | **RETIRER** (D9) — cause de B4 (seed qui réverte les éditions) |
-| **Script CLI `cleanup_rekordbox.py`** | `service/scripts/` | redondant | **RETIRER** (D8) — couvert par Duplicates + Untagged |
-| **Auto-update electron-updater** | dormant, `DISTRIBUTION.md:119-126` | — | **RETIRER** (D24, cohérent mémoire `no-auto-build-release`) |
-| **`event_playlists`, `ProposalType.*_to_spotify`, tons StatusBadge** | divers | morts | **RETIRER** (D25) après confirmation d'absence de consommateur |
+| **Live Import M3U8** | `live_import.py`, `EventsView.vue:66-125` | Audience 1 · Complement 2 | **REMOVE** (D10) — bypasses RB guard, source of B12 |
+| **`tag_rules` (legacy table)** | `repositories/tags.py`, `library.ts:23` | superseded | **REMOVE** (D9) — cause of B4 (seed that reverts edits) |
+| **CLI script `cleanup_rekordbox.py`** | `service/scripts/` | redundant | **REMOVE** (D8) — covered by Duplicates + Untagged |
+| **electron-updater auto-update** | dormant, `DISTRIBUTION.md:119-126` | — | **REMOVE** (D24, consistent with memory `no-auto-build-release`) |
+| **`event_playlists`, `ProposalType.*_to_spotify`, StatusBadge tones** | various | dead | **REMOVE** (D25) after confirming no consumer exists |
 
-### 3.bis — Classement des features existantes (de la plus à la moins justifiée)
+### 3.bis — Ranking of Existing Features (Most to Least Justified)
 
-1. **F8 Sûreté/Backup** (TRÈS ÉLEVÉ) — invariant + joyau + adresse la peur n°1, gratuit là où le concurrent est payant.
-2. **F2 Match ISRC+fuzzy** (TRÈS ÉLEVÉ) — moteur transversal, edge ISRC unique.
-3. **F5 Duplicates** (ÉLEVÉ) — douleur n°1 du marché.
-4. **F1 Spotify sync** (ÉLEVÉ) — la lacune que le natif ne comblera jamais.
-5. **F6 Missing Files** (ÉLEVÉ) — douleur majeure, edge scoring vs natif filename-only.
-6. **F7 Untagged** (ÉLEVÉ) — diagnostic unique, à dépersonnaliser.
-7. **F4 Events** (MOYEN-ÉLEVÉ) — niche P1, à simplifier.
-8. **F3 Acquisition** (MITIGÉ) — forte valeur, fort risque → optionnel/streamrip/légal.
-9. **F9 Doctor** (MOYEN) — utile, peu différenciant.
-10. **F10 Settings/i18n** (MOYEN) — nécessaire, à généraliser.
-11. **F11 morts** — RETIRER.
+1. **F8 Safety/Backup** (VERY HIGH) — invariant + gem + addresses #1 fear, free where competitor is paid.
+2. **F2 ISRC+fuzzy Match** (VERY HIGH) — cross-cutting engine, unique ISRC edge.
+3. **F5 Duplicates** (HIGH) — market’s #1 pain point.
+4. **F1 Spotify sync** (HIGH) — the gap native will never fill.
+5. **F6 Missing Files** (HIGH) — major pain point, scoring edge vs native filename-only.
+6. **F7 Untagged** (HIGH) — unique diagnostic, needs depersonalization.
+7. **F4 Events** (MEDIUM-HIGH) — P1 niche, simplify.
+8. **F3 Acquisition** (MIXED) — high value, high risk → optional/streamrip/legal.
+9. **F9 Doctor** (MEDIUM) — useful, little differentiation.
+10. **F10 Settings/i18n** (MEDIUM) — necessary, generalize.
+11. **F11 dead** — REMOVE.
 
 ---
 
-## 4. Carte de redondance vs Rekordbox natif (et concurrents)
+## 4. Redundancy Map vs Native Rekordbox (and Competitors)
 
-> `complément` = comble une lacune · `partiel` = recouvre en partie · `total` = doublon d'une fonction native gratuite (⇒ ne pas refaire). Sources : [rekordbox.com/feature](https://rekordbox.com/en/feature/overview/), [/plan](https://rekordbox.com/en/plan/), [/cloud](https://rekordbox.com/en/feature/cloud/), DJ press.
+> `complement` = fills a gap · `partial` = partly overlaps · `total` = duplicate of a free native feature (⇒ do not rebuild). Sources: [rekordbox.com/feature](https://rekordbox.com/en/feature/overview/), [/plan](https://rekordbox.com/en/plan/), [/cloud](https://rekordbox.com/en/feature/cloud/), DJ press.
 
-| Capacité native | Gratuit ? | Qualité native | Feature Syncbox concernée | Verdict redondance |
+| Native capability | Free? | Native quality | Related Syncbox feature | Redundancy verdict |
 |---|---|---|---|---|
-| **My Tag** (4 groupes fixes) | ✅ free | Complet mais **manuel**, pas d'auto-tag depuis source | F1/F4/F7 (écrit *dans* My Tag) | **complément** (auto-application) |
-| **Smart/Intelligent Playlists** | ✅ free | Très complet, auto-régénéré | F4 (émet un smart playlist natif) | **complément** (on émet, on ne refait pas) |
-| **Analyse BPM/key/beatgrid/cues** | ✅ free | Le moteur natif possède le terrain | (aucune — on ne fait PAS d'analyse) | **total — ne pas construire** |
-| **Auto hot/memory cues** | ✅ free | IA native | (auto-cues écartés) | **total — ne pas construire** |
-| **Recherche de doublons** | ✅ free | **Rudimentaire** (titre-string, manuel, pas d'empreinte) | F5 Duplicates | **complément fort** |
-| **Relocate / Auto Relocate** | ✅ free | **Filename-only**, abandonne sur homonymes | F6 Missing Files | **complément partiel** |
-| **Backup Library** | ✅ free | **Manuel, grossier, restore destructif** | F8 Sûreté/Backup | **complément fort** |
-| **Cloud Library Sync / CloudDirectPlay** | ❌ **payant** (Pro/cloud ; Core/Creative nouvelles souscriptions **suspendues** depuis mars 2025 — [correction recherche](https://www.digitaldjtips.com/rekordbox-subs-return-but-youll-pay-more-for-now-at-least/)) | Réplication multi-device cloud | (aucune — Syncbox est local-first) | **n/a** (on ne concurrence pas le cloud) |
-| **Collection Auto Upload / Device Library Backup** | ❌ payant (Professional) | Backup cloud | F8 (mais local) | **n/a / complément local** |
-| **Spotify intégré (sept. 2025)** | ❌ Premium | **Streaming-only** : pas de download/offline/USB/import | F1 Spotify sync | **complément** (le cœur du positionnement) |
-| **Beatport streaming natif** | ❌ payant | Play-only, **pas d'export USB**, cache chiffré | F3 (chemin légal) | boundary légal |
-| **Traffic Light / Related Tracks / Radar** | free/freemium | Aides perf/découverte | (hors périmètre) | n/a |
+| **My Tag** (4 fixed groups) | ✅ free | Complete but **manual**, no source-based auto-tag | F1/F4/F7 (writes *into* My Tag) | **complement** (auto-application) |
+| **Smart/Intelligent Playlists** | ✅ free | Very complete, auto-regenerated | F4 (emits a native smart playlist) | **complement** (we emit, we do not rebuild) |
+| **BPM/key/beatgrid/cue analysis** | ✅ free | Native engine owns this territory | (none — we do NOT analyze) | **total — do not build** |
+| **Auto hot/memory cues** | ✅ free | Native AI | (auto-cues ruled out) | **total — do not build** |
+| **Duplicate search** | ✅ free | **Rudimentary** (title-string, manual, no fingerprint) | F5 Duplicates | **strong complement** |
+| **Relocate / Auto Relocate** | ✅ free | **Filename-only**, gives up on homonyms | F6 Missing Files | **partial complement** |
+| **Backup Library** | ✅ free | **Manual, coarse, destructive restore** | F8 Safety/Backup | **strong complement** |
+| **Cloud Library Sync / CloudDirectPlay** | ❌ **paid** (Pro/cloud; Core/Creative new subscriptions **suspended** since March 2025 — [research correction](https://www.digitaldjtips.com/rekordbox-subs-return-but-youll-pay-more-for-now-at-least/)) | Multi-device cloud replication | (none — Syncbox is local-first) | **n/a** (we do not compete with cloud) |
+| **Collection Auto Upload / Device Library Backup** | ❌ paid (Professional) | Cloud backup | F8 (but local) | **n/a / local complement** |
+| **Integrated Spotify (Sept. 2025)** | ❌ Premium | **Streaming-only**: no download/offline/USB/import | F1 Spotify sync | **complement** (positioning core) |
+| **Native Beatport streaming** | ❌ paid | Play-only, **no USB export**, encrypted cache | F3 (legal path) | legal boundary |
+| **Traffic Light / Related Tracks / Radar** | free/freemium | Performance/discovery aids | (out of scope) | n/a |
 
-**Anchor de positionnement** : tout ce que Syncbox fait est soit **complément d'une fonction native gratuite mais rudimentaire** (dedup, relocate, backup), soit **comblement d'une lacune native totale** (Spotify→fichier possédé, match ISRC, untagged), soit **équivalent gratuit/local d'une fonction native payante** (backup versionné). Aucun doublon total d'une fonction native gratuite **complète**.
+**Positioning anchor**: everything Syncbox does is either a **complement to a free but rudimentary native feature** (dedup, relocate, backup), or **fills a total native gap** (Spotify→owned file, ISRC match, untagged), or is a **free/local equivalent of a paid native feature** (versioned backup). There is no total duplicate of a **complete** free native feature.
 
-**Vs concurrents (synthèse) :**
+**Vs competitors (summary):**
 
-| Concurrent | Modèle | Chevauchement | Edge de Syncbox |
+| Competitor | Model | Overlap | Syncbox edge |
 |---|---|---|---|
-| **Lexicon DJ** ([pricing](https://www.lexicondj.com/pricing)) | Free conversion ; Essential **$199 à vie / $9.99 mo** ; Ultimate **$399 / $19.99 mo** | dedup, missing, smart fixes, Track Matcher, backup — **payants** | Gratuit/OSS, local-first, **ISRC+download**, pas de cloud lock-in |
-| **Music Library Doctor** ([site](https://musiclibrarydoctor.com/)) | freemium | import Spotify, dup, missing, scoring qualité FFT | OSS, dedup empreinte + sourcing intégré |
-| **RCT (Rekordbox Collection Tool)** ([sellfy](https://atgr-production-team.sellfy.store/p/rct/)) | payant macOS | dedup empreinte + relocate + fix cloud path — **même plateforme RB 6/7** | gratuit, multi-OS, sync Spotify intégrée |
-| **koraysels/rekordbox-library-fixer** ([repo](https://github.com/koraysels/rekordbox-library-fixer)) | OSS (XML, master.db en roadmap) | dedup empreinte + relink + keeper quality | écriture master.db directe + sourcing |
-| **Choon** ([choon.app](https://choon.app/)) | freemium | auto-tag IA → MyTags (achats Bandcamp/Beatport) | sourcing Spotify + hygiène, déterministe |
-| **MIK 11 / Pro** ([shop](https://shop.mixedinkey.com/)) | **$58 / $99** one-time | key + energy + 8 cues | n/a (Syncbox **ne fait pas** d'analyse — lit MIK/RB) |
-| **SetFlow / DJ.Studio / Mixgraph** | abos cheap → perpétuel | set-prep harmonique | **hors périmètre** (écarté §8) |
+| **Lexicon DJ** ([pricing](https://www.lexicondj.com/pricing)) | Free conversion; Essential **$199 lifetime / $9.99 mo**; Ultimate **$399 / $19.99 mo** | dedup, missing, smart fixes, Track Matcher, backup — **paid** | Free/OSS, local-first, **ISRC+download**, no cloud lock-in |
+| **Music Library Doctor** ([site](https://musiclibrarydoctor.com/)) | freemium | Spotify import, dup, missing, FFT quality scoring | OSS, fingerprint dedup + integrated sourcing |
+| **RCT (Rekordbox Collection Tool)** ([sellfy](https://atgr-production-team.sellfy.store/p/rct/)) | paid macOS | fingerprint dedup + relocate + cloud path fix — **same RB 6/7 platform** | free, multi-OS, integrated Spotify sync |
+| **koraysels/rekordbox-library-fixer** ([repo](https://github.com/koraysels/rekordbox-library-fixer)) | OSS (XML, master.db on roadmap) | fingerprint dedup + relink + quality keeper | direct master.db write + sourcing |
+| **Choon** ([choon.app](https://choon.app/)) | freemium | AI auto-tag → MyTags (Bandcamp/Beatport purchases) | Spotify sourcing + hygiene, deterministic |
+| **MIK 11 / Pro** ([shop](https://shop.mixedinkey.com/)) | **$58 / $99** one-time | key + energy + 8 cues | n/a (Syncbox **does not** analyze — reads MIK/RB) |
+| **SetFlow / DJ.Studio / Mixgraph** | cheap subscriptions → perpetual | harmonic set prep | **out of scope** (ruled out §8) |
 
 ---
 
-## 5. Catalogue des features candidates (recherche web/GitHub approfondie)
+## 5. Candidate Feature Catalog (In-Depth Web/GitHub Research)
 
-> Issu des 8 clusters de recherche. Chaque candidate : description, qui la fait déjà (URL), personas, pertinence Syncbox. Le scoring/priorisation est en §6. ⚠️ signale un fait de faisabilité critique.
+> From the 8 research clusters. Each candidate: description, who already does it (URL), personas, Syncbox relevance. Scoring/prioritization is in §6. ⚠️ flags a critical feasibility fact.
 
-### A. Hygiène de bibliothèque avancée
-- **A1 — Smart Fixes / nettoyage métadonnées en masse.** Extraire artiste/remixer du titre, corriger la casse, retirer caractères/URL parasites, fixer l'encodage. Fait par **Lexicon Smart Fixes** ([features](https://www.lexicondj.com/features)). **Améliore aussi la précision du matching fuzzy de Syncbox.** Personas P3/P6/P1. Effort faible.
-- **A2 — Dedup par empreinte audio (Chromaprint/AcoustID).** Attrape les doublons que ISRC+fuzzy rate (ré-encodages, rips différents, ISRC absent/pourri). Fait par Lexicon, RCT, koraysels ; brique OSS = **Chromaprint/pyacoustid** ([repo](https://github.com/acoustid/chromaprint)), comme dans **beets** ([repo](https://github.com/beetbox/beets)) et Mixxx. Personas P3/P5. Comparaison locale sans réseau (vérifié). ⚠️ **CORRECTION (2026-06-16, recherche [_research/11](_research/11_Chromaprint-empreinte.md), repli SPEC-UNIFIED)** : l'affirmation initiale « KissFFT garde Chromaprint permissif » est **fausse pour les binaires `fpcalc` officiels** — ils embarquent FFmpeg statique (décodage audio) → **LGPL 2.1**, pas permissif ([LICENSE.md](https://github.com/acoustid/chromaprint/blob/master/LICENSE.md) : « as a whole … LGPL 2.1 »). KissFFT ne rend permissif qu'un build maison **sans** FFmpeg, qui perd alors le décodeur. **Décision Gate 2 : A2 différée en v2** (résiduel étroit + binaire LGPL à notariser).
-- **A3 — Détection faux-320 / faux-FLAC.** Analyse de coupure spectrale (FFT) pour repérer les bitrates mentis. Fait par **Music Library Doctor** ([site](https://musiclibrarydoctor.com/)). Hygiène qualité des fichiers téléchargés (renforce F3). Personas P2/P3.
-- **A4 — Keeper « merge » sur dedup.** Fusionner métadonnées + hot cues du perdant dans le keeper avant suppression, plutôt que jeter. Fait par RekordboxFix ([repo](https://github.com/TisTatig/RekordboxFix)). Améliore F5.
-- **A5 — Enrichissement ISRC via AcoustID→MusicBrainz** pour les tracks sans ISRC fiable (renforce match + dedup). Brique : pyacoustid + musicbrainzngs (pattern de Picard — [repo](https://github.com/metabrainz/picard)). Note : ⚠️ B6 actuel utilise à tort le tag `barcode` comme ISRC (D20).
+### A. Advanced Library Hygiene
+- **A1 — Smart Fixes / bulk metadata cleanup.** Extract artist/remixer from title, fix casing, remove junk characters/URLs, fix encoding. Done by **Lexicon Smart Fixes** ([features](https://www.lexicondj.com/features)). **Also improves Syncbox fuzzy matching accuracy.** Personas P3/P6/P1. Low effort.
+- **A2 — Audio fingerprint dedup (Chromaprint/AcoustID).** Catches duplicates that ISRC+fuzzy misses (re-encodes, different rips, absent/bad ISRC). Done by Lexicon, RCT, koraysels; OSS building block = **Chromaprint/pyacoustid** ([repo](https://github.com/acoustid/chromaprint)), as in **beets** ([repo](https://github.com/beetbox/beets)) and Mixxx. Personas P3/P5. Local comparison without network (verified). ⚠️ **CORRECTION (2026-06-16, research [_research/11](_research/11_Chromaprint-empreinte.md), folded into SPEC-UNIFIED)**: the initial claim “KissFFT keeps Chromaprint permissive” is **false for official `fpcalc` binaries** — they embed static FFmpeg (audio decoding) → **LGPL 2.1**, not permissive ([LICENSE.md](https://github.com/acoustid/chromaprint/blob/master/LICENSE.md): “as a whole … LGPL 2.1”). KissFFT only makes a custom build **without** FFmpeg permissive, which then loses the decoder. **Gate 2 decision: A2 deferred to v2** (narrow residual + LGPL binary to notarize).
+- **A3 — Fake-320 / fake-FLAC detection.** Spectral cutoff analysis (FFT) to detect lying bitrates. Done by **Music Library Doctor** ([site](https://musiclibrarydoctor.com/)). Quality hygiene for downloaded files (reinforces F3). Personas P2/P3.
+- **A4 — Dedup keeper “merge”.** Merge metadata + hot cues from the loser into the keeper before deletion, instead of discarding. Done by RekordboxFix ([repo](https://github.com/TisTatig/RekordboxFix)). Improves F5.
+- **A5 — ISRC enrichment via AcoustID→MusicBrainz** for tracks without reliable ISRC (reinforces match + dedup). Building block: pyacoustid + musicbrainzngs (Picard pattern — [repo](https://github.com/metabrainz/picard)). Note: ⚠️ current B6 incorrectly uses the `barcode` tag as ISRC (D20).
 
-### B. Sourcing / acquisition
-- **B1 — Backend streamrip** (multi-services Qobuz/Tidal/Deezer/SoundCloud, dedup d'historique) en remplacement de deemix ([repo](https://github.com/nathom/streamrip)). ⚠️ **deemix se meurt** (Deezer API/ARL + DMCA — [TorrentFreak](https://torrentfreak.com/deezer-targets-pirate-apps-maliciously-retrieving-publishing-encryption-keys-210212/)).
-- **B2 — Track Matcher légal + panier d'achat ISRC.** Lister les manquants d'une playlist et générer des **liens d'achat lossless** (Beatport API v4 read-only, ToS-clean — [docs](https://api.beatport.com/v4/docs/) ; Bandcamp/Juno). Pattern « legalize » de DJ.Studio ([help](https://help.dj.studio/en/articles/12332505-beatport-beatsource-streaming-vs-shop-in-dj-studio)).
-- **B3 — Fallback YouTube (yt-dlp)** quand ISRC/Deezer échoue. spotDL/freyr le font ([spotDL](https://github.com/spotDL/spotify-downloader)). ⚠️ **lossy + gris** — dernier recours seulement.
-- **B4 — Sources SoundCloud/Bandcamp** (edits/bootlegs/prods absents des catalogues) pour P6. scdl ([repo](https://github.com/scdl-org/scdl)), Bandcamp via Choon-like.
+### B. Sourcing / Acquisition
+- **B1 — streamrip backend** (multi-service Qobuz/Tidal/Deezer/SoundCloud, history dedup) replacing deemix ([repo](https://github.com/nathom/streamrip)). ⚠️ **deemix is dying** (Deezer API/ARL + DMCA — [TorrentFreak](https://torrentfreak.com/deezer-targets-pirate-apps-maliciously-retrieving-publishing-encryption-keys-210212/)).
+- **B2 — Legal Track Matcher + ISRC purchase basket.** List missing tracks from a playlist and generate **lossless purchase links** (Beatport API v4 read-only, ToS-clean — [docs](https://api.beatport.com/v4/docs/); Bandcamp/Juno). DJ.Studio “legalize” pattern ([help](https://help.dj.studio/en/articles/12332505-beatport-beatsource-streaming-vs-shop-in-dj-studio)).
+- **B3 — YouTube fallback (yt-dlp)** when ISRC/Deezer fails. spotDL/freyr do it ([spotDL](https://github.com/spotDL/spotify-downloader)). ⚠️ **lossy + gray** — last resort only.
+- **B4 — SoundCloud/Bandcamp sources** (edits/bootlegs/productions absent from catalogs) for P6. scdl ([repo](https://github.com/scdl-org/scdl)), Bandcamp via Choon-like.
 
-### C. Préparation de set & mixage harmonique *(globalement ÉCARTÉ §8)*
-- **C1 — Ordonnancement harmonique/énergie** d'une playlist (Camelot+BPM+arc). SetFlow ([site](https://www.setflow.app/)), DJ.Studio Harmonize ([transitions](https://dj.studio/transitions)).
-- **C2 — Score de transition multi-dimensions** (harmonique/BPM/énergie/groove/mood/**vocal-fit**). Mixgraph ([how-it-works](https://www.mixgraph.io/how-it-works)).
-- **C3 — Tag de transitions** (« ces deux-là mixent bien »). Quasi inexistant ailleurs ; round-trippable en MyTags. Différenciateur niche.
-- **C4 — Crates par rôle/énergie** (warm-up/peak) + « jamais joué ». Taxonomie [DJ TechTools](https://djtechtools.com/2022/11/25/controlling-the-dancefloor-a-guide-on-organizing-playlists-by-energy/). ⚠️ Le natif a déjà les smart playlists par règles ([vibesdj](https://vibesdj.io/learn/techniques/smart-playlist-creation)).
+### C. Set Prep & Harmonic Mixing *(globally RULED OUT §8)*
+- **C1 — Harmonic/energy ordering** of a playlist (Camelot+BPM+arc). SetFlow ([site](https://www.setflow.app/)), DJ.Studio Harmonize ([transitions](https://dj.studio/transitions)).
+- **C2 — Multi-dimensional transition score** (harmonic/BPM/energy/groove/mood/**vocal-fit**). Mixgraph ([how-it-works](https://www.mixgraph.io/how-it-works)).
+- **C3 — Transition tags** (“these two mix well”). Almost nonexistent elsewhere; round-trippable in MyTags. Niche differentiator.
+- **C4 — Crates by role/energy** (warm-up/peak) + “never played”. [DJ TechTools](https://djtechtools.com/2022/11/25/controlling-the-dancefloor-a-guide-on-organizing-playlists-by-energy/) taxonomy. ⚠️ Native already has rule-based smart playlists ([vibesdj](https://vibesdj.io/learn/techniques/smart-playlist-creation)).
 
-### D. Métadonnées / analyse *(ÉCARTÉ §8 — pas d'analyse locale)*
-- **D1 — Analyse locale energy/key/has-vocals → MyTags.** Essentia ([repo](https://github.com/MTG/essentia)), libkeyfinder ([repo](https://github.com/mixxxdj/libkeyfinder)). Équivalent gratuit de MIK/Choon. ⚠️ **C'est désormais le seul chemin** : l'API `audio-features` de Spotify est **morte depuis le 27 nov. 2024** ([blog Spotify](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)) — on ne peut plus tirer energy/key de Spotify. Coût : embarquer des modèles ~centaines de Mo.
-- **D2 — ReplayGain / normalisation loudness** (tags non destructifs, rsgain — [repo](https://github.com/complexlogic/rsgain) / ffmpeg loudnorm). Lacune que Rekordbox n'expose pas en portable.
-- **D3 — Auto-cues écrits dans Rekordbox.** Génération (CUE-DETR [repo](https://github.com/ETH-DISCO/cue-detr), all-in-one, structure) + écriture. Preuves OSS : djcues ([repo](https://github.com/mcroydon/djcues)), CueGen ([repo](https://github.com/mganss/CueGen)). ⚠️ **Risque** : pyrekordbox **n'écrit pas l'ANLZ** ; cues dans master.db **ET** ANLZ ; **support RB7 non confirmé** (CueGen issue #25). `rbox` (Rust, même auteur que pyrekordbox) revendique l'écriture ANLZ — piste future ([docs.rs](https://docs.rs/rbox)).
+### D. Metadata / Analysis *(RULED OUT §8 — no local analysis)*
+- **D1 — Local energy/key/has-vocals analysis → MyTags.** Essentia ([repo](https://github.com/MTG/essentia)), libkeyfinder ([repo](https://github.com/mixxxdj/libkeyfinder)). Free equivalent of MIK/Choon. ⚠️ **This is now the only path**: Spotify’s `audio-features` API has been **dead since Nov. 27, 2024** ([Spotify blog](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)) — energy/key can no longer be pulled from Spotify. Cost: embedding models ~hundreds of MB.
+- **D2 — ReplayGain / loudness normalization** (non-destructive tags, rsgain — [repo](https://github.com/complexlogic/rsgain) / ffmpeg loudnorm). Gap Rekordbox does not expose portably.
+- **D3 — Auto-cues written into Rekordbox.** Generation (CUE-DETR [repo](https://github.com/ETH-DISCO/cue-detr), all-in-one, structure) + writing. OSS evidence: djcues ([repo](https://github.com/mcroydon/djcues)), CueGen ([repo](https://github.com/mganss/CueGen)). ⚠️ **Risk**: pyrekordbox **does not write ANLZ**; cues in master.db **AND** ANLZ; **RB7 support unconfirmed** (CueGen issue #25). `rbox` (Rust, same author as pyrekordbox) claims ANLZ writing — future path ([docs.rs](https://docs.rs/rbox)).
 
-### E. Portabilité / export *(hors périmètre cross-app, §8)*
-- **E1 — Export setlist/playlist** M3U8/CSV/HTML/PDF. Lexicon ([share](https://www.lexicondj.com/manual/share)), quickCUE ([repo](https://github.com/globalnomad/quickCUE)). Bon marché, complète Events.
-- **E2 — Validation export CDJ/USB** : signaler les fichiers injouables (32-bit float, hi-res, formats non supportés) avant export, conversion optionnelle AIFF 16-bit. rekordbox-proof-audio-conversion ([repo](https://github.com/tammohesselink/rekordbox-proof-audio-conversion)). Sert l'invariant « jouable sur CDJ ». *(Décliné v1, §8.)*
-- **E3 — Vérification d'un export USB** (parser PDB/ANLZ) pour confirmer que cues/grids ont survécu. rekordcrate ([repo](https://github.com/Holzhaus/rekordcrate)), crate-digger, [Deep Symmetry](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html).
-- **E4 — Conversion cross-app** RB↔Serato↔Engine↔Traktor. Lexicon (gratuit), DJCU (€24.50), DJ Cue Bridge (gratuit navigateur — [site](https://djcuebridge.com/)). **Hors périmètre Rekordbox-only.**
+### E. Portability / Export *(out of cross-app scope, §8)*
+- **E1 — Setlist/playlist export** M3U8/CSV/HTML/PDF. Lexicon ([share](https://www.lexicondj.com/manual/share)), quickCUE ([repo](https://github.com/globalnomad/quickCUE)). Cheap, complements Events.
+- **E2 — CDJ/USB export validation**: flag unplayable files (32-bit float, hi-res, unsupported formats) before export, optional conversion to 16-bit AIFF. rekordbox-proof-audio-conversion ([repo](https://github.com/tammohesselink/rekordbox-proof-audio-conversion)). Serves the “playable on CDJ” invariant. *(Declined v1, §8.)*
+- **E3 — USB export verification** (parse PDB/ANLZ) to confirm cues/grids survived. rekordcrate ([repo](https://github.com/Holzhaus/rekordcrate)), crate-digger, [Deep Symmetry](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html).
+- **E4 — Cross-app conversion** RB↔Serato↔Engine↔Traktor. Lexicon (free), DJCU (€24.50), DJ Cue Bridge (free browser — [site](https://djcuebridge.com/)). **Outside Rekordbox-only scope.**
 
-### F. Analytics de collection (Doctor)
-- **F1 — Tracks orphelins** (dans aucune playlist), **jamais joués** (`DJPlayCount=0`), **occurrence de playlist**, fichiers non référencés. Requêtes DB bon marché. Briques : rekordbox-mcp ([repo](https://github.com/davehenke/rekordbox-mcp), `get_unplayed_tracks`), rekordfix ([repo](https://github.com/rzuppur/rekordfix)), PRACT ([repo](https://github.com/LePopal/PRACT)).
-- **F2 — Fusion de l'historique de jeu USB** (Device Library Plus) pour un « jamais joué » fiable. pyrekordbox **lit** `exportLibrary.db` ⚠️ mais **n'écrit pas** ce format ([README](https://github.com/dylanljones/pyrekordbox)) — donc analytics en lecture seule.
+### F. Collection Analytics (Doctor)
+- **F1 — Orphan tracks** (in no playlist), **never played** (`DJPlayCount=0`), **playlist occurrence**, unreferenced files. Cheap DB queries. Building blocks: rekordbox-mcp ([repo](https://github.com/davehenke/rekordbox-mcp), `get_unplayed_tracks`), rekordfix ([repo](https://github.com/rzuppur/rekordfix)), PRACT ([repo](https://github.com/LePopal/PRACT)).
+- **F2 — USB play history merge** (Device Library Plus) for reliable “never played”. pyrekordbox **reads** `exportLibrary.db` ⚠️ but **does not write** this format ([README](https://github.com/dylanljones/pyrekordbox)) — therefore read-only analytics.
 
-### G. Angles inattendus (recherche)
-- **G1 — Identification de set enregistré → tracklist** (Shazam-like). Setlist.ID ([site](https://setlist.id/)), TrackRadar ([site](https://trackradar.ai/tools/dj-set-analyzer)). ⚠️ Dépend d'un service d'empreinte externe (ACRCloud/AudD) — mauvais fit local-first ; **intégrer plutôt que construire**.
-- **G2 — Playlists depuis logique de tags** (algèbre booléenne → smart playlist). DJ-Tools ([repo](https://github.com/a-rich/DJ-Tools)). Complète le système MyTag.
-- **G3 — Génération de smart playlists par config** (Situation→Texture→Genre). tseitz/rekordbox-smart-playlist ([repo](https://github.com/tseitz/rekordbox-smart-playlist)) — **même stack** (pyrekordbox + backup-before-write).
+### G. Unexpected Angles (Research)
+- **G1 — Recorded set identification → tracklist** (Shazam-like). Setlist.ID ([site](https://setlist.id/)), TrackRadar ([site](https://trackradar.ai/tools/dj-set-analyzer)). ⚠️ Depends on an external fingerprinting service (ACRCloud/AudD) — poor local-first fit; **integrate rather than build**.
+- **G2 — Playlists from tag logic** (Boolean algebra → smart playlist). DJ-Tools ([repo](https://github.com/a-rich/DJ-Tools)). Complements the MyTag system.
+- **G3 — Smart playlist generation by config** (Situation→Texture→Genre). tseitz/rekordbox-smart-playlist ([repo](https://github.com/tseitz/rekordbox-smart-playlist)) — **same stack** (pyrekordbox + backup-before-write).
 
 ---
 
-## 6. Scoring & priorisation des candidates
+## 6. Candidate Scoring & Prioritization
 
-> Barème §2.2. Priorité tenant compte des décisions §8.
+> Rubric §2.2. Priority accounts for decisions §8.
 
 ### MUST-ADD (v1)
-| # | Candidate | Util · Aud · Compl · Diff · Effort · Risque | Justification |
+| # | Candidate | Utility · Aud · Compl · Diff · Effort · Risk | Justification |
 |---|---|---|---|---|
-| **A2** | Dedup empreinte audio (Chromaprint) | 5·5·5·4·3·4 | Comble le gap de différenciation de F5 ; la feature que Lexicon/RCT **font payer**. Validé §8. |
-| **A1** | Smart Fixes (nettoyage métadonnées) | 4·5·4·4·4·4 | Effort faible, **améliore le matching fuzzy** de Syncbox en bonus. Validé §8. |
-| **A3** | Détection faux-320/faux-FLAC | 4·4·5·4·3·4 | Hygiène qualité unique côté OSS RB ; renforce la confiance dans F3. Validé §8. |
-| **B1** | Backend streamrip | 4·3·5·3·3·2 | deemix mourant ; robustesse + multi-sources. Validé §8. |
-| **B2** | Track Matcher légal + liens d'achat ISRC | 4·4·5·3·3·5 | Chemin **propre ToS**, élargit l'audience pro (P2/P5), désamorce le risque légal. Validé §8. |
-| **(D7)** | Règles untagged structurelles + configurables | 4·4·5·4·3·3 | Déjà acté ; transforme F7 mono-utilisateur en produit multi-DJ. |
+| **A2** | Audio fingerprint dedup (Chromaprint) | 5·5·5·4·3·4 | Fills F5’s differentiation gap; the feature Lexicon/RCT **charge for**. Validated §8. |
+| **A1** | Smart Fixes (metadata cleanup) | 4·5·4·4·4·4 | Low effort, **also improves Syncbox fuzzy matching**. Validated §8. |
+| **A3** | Fake-320/fake-FLAC detection | 4·4·5·4·3·4 | Unique quality hygiene in OSS RB space; reinforces trust in F3. Validated §8. |
+| **B1** | streamrip backend | 4·3·5·3·3·2 | deemix dying; robustness + multi-source. Validated §8. |
+| **B2** | Legal Track Matcher + ISRC purchase links | 4·4·5·3·3·5 | **ToS-clean** path, widens pro audience (P2/P5), defuses legal risk. Validated §8. |
+| **(D7)** | Structural + configurable untagged rules | 4·4·5·4·3·3 | Already decided; turns F7 from single-user to multi-DJ product. |
 
-### SHOULD-ADD (v2, sous réserve)
+### SHOULD-ADD (v2, Subject to Validation)
 | # | Candidate | Score | Justification |
 |---|---|---|---|
-| **F1** | Analytics Doctor (orphelins / jamais joués / occurrence) | 4·4·4·2·4·4 | Requêtes DB bon marché, hygiène-adjacent (pas du set-prep). N'a pas été soumis au proprio → **à valider**. |
-| **E1** | Export setlist M3U8/CSV | 3·3·3·2·5·5 | Trivial, complète Events. **À valider.** |
-| **A4** | Keeper « merge » (cues/métadonnées du perdant) | 3·3·4·3·3·3 | Améliore F5 sans nouvelle surface. |
-| **A5** | Enrichissement ISRC AcoustID→MusicBrainz | 3·4·4·3·2·3 | Renforce match+dedup ; coût modéré (réseau MusicBrainz). |
+| **F1** | Doctor analytics (orphans / never played / occurrence) | 4·4·4·2·4·4 | Cheap DB queries, hygiene-adjacent (not set prep). Not submitted to owner → **to validate**. |
+| **E1** | M3U8/CSV setlist export | 3·3·3·2·5·5 | Trivial, complements Events. **To validate.** |
+| **A4** | Keeper “merge” (loser cues/metadata) | 3·3·4·3·3·3 | Improves F5 without new surface. |
+| **A5** | AcoustID→MusicBrainz ISRC enrichment | 3·4·4·3·2·3 | Reinforces match+dedup; moderate cost (MusicBrainz network). |
 
-### NICE-TO-HAVE (plus tard)
-- **E1bis** export HTML/PDF setlist · **F2** lecture historique USB (Device Library Plus) · **G2** playlists par logique de tags · **G3** smart playlists par config · **B4** sources SoundCloud/Bandcamp pour P6.
+### NICE-TO-HAVE (Later)
+- **E1bis** HTML/PDF setlist export · **F2** USB history read (Device Library Plus) · **G2** playlists by tag logic · **G3** smart playlists by config · **B4** SoundCloud/Bandcamp sources for P6.
 
-### ÉCARTER (avec raison)
-| Candidate | Raison |
+### RULE OUT (with Reason)
+| Candidate | Reason |
 |---|---|
-| **D1** Analyse locale energy/key/vocal | **Décision proprio §8** (« pas d'analyse locale »). Objectivement : effort + poids sidecar (~centaines de Mo) ; *seul* chemin depuis la mort de l'API Spotify audio-features, mais arbitré contre. |
-| **C1/C2** Ordonnancement harmonique / score transition | **Décision proprio §8.** Terrain SetFlow/DJ.Studio/Mixgraph déjà dense ; le natif a Traffic Light/Radar. |
-| **D2** ReplayGain | **Décliné §8** (réversible : effort faible, valeur réelle — noté pour mémoire). |
-| **D3** Auto-cues | **Décliné §8** + objectivement risqué (ANLZ non writable, RB7 non confirmé). |
-| **C3** Tag de transitions | **Décliné §8** ; niche/personnel (57 % des tags sont uniques par DJ — [reallychrism](https://reallychrism.substack.com/p/the-library-changes-im-betting-on)). |
-| **E2** Validation export CDJ/USB | **Décliné §8** (réversible ; sert pourtant l'invariant — noté). |
-| **E4** Conversion cross-app | **Hors périmètre Rekordbox-only §8** ; Lexicon/DJCU couvrent bien. |
-| **G1** ID de set enregistré | Dépend d'un service d'empreinte externe → anti local-first. **Intégrer si jamais, pas construire.** |
-| Mobile / cloud sync | Hors périmètre local-first ; contrainte TCC desktop. |
-| Édition de beatgrid | **Invariant : préserver, pas éditer** ; DSP lourd ([reallychrism](https://reallychrism.substack.com/p/how-to-grid-impossible-tracks)). |
-| Streaming jouable in-app (Spotify/Beatport) | **Bloqué par les licences labels** (réservé aux partenaires RB/Serato/djay). Irréaliste pour une app tierce. |
+| **D1** Local energy/key/vocal analysis | **Owner decision §8** (“no local analysis”). Objectively: effort + sidecar weight (~hundreds of MB); the *only* path since Spotify audio-features API death, but decided against. |
+| **C1/C2** Harmonic ordering / transition score | **Owner decision §8.** SetFlow/DJ.Studio/Mixgraph territory already dense; native has Traffic Light/Radar. |
+| **D2** ReplayGain | **Declined §8** (reversible: low effort, real value — noted for record). |
+| **D3** Auto-cues | **Declined §8** + objectively risky (ANLZ not writable, RB7 unconfirmed). |
+| **C3** Transition tags | **Declined §8**; niche/personal (57% of tags are unique per DJ — [reallychrism](https://reallychrism.substack.com/p/the-library-changes-im-betting-on)). |
+| **E2** CDJ/USB export validation | **Declined §8** (reversible; nevertheless serves the invariant — noted). |
+| **E4** Cross-app conversion | **Outside Rekordbox-only scope §8**; Lexicon/DJCU cover it well. |
+| **G1** Recorded set ID | Depends on external fingerprinting service → anti local-first. **Integrate if ever, do not build.** |
+| Mobile / cloud sync | Outside local-first scope; desktop TCC constraint. |
+| Beatgrid editing | **Invariant: preserve, not edit**; heavy DSP ([reallychrism](https://reallychrism.substack.com/p/how-to-grid-impossible-tracks)). |
+| Playable in-app streaming (Spotify/Beatport) | **Blocked by label licenses** (reserved for RB/Serato/djay partners). Unrealistic for a third-party app. |
 
 ---
 
-## 7. Overhaul cible (le périmètre retenu)
+## 7. Target Overhaul (Selected Scope)
 
-### 7.1 Positionnement
-> **Syncbox — le compagnon Rekordbox gratuit et local-first qui transforme tes playlists Spotify en vrais fichiers possédés et jouables sur CDJ, et garde ta collection propre et sauvegardée — sans abonnement, sans cloud, sans MIK.**
+### 7.1 Positioning
+> **Syncbox — the free, local-first Rekordbox companion that turns your Spotify playlists into real owned files playable on CDJ, and keeps your collection clean and backed up — no subscription, no cloud, no MIK.**
 
-Deux promesses, deux preuves de complémentarité non-redondante : (1) le **sourcing** que le Spotify natif ne fera jamais (streaming-only), (2) l'**hygiène + sûreté** que le natif fait mal et que les concurrents font payer.
+Two promises, two proofs of non-redundant complementarity: (1) the **sourcing** native Spotify will never do (streaming-only), (2) the **hygiene + safety** native does poorly and competitors charge for.
 
-### 7.2 Vagues
+### 7.2 Waves
 
-**v1 — « Cœur solide » (sync + hygiène + sûreté)**
-- GARDER : F1 Spotify sync (PKCE), F2 Match ISRC+fuzzy, F4 Events (simplifié), F5 Duplicates, F6 Missing Files, F7 Untagged, F8 Sûreté/Backup, F9 Doctor, F10 Settings/i18n.
-- CORRIGER (D14–D23) : redownload seuillé, garde delete event, tags add/remove par delta, restore unignore, apply-avec-warnings, etc.
-- AJOUTER : **A2** dedup empreinte · **A1** Smart Fixes · **A3** faux-320/FLAC · **B1** streamrip · **B2** Track Matcher légal · **D7** règles untagged universelles+configurables.
-- RETIRER : F11 (Live Import, tag_rules, CLI cleanup, auto-update, champs morts).
+**v1 — “Solid Core” (sync + hygiene + safety)**
+- KEEP: F1 Spotify sync (PKCE), F2 ISRC+fuzzy Match, F4 Events (simplified), F5 Duplicates, F6 Missing Files, F7 Untagged, F8 Safety/Backup, F9 Doctor, F10 Settings/i18n.
+- FIX (D14–D23): thresholded redownload, event delete guard, tag add/remove by delta, restore unignore, apply-with-warnings, etc.
+- ADD: **A2** fingerprint dedup · **A1** Smart Fixes · **A3** fake-320/FLAC · **B1** streamrip · **B2** legal Track Matcher · **D7** universal+configurable untagged rules.
+- REMOVE: F11 (Live Import, tag_rules, CLI cleanup, auto-update, dead fields).
 
-**v2 — « Affinage hygiène » (pas de différenciation analyse)**
-- **F1** analytics Doctor (orphelins/jamais joués/occurrence) · **E1** export setlist · **A4** keeper merge · **A5** enrichissement ISRC. *(Tous à valider — §8 a écarté la couche analyse, pas l'hygiène.)*
+**v2 — “Hygiene Refinement” (no analysis differentiation)**
+- **F1** Doctor analytics (orphans/never played/occurrence) · **E1** setlist export · **A4** keeper merge · **A5** ISRC enrichment. *(All to validate — §8 ruled out the analysis layer, not hygiene.)*
 
-**Plus tard / expérimental**
-- F2 historique USB · G2/G3 playlists par tags/config · B4 SoundCloud/Bandcamp · export HTML/PDF.
+**Later / experimental**
+- F2 USB history · G2/G3 playlists by tags/config · B4 SoundCloud/Bandcamp · HTML/PDF export.
 
-### 7.3 Exclusions explicites (et pourquoi)
-Analyse locale energy/key/vocal · set-prep harmonique · ReplayGain · auto-cues · transition-tagging · conversion cross-app · validation export CDJ · mobile/cloud · édition beatgrid · streaming jouable. *(Justifs : §6 ÉCARTER. La plupart relèvent d'une décision de goût §8 ; les autres de l'impossible — licences — ou de l'anti-invariant.)*
+### 7.3 Explicit Exclusions (and Why)
+Local energy/key/vocal analysis · harmonic set prep · ReplayGain · auto-cues · transition tagging · cross-app conversion · CDJ export validation · mobile/cloud · beatgrid editing · playable streaming. *(Justifications: §6 RULE OUT. Most are taste decisions §8; others are impossible — licenses — or anti-invariant.)*
 
-### 7.4 Généralisations nécessaires (mono-utilisateur → produit multi-DJ)
-1. **Retirer tous les chemins codés en dur** (`config.py:15-19`, `settings.ts:14-17`, `.env.example`) → tout configurable (D1). *Bloquant pour « utile à tous ».*
-2. **Règles untagged structurelles + configurables** au lieu des motifs perso/français (D7).
-3. **Cross-OS macOS + Windows** : détection process Rekordbox, chemins système, corbeille, opérations fichiers (D2).
-4. **Hygiène secrets** : pas de credential en clair dans un repo open-source ; tokens chiffrés/keychain ([SPEC-UNIFIED §6.7](SPEC-UNIFIED.md)).
-5. **Onboarding générique** (connecter Spotify → chemins → Doctor vert) au lieu d'un setup implicite Dropbox.
-
----
-
-## 8. Journal des décisions interactives
-
-**Lot 1 — Positionnement (avant recherche) :**
-| Question | Réponse retenue |
-|---|---|
-| Portée au-delà de Rekordbox | **Companion Rekordbox-only** (profondeur + sourcing comme angle). |
-| Place du téléchargement (zone grise) | **Module optionnel OFF par défaut + chemin d'achat légal ISRC** mis en avant. |
-| Offrir gratuitement des équivalents Pro | **Oui**, là où c'est faisable/légal (backup versionné réversible). |
-| Appétit différenciation coûteuse/risquée | **Hygiène + sync d'abord (v1), différenciation en v2.** |
-
-**Lot 2 — Arbitrages candidates (après recherche) :**
-| Question | Réponse retenue |
-|---|---|
-| Différenciateurs v2 (analyse/ordering/ReplayGain/auto-cues) | **Aucun de ceux-là.** → la différenciation vient du cœur fait mieux/gratuit. |
-| Backend d'acquisition (deemix mourant) | **Basculer sur streamrip** (multi-services), module optionnel OFF. |
-| Poids de l'analyse locale | **Pas d'analyse locale** — lire seulement RB/MIK. |
-| Hygiène v1 à ajouter | **Dedup empreinte (Chromaprint) + Smart Fixes + détection faux-320/FLAC.** (Validation export CDJ **non** retenue.) |
+### 7.4 Required Generalizations (Single-User → Multi-DJ Product)
+1. **Remove all hardcoded paths** (`config.py:15-19`, `settings.ts:14-17`, `.env.example`) → everything configurable (D1). *Blocking for “useful to all”.*
+2. **Structural + configurable untagged rules** instead of personal/French patterns (D7).
+3. **Cross-OS macOS + Windows**: Rekordbox process detection, system paths, trash, file operations (D2).
+4. **Secrets hygiene**: no plaintext credential in an open-source repo; encrypted/keychain tokens ([SPEC-UNIFIED §6.7](SPEC-UNIFIED.md)).
+5. **Generic onboarding** (connect Spotify → paths → green Doctor) instead of implicit Dropbox setup.
 
 ---
 
-## 9. Questions ouvertes & briques réutilisables (Phase 2)
+## 8. Interactive Decision Log
 
-### 9.1 Questions ouvertes de périmètre (à reprendre par le prompt d'architecture)
-1. **Complétude du backup vs cues ANLZ.** Correction de fait : les cues vivent dans **master.db `djmdCue` ET les ANLZ** ([pyrekordbox](https://pyrekordbox.readthedocs.io/en/latest/tutorial/anlz.html)). [SPEC-01 §3.1](SPEC-01-syncbox.md) affirme l'inverse. **Le backup F8 couvre-t-il les ANLZ ?** Sinon, un restore peut perdre des cues écrits côté ANLZ. À trancher en Phase 2.
-2. **Track Matcher légal — sources d'achat** : ✅ **RÉSOLU** ([_research/13](_research/13_Achat-legal-ISRC.md), [SPEC-UNIFIED §5.13](SPEC-UNIFIED.md)) — Beatport API v4 = portail **de facto fermé** (partner-only) ; reco = **URL de recherche construites côté app vers Beatport + Bandcamp** (stdlib, zéro réseau). **Juno Download a fermé le 2026-06-01** (retiré).
-3. **streamrip — modèle d'embarquement** : ✅ **RÉSOLU** ([_research/14](_research/14_streamrip-embedding-Deezer-SoundCloud.md), [SPEC-UNIFIED §5.5/§6.5](SPEC-UNIFIED.md)) — **lib importée = défaut** (API `PendingSingle.resolve()→track.download_path`, D18 réel), **CLI sous-process écartée** (pas de sortie machine-lisible) ; **Deezer-only v1** (SoundCloud→v2, ffmpeg) ; ARL en mémoire jamais en clair ; **deemix-fork = fallback documenté**.
-4. **Validation des candidates SHOULD** (analytics Doctor, export setlist) non encore soumises au proprio.
-5. **Dépendance Spotify** : durcissement Web API (fév. 2026) — confirmer que seuls les scopes `playlist-read-*` sont utilisés et qu'aucun endpoint déprécié (audio-features, recommendations) n'est requis.
-6. **Risque légal acquisition** à documenter (ToS Deezer, DMCA, licence GPL streamrip) — cohérent avec « module optionnel ».
+**Batch 1 — Positioning (Before Research):**
+| Question | Selected Answer |
+|---|---|
+| Scope beyond Rekordbox | **Rekordbox-only companion** (depth + sourcing as the angle). |
+| Place of downloading (gray zone) | **Optional module OFF by default + legal ISRC purchase path** highlighted. |
+| Offering Pro equivalents for free | **Yes**, where feasible/legal (reversible versioned backup). |
+| Appetite for costly/risky differentiation | **Hygiene + sync first (v1), differentiation in v2.** |
 
-### 9.2 Briques réutilisables repérées (sans choix d'archi)
-| Brique | URL | Usage Syncbox |
+**Batch 2 — Candidate Tradeoffs (After Research):**
+| Question | Selected Answer |
+|---|---|
+| v2 differentiators (analysis/ordering/ReplayGain/auto-cues) | **None of those.** → differentiation comes from the core done better/free. |
+| Acquisition backend (deemix dying) | **Switch to streamrip** (multi-service), optional module OFF. |
+| Weight of local analysis | **No local analysis** — only read RB/MIK. |
+| v1 hygiene to add | **Fingerprint dedup (Chromaprint) + Smart Fixes + fake-320/FLAC detection.** (CDJ export validation **not** selected.) |
+
+---
+
+## 9. Open Questions & Reusable Building Blocks (Phase 2)
+
+### 9.1 Open Scope Questions (to Resume in the Architecture Prompt)
+1. **Backup completeness vs ANLZ cues.** Factual correction: cues live in **master.db `djmdCue` AND ANLZ** ([pyrekordbox](https://pyrekordbox.readthedocs.io/en/latest/tutorial/anlz.html)). [SPEC-01 §3.1](SPEC-01-syncbox.md) states the opposite. **Does F8 backup cover ANLZ?** Otherwise, a restore may lose cues written on the ANLZ side. To decide in Phase 2.
+2. **Legal Track Matcher — purchase sources**: ✅ **RESOLVED** ([_research/13](_research/13_Achat-legal-ISRC.md), [SPEC-UNIFIED §5.13](SPEC-UNIFIED.md)) — Beatport API v4 = **de facto closed** portal (partner-only); recommendation = **app-side constructed search URLs to Beatport + Bandcamp** (stdlib, zero network). **Juno Download closed on 2026-06-01** (removed).
+3. **streamrip — embedding model**: ✅ **RESOLVED** ([_research/14](_research/14_streamrip-embedding-Deezer-SoundCloud.md), [SPEC-UNIFIED §5.5/§6.5](SPEC-UNIFIED.md)) — **imported library = default** (API `PendingSingle.resolve()→track.download_path`, real D18), **CLI subprocess ruled out** (no machine-readable output); **Deezer-only v1** (SoundCloud→v2, ffmpeg); ARL in memory, never plaintext; **deemix-fork = documented fallback**.
+4. **Validation of SHOULD candidates** (Doctor analytics, setlist export) not yet submitted to the owner.
+5. **Spotify dependency**: Web API tightening (Feb. 2026) — confirm that only `playlist-read-*` scopes are used and no deprecated endpoint (audio-features, recommendations) is required.
+6. **Acquisition legal risk** to document (Deezer ToS, DMCA, streamrip GPL license) — consistent with “optional module”.
+
+### 9.2 Identified Reusable Building Blocks (Without Architecture Choice)
+| Building block | URL | Syncbox usage |
 |---|---|---|
-| **pyrekordbox** | [github](https://github.com/dylanljones/pyrekordbox) | Cœur DB (déjà utilisé). Écrit master.db ; **pas** l'ANLZ. Lit désormais `exportLibrary.db` (USB). |
-| **Chromaprint / pyacoustid** | [github](https://github.com/acoustid/chromaprint) | Empreinte audio pour A2 (dedup) et A5 (enrichissement). |
-| **beets** | [github](https://github.com/beetbox/beets) | Référence AcoustID + MusicBrainz (ISRC canonique) pour A5. |
-| **streamrip** | [github](https://github.com/nathom/streamrip) | Backend acquisition B1 (Qobuz/Tidal/Deezer/SC + dedup historique). |
-| **Music Library Doctor (concept FFT)** | [site](https://musiclibrarydoctor.com/) | Algorithme de coupure spectrale pour A3 (faux-320/FLAC) — reproductible. |
-| **koraysels/rekordbox-library-fixer** | [github](https://github.com/koraysels/rekordbox-library-fixer) | Échelle de qualité keeper (format/bitrate, cas BitRate=0) pour D6. |
-| **rekordbox-bulk-edit (jviall, v0.6.0)** | [github](https://github.com/jviall/rekordbox-bulk-edit) | Pattern filter→dry-run→confirm→mutate sur pyrekordbox (Smart Fixes A1). |
-| **tseitz/rekordbox-smart-playlist** | [github](https://github.com/tseitz/rekordbox-smart-playlist) | Création smart playlist + backup-before-write (mirror de la stack Syncbox). |
-| **davehenke/rekordbox-mcp** | [github](https://github.com/davehenke/rekordbox-mcp) | Requêtes prêtes : `get_unplayed_tracks` (jamais joué), key compatible (analytics F1). |
-| **rekordbox-repair (edkennard)** | [github](https://github.com/edkennard/rekordbox-repair) | Règle « refuser le relink sur match multiple » (F6). |
-| **rekordcrate / crate-digger / Deep Symmetry** | [djl-analysis](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html) | Specs PDB/ANLZ pour vérifier un export USB (E3, et la question backup-ANLZ). |
-| **rbox (Rust, même auteur que pyrekordbox)** | [docs.rs](https://docs.rs/rbox) | Piste future si écriture ANLZ requise (cues/beatgrids) depuis un sidecar Rust/Tauri. |
+| **pyrekordbox** | [github](https://github.com/dylanljones/pyrekordbox) | DB core (already used). Writes master.db; **not** ANLZ. Now reads `exportLibrary.db` (USB). |
+| **Chromaprint / pyacoustid** | [github](https://github.com/acoustid/chromaprint) | Audio fingerprint for A2 (dedup) and A5 (enrichment). |
+| **beets** | [github](https://github.com/beetbox/beets) | AcoustID + MusicBrainz reference (canonical ISRC) for A5. |
+| **streamrip** | [github](https://github.com/nathom/streamrip) | Acquisition backend B1 (Qobuz/Tidal/Deezer/SC + history dedup). |
+| **Music Library Doctor (FFT concept)** | [site](https://musiclibrarydoctor.com/) | Spectral cutoff algorithm for A3 (fake-320/FLAC) — reproducible. |
+| **koraysels/rekordbox-library-fixer** | [github](https://github.com/koraysels/rekordbox-library-fixer) | Keeper quality scale (format/bitrate, BitRate=0 case) for D6. |
+| **rekordbox-bulk-edit (jviall, v0.6.0)** | [github](https://github.com/jviall/rekordbox-bulk-edit) | filter→dry-run→confirm→mutate pattern on pyrekordbox (Smart Fixes A1). |
+| **tseitz/rekordbox-smart-playlist** | [github](https://github.com/tseitz/rekordbox-smart-playlist) | Smart playlist creation + backup-before-write (mirror of Syncbox stack). |
+| **davehenke/rekordbox-mcp** | [github](https://github.com/davehenke/rekordbox-mcp) | Ready-made queries: `get_unplayed_tracks` (never played), compatible key (analytics F1). |
+| **rekordbox-repair (edkennard)** | [github](https://github.com/edkennard/rekordbox-repair) | Rule “refuse relink on multiple match” (F6). |
+| **rekordcrate / crate-digger / Deep Symmetry** | [djl-analysis](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html) | PDB/ANLZ specs to verify USB export (E3, and backup-ANLZ question). |
+| **rbox (Rust, same author as pyrekordbox)** | [docs.rs](https://docs.rs/rbox) | Future path if ANLZ writing is required (cues/beatgrids) from a Rust/Tauri sidecar. |
 
 ---
 
-*Fin du rapport. Toutes les affirmations de valeur, redondance et faisabilité sont sourcées (`fichier:ligne`, URL, ou fonction native). Incertitudes signalées : prix exacts Lexicon/MIK (pages JS, sources secondaires) ; statut RB7 des écritures de cues ; stabilité réelle de streamrip vs evolutions Deezer/Qobuz. La recherche complète (158 items vérifiés) est archivée dans le journal de la run.*
+*End of report. All value, redundancy, and feasibility claims are sourced (`file:line`, URL, or native function). Flagged uncertainties: exact Lexicon/MIK prices (JS pages, secondary sources); RB7 status for cue writes; real stability of streamrip vs Deezer/Qobuz evolutions. The complete research (158 verified items) is archived in the run log.*

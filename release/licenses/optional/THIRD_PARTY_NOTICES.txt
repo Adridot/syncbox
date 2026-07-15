@@ -1,0 +1,94 @@
+Syncbox optional distribution third-party notices
+
+This reviewed inventory records the exact dependency versions and source
+locations used for the release. The accompanying license files preserve
+upstream notices. This evidence does not constitute legal advice or a claim
+of compliance beyond the material included here.
+
+Owner-approved review licenses
+
+- certifi: MPL-2.0 (owner-approved for Syncbox v1 distribution)
+- deezer-py: GPL-3.0-or-later (owner-approved for Syncbox v1 distribution)
+- mutagen: GPL-2.0-or-later (owner-approved for Syncbox v1 distribution)
+- pyinstaller-bootloader: GPL-2.0-or-later WITH Bootloader-exception (owner-approved for Syncbox v1 distribution)
+- streamrip: GPL-3.0-only (owner-approved for Syncbox v1 distribution)
+
+Dependency inventory
+
+- [bundled-native] c-ares 1.34.5 — MIT — https://github.com/c-ares/c-ares/tree/v1.34.5
+- [bundled-native] llhttp 9.4.1 (aiohttp 3.14.1 submodule 96b15fb3bc00117d2db3df8e87fa6d3e9bcff328) — MIT — https://github.com/nodejs/llhttp/tree/96b15fb3bc00117d2db3df8e87fa6d3e9bcff328
+- [bundled-native] Pillow macOS arm64 wheel native libraries 10.4.0 — HPND — https://files.pythonhosted.org/packages/cf/76/f658cbfa49405e5ecbfb9ba42d07074ad9792031267e782d409fd8fe7c69/pillow-10.4.0-cp313-cp313-macosx_11_0_arm64.whl
+  - libXau 1.0.11 — MIT-open-group — https://www.x.org/archive/individual/lib/libXau-1.0.11.tar.xz
+  - libjpeg-turbo 3.0.3 — IJG — https://github.com/libjpeg-turbo/libjpeg-turbo/tree/3.0.3
+  - XZ liblzma 5.4.5 — LicenseRef-XZ-Utils-Public-Domain — https://github.com/tukaani-project/xz/tree/v5.4.5
+  - OpenJPEG 2.5.2 — BSD-2-Clause — https://github.com/uclouvain/openjpeg/tree/v2.5.2
+  - libtiff 4.6.0 — libtiff AND LicenseRef-libtiff-LZW — https://gitlab.com/libtiff/libtiff/-/tree/v4.6.0
+  - libxcb 1.17.0 — X11 — https://www.x.org/archive/individual/lib/libxcb-1.17.0.tar.xz
+  - zlib 1.3.1 — Zlib — https://github.com/madler/zlib/tree/v1.3.1
+- [native-runtime] pyinstaller-bootloader 6.21.0 — GPL-2.0-or-later WITH Bootloader-exception — https://github.com/pyinstaller/pyinstaller/tree/v6.21.0
+- [native-runtime] python-build-standalone-cpython 3.13.11+20260127 — LicenseRef-CPython-and-Statically-Linked-Components — https://github.com/astral-sh/python-build-standalone/releases/tag/20260127
+  - CPython 3.13.11 — LicenseRef-CPython-Composite — https://www.python.org/ftp/python/3.13.11/Python-3.13.11.tar.xz
+  - bzip2 1.0.8 — bzip2-1.0.6 — https://astral-sh.github.io/mirror/files/bzip2-1.0.8.tar.gz
+  - Expat 2.6.3 — MIT — https://github.com/libexpat/libexpat/releases/download/R_2_6_3/expat-2.6.3.tar.xz
+  - libffi 3.4.6 — MIT — https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
+  - XZ liblzma 5.8.1 — ISC — https://github.com/tukaani-project/xz/releases/download/v5.8.1/xz-5.8.1.tar.gz
+  - libuuid 1.0.3 — BSD-3-Clause — https://sourceforge.net/projects/libuuid/files/libuuid-1.0.3.tar.gz
+  - mpdecimal 4.0.0 — BSD-2-Clause — https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-4.0.0.tar.gz
+  - OpenSSL 3.5.5 — Apache-2.0 — https://github.com/openssl/openssl/releases/download/openssl-3.5.5/openssl-3.5.5.tar.gz
+  - SQLite 3.50.4 — LicenseRef-SQLite-Public-Domain — https://www.sqlite.org/2025/sqlite-autoconf-3500400.tar.gz
+- [python] aiodns 3.6.1 — MIT — https://files.pythonhosted.org/packages/85/2f/9d1ee4f937addda60220f47925dac6c6b3782f6851fd578987284a8d2491/aiodns-3.6.1.tar.gz
+- [python] aiofiles 0.7.0 — Apache-2.0 — https://files.pythonhosted.org/packages/06/f0/af90f3fb4066b0707b6a5af3ffd5fd9b3809bbb52f0153a3c7550e594de3/aiofiles-0.7.0.tar.gz
+- [python] aiohappyeyeballs 2.7.1 — PSF-2.0 — https://files.pythonhosted.org/packages/ce/f4/eec0465c2f67b2664688d0240b3212d5196fd89e741df67ddb81f8d35658/aiohappyeyeballs-2.7.1.tar.gz
+- [python] aiohttp 3.14.1 — Apache-2.0 AND MIT — https://files.pythonhosted.org/packages/82/78/8ea7308cac6934de8c74a14f3d5f65d1c89287426688be79538d0e5c013d/aiohttp-3.14.1.tar.gz
+- [python] aiolimiter 1.2.1 — MIT — https://files.pythonhosted.org/packages/f1/23/b52debf471f7a1e42e362d959a3982bdcb4fe13a5d46e63d28868807a79c/aiolimiter-1.2.1.tar.gz
+- [python] aiosignal 1.4.0 — Apache-2.0 — https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz
+- [python] appdirs 1.4.4 — MIT — https://files.pythonhosted.org/packages/d7/d8/05696357e0311f5b5c316d7b95f46c669dd9c15aaeecbb48c7d0aeb88c40/appdirs-1.4.4.tar.gz
+- [python] attrs 26.1.0 — MIT — https://files.pythonhosted.org/packages/9a/8e/82a0fe20a541c03148528be8cac2408564a6c9a0cc7e9171802bc1d26985/attrs-26.1.0.tar.gz
+- [python] certifi 2026.6.17 — MPL-2.0 — https://files.pythonhosted.org/packages/c9/c7/424b75da314c1045981bd9777432fad05a9e0c69daa4ed7e308bbaffe405/certifi-2026.6.17.tar.gz
+- [python] cffi 2.1.0 — MIT-0 — https://files.pythonhosted.org/packages/57/5f/ff100cae70ebe9d8df1c01a00e510e45d9adb5c1fdda84791b199141de97/cffi-2.1.0.tar.gz
+- [python] charset-normalizer 3.4.9 — MIT — https://files.pythonhosted.org/packages/bd/2a/23f34ec9d04624958e137efdc394888716353190e75f25dd22c7a2c7a8aa/charset_normalizer-3.4.9.tar.gz
+- [python] click 8.4.2 — BSD-3-Clause — https://files.pythonhosted.org/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz
+- [python] click-help-colors 0.9.4 — MIT — https://files.pythonhosted.org/packages/6f/50/76f51d9c7fcd72a12da466801f7c1fa3884424c947787333c74327b4fcf3/click-help-colors-0.9.4.tar.gz
+- [python] deezer-py 1.3.6 — GPL-3.0-or-later — https://files.pythonhosted.org/packages/97/4e/18a8530aaed95350a34923556c68691e58440532495be9f4cd2ed684819d/deezer-py-1.3.6.tar.gz
+- [python] frozenlist 1.8.0 — Apache-2.0 — https://files.pythonhosted.org/packages/2d/f5/c831fac6cc817d26fd54c7eaccd04ef7e0288806943f7cc5bbf69f3ac1f0/frozenlist-1.8.0.tar.gz
+- [python] idna 3.18 — BSD-3-Clause — https://files.pythonhosted.org/packages/cd/63/9496c57188a2ee585e0f1db071d75089a11e98aa86eb99d9d7618fc1edce/idna-3.18.tar.gz
+- [python] iso8601 2.1.0 — MIT — https://files.pythonhosted.org/packages/b9/f3/ef59cee614d5e0accf6fd0cbba025b93b272e626ca89fb70a3e9187c5d15/iso8601-2.1.0.tar.gz
+- [python] m3u8 0.9.0 — MIT — https://files.pythonhosted.org/packages/f4/1f/6370b6c5ba1975f5299bdda0e953e381880accbad1d2daa8fb0da3548051/m3u8-0.9.0.tar.gz
+- [python] markdown-it-py 4.2.0 — MIT — https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a76b9ee4bbaeae59370dc8bfd2f6c01f3630c35eb134/markdown_it_py-4.2.0.tar.gz
+- [python] mdurl 0.1.2 — MIT — https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz
+- [python] multidict 6.7.1 — Apache-2.0 — https://files.pythonhosted.org/packages/1a/c2/c2d94cbe6ac1753f3fc980da97b3d930efe1da3af3c9f5125354436c073d/multidict-6.7.1.tar.gz
+- [python] mutagen 1.48.1 — GPL-2.0-or-later — https://files.pythonhosted.org/packages/df/70/1675da133ea92227da41bf5b24e1c66be597ff736a1533ade41da986852f/mutagen-1.48.1.tar.gz
+- [python] pathvalidate 2.5.2 — MIT — https://files.pythonhosted.org/packages/60/f7/ff244fdd8ed98e98d4f9acecfe74a890e5e3245ce55253ef88db51e94652/pathvalidate-2.5.2.tar.gz
+- [python] pillow 10.4.0 — HPND — https://files.pythonhosted.org/packages/cd/74/ad3d526f3bf7b6d3f408b73fde271ec69dfac8b81341a318ce825f2b3812/pillow-10.4.0.tar.gz
+- [python] propcache 0.5.2 — Apache-2.0 — https://files.pythonhosted.org/packages/ec/44/c87281c333769159c50594f22610f77398a47ccbfbbf23074e744e86f87c/propcache-0.5.2.tar.gz
+- [python] pycares 4.11.0 — MIT — https://files.pythonhosted.org/packages/8d/ad/9d1e96486d2eb5a2672c4d9a2dd372d015b8d7a332c6ac2722c4c8e6bbbf/pycares-4.11.0.tar.gz
+- [python] pycparser 3.0 — BSD-3-Clause — https://files.pythonhosted.org/packages/1b/7d/92392ff7815c21062bea51aa7b87d45576f649f16458d78b7cf94b9ab2e6/pycparser-3.0.tar.gz
+- [python] pycryptodomex 3.23.0 — BSD-2-Clause AND LicenseRef-Public-Domain — https://files.pythonhosted.org/packages/c9/85/e24bf90972a30b0fcd16c73009add1d7d7cd9140c2498a68252028899e41/pycryptodomex-3.23.0.tar.gz
+- [python] pygments 2.20.0 — BSD-2-Clause — https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz
+- [python] requests 2.34.2 — Apache-2.0 — https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz
+- [python] rich 13.9.4 — MIT — https://files.pythonhosted.org/packages/ab/3a/0316b28d0761c6734d6bc14e770d85506c986c85ffb239e688eeaab2c2bc/rich-13.9.4.tar.gz
+- [python] simple-term-menu 1.6.6 — MIT — https://files.pythonhosted.org/packages/d8/80/f0f10b4045628645a841d3d98b584a8699005ee03a211fc7c45f6c6f0e99/simple_term_menu-1.6.6.tar.gz
+- [python] streamrip 2.2.0 — GPL-3.0-only — https://github.com/nathom/streamrip.git?rev=189acda489927719aa8591f6acdd7d67aecf929b#189acda489927719aa8591f6acdd7d67aecf929b
+- [python] tomlkit 0.7.2 — MIT — https://files.pythonhosted.org/packages/65/ed/7b7216101bc48627b630693b03392f33827901b81d4e1360a76515e3abc4/tomlkit-0.7.2.tar.gz
+- [python] urllib3 2.7.0 — MIT — https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz
+- [python] yarl 1.24.2 — Apache-2.0 — https://files.pythonhosted.org/packages/79/12/1e8f37460ea0f7eb59c221fdaf0ed75e7ac43e97f8093b9c6f411df50a78/yarl-1.24.2.tar.gz
+- [python-build] altgraph 0.17.5 — MIT — https://files.pythonhosted.org/packages/7e/f8/97fdf103f38fed6792a1601dbc16cc8aac56e7459a9fff08c812d8ae177a/altgraph-0.17.5.tar.gz
+- [python-build] macholib 1.16.4 — MIT — https://files.pythonhosted.org/packages/10/2f/97589876ea967487978071c9042518d28b958d87b17dceb7cdc1d881f963/macholib-1.16.4.tar.gz
+- [python-build] packaging 26.2 — Apache-2.0 OR BSD-2-Clause — https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz
+- [python-build] pyinstaller 6.21.0 — GPL-2.0-or-later WITH Bootloader-exception — https://files.pythonhosted.org/packages/d5/4d/ec706c3fcf39e26888c35b39615ff4d5865d184069666c47492cff1fbe50/pyinstaller-6.21.0.tar.gz
+- [python-build] pyinstaller-hooks-contrib 2026.6 — GPL-2.0-or-later AND Apache-2.0 — https://files.pythonhosted.org/packages/94/5b/c9fe0db5e83ee1c39b2258fa21d23b15e1a60786b6c5990ee5074ead8bb6/pyinstaller_hooks_contrib-2026.6.tar.gz
+- [python-build] setuptools 83.0.0 — MIT — https://files.pythonhosted.org/packages/34/26/f5d29e25ffdb535afef2d35cdb55b325298f96debd670da4c325e08d70f4/setuptools-83.0.0.tar.gz
+
+Required binary attribution
+
+This software is based in part on the work of the Independent JPEG Group.
+
+Copyleft source availability
+
+The machine-readable inventory records the source URL and immutable hash
+or commit for each locked Python package. This includes mutagen and, in
+the optional distribution, deezer-py and streamrip. The streamrip source
+is pinned to commit 189acda489927719aa8591f6acdd7d67aecf929b.
+The publisher must retain these exact sources and make them available for
+as long as the corresponding binaries are offered; source requests may be
+made through https://github.com/Adridot/syncbox/issues.

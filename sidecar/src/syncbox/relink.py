@@ -21,8 +21,7 @@ AUDIO_EXTS = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".ogg"}
 ISRC_SCORE = 100
 MIN_SCORE = 70
 CANDIDATE_CAP = 8
-# ponytail: hard scan ceiling instead of a timeout - deterministic and
-# testable; raise it if a real library proves larger inbox trees are common.
+# A hard ceiling keeps scans deterministic and testable.
 MAX_SCANNED_FILES = 20_000
 
 

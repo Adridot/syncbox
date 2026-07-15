@@ -13,6 +13,7 @@ const TONES: Record<string, string> = {
   ready: 'teal',
   imported: 'success',
   missing: 'danger',
+  acquisition_failed: 'danger',
   removed_from_source: 'muted',
   ignored: 'muted',
   purchase_link_unavailable: 'muted',

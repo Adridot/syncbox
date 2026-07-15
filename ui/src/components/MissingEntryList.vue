@@ -3,7 +3,8 @@
 // purchase-first legal path (§5.5/§5.13 — links open in the SYSTEM browser,
 // the sidecar never contacts stores), manual relink, §5.5 status
 // transitions with a D22 inline undo, and the G3 collection remove.
-// Every action surfaces its outcome (B1). No download control exists.
+// Every action surfaces its outcome (B1). Optional acquisition appears only
+// when the backend marks it available; purchase links remain first.
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -14,6 +15,7 @@ import { useJobsStore } from '../stores/jobs'
 import { useStatusStore } from '../stores/status'
 import ManualRelinkModal from './ManualRelinkModal.vue'
 import ScopeBadge from './ScopeBadge.vue'
+import SpotifyAttributionLink from './SpotifyAttributionLink.vue'
 import StatusBadge from './StatusBadge.vue'
 
 defineProps<{ entries: MissingEntry[]; showScope?: boolean }>()
@@ -26,9 +28,36 @@ const banner = ref<{ tone: 'error' | 'success'; text: string; undo?: MissingEntr
 const relinkEntry = ref<MissingEntry | null>(null)
 const relinkBusy = ref(false)
 const relinkError = ref<string | null>(null)
+const purchaseMenu = ref<string | null>(null)
 
 function describe(cause: unknown): string {
   return cause instanceof ApiError ? cause.message : t('common.networkError')
+}
+
+function entryKey(entry: MissingEntry): string {
+  return `${entry.scope}:${String(entry.id)}`
+}
+
+async function openPurchaseUrl(url: string) {
+  banner.value = null
+  try {
+    await openExternal(url)
+  } catch {
+    banner.value = { tone: 'error', text: t('missing.purchaseOpenFailed') }
+  }
+}
+
+async function buy(entry: MissingEntry) {
+  if (entry.purchase_links.length === 1) {
+    await openPurchaseUrl(entry.purchase_links[0].url)
+    return
+  }
+  purchaseMenu.value = purchaseMenu.value === entryKey(entry) ? null : entryKey(entry)
+}
+
+async function openPurchase(url: string) {
+  purchaseMenu.value = null
+  await openPurchaseUrl(url)
 }
 
 async function act(request: () => Promise<unknown>, success?: string, undo?: MissingEntry) {
@@ -59,6 +88,27 @@ const removeCollection = (entry: MissingEntry) =>
     () => api.post(`/api/missing/collection/${entry.content_id}/remove`),
     t('missing.removed', { title: entry.title ?? '' }),
   )
+
+async function acquire(entry: MissingEntry) {
+  banner.value = null
+  try {
+    const job = await api.post<{ status: string }>('/api/acquisition/jobs', {
+        scope: entry.scope,
+        row_id: entry.scope === 'collection' ? undefined : entry.id,
+        content_id: entry.scope === 'collection' ? entry.content_id : undefined,
+    })
+    banner.value = {
+      tone: job.status === 'downloaded' ? 'success' : 'error',
+      text: t(
+        job.status === 'downloaded' ? 'missing.acquired' : 'missing.acquisitionFailed',
+        { title: entry.title ?? '' },
+      ),
+    }
+    emit('changed')
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  }
+}
 
 async function pickRelink(path: string) {
   const entry = relinkEntry.value
@@ -106,11 +156,11 @@ async function markNone() {
       <button v-if="banner.undo" class="undo" @click="restore(banner.undo)">
         {{ t('missing.undo') }}
       </button>
-      <button class="banner-close" @click="banner = null">✕</button>
+      <button class="banner-close" :aria-label="t('common.close')" @click="banner = null">✕</button>
     </div>
 
     <div class="list">
-      <div v-for="entry in entries" :key="String(entry.id)" class="row">
+      <div v-for="entry in entries" :key="entryKey(entry)" class="row">
         <div class="row-text">
           <div class="row-title">
             {{ entry.title || t('missing.untitled')
@@ -124,14 +174,49 @@ async function markNone() {
           :status="entry.status"
         />
         <span class="actions">
+          <SpotifyAttributionLink
+            v-if="entry.spotify_track_id"
+            compact
+            kind="track"
+            :spotify-id="entry.spotify_track_id"
+          />
           <!-- legal path FIRST, prominent (§6.5); absent for removed_from_source -->
           <button
-            v-for="link in entry.purchase_links"
-            :key="link.store"
+            v-if="entry.purchase_links.length"
             class="buy"
-            @click="openExternal(link.url)"
+            :aria-expanded="
+              entry.purchase_links.length > 1
+                ? purchaseMenu === entryKey(entry)
+                : undefined
+            "
+            @click="buy(entry)"
           >
-            {{ t('missing.buyOn', { store: link.store }) }}
+            {{
+              entry.purchase_links.length === 1
+                ? t('missing.buyOn', { store: entry.purchase_links[0].store })
+                : t('missing.buyMenu', { n: entry.purchase_links.length })
+            }}
+          </button>
+          <span
+            v-if="entry.purchase_links.length > 1 && purchaseMenu === entryKey(entry)"
+            class="buy-menu"
+          >
+            <button
+              v-for="link in entry.purchase_links"
+              :key="link.store"
+              class="buy-menu-item"
+              @click="openPurchase(link.url)"
+            >
+              {{ link.store }}
+            </button>
+          </span>
+          <button
+            v-if="entry.acquisition?.available"
+            class="secondary"
+            :disabled="jobs.jobRunning"
+            @click="acquire(entry)"
+          >
+            {{ t('missing.acquireDeezer') }}
           </button>
           <button class="secondary" @click="relinkEntry = entry">
             {{ t('missing.relinkCta') }}
@@ -262,6 +347,27 @@ async function markNone() {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+}
+.buy-menu {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--teal-border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+.buy-menu-item {
+  background: transparent;
+  border: none;
+  color: var(--teal);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.buy-menu-item:hover {
+  background: var(--teal-tint);
 }
 .secondary {
   background: transparent;

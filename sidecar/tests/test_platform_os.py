@@ -15,6 +15,13 @@ def test_app_data_dir_shape():
     assert d.name == "Syncbox"
 
 
+def test_bundle_identifier_change_does_not_move_existing_state():
+    # The macOS bundle identifier is owned by Tauri. Sidecar state has always
+    # used the product directory, which must remain stable across that change.
+    assert platform_os.APP_NAME == "Syncbox"
+    assert "io.github.adridot.syncbox" not in str(platform_os.app_data_dir())
+
+
 @pytest.fixture
 def audio(tmp_path):
     f = tmp_path / "track.aiff"

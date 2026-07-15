@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools==83.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqlcipher3-wheels"
+version = "0.6.2+syncbox.commoncrypto.1"
+description = "Syncbox macOS CommonCrypto build of the sqlcipher3 binding"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+license = "Zlib"
+authors = [{ name = "Charles Leifer" }]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C",
+    "Operating System :: MacOS :: MacOS X",
+]
+
+[project.urls]
+Upstream = "https://github.com/coleifer/sqlcipher3/tree/0.6.2"
+SQLCipher = "https://github.com/sqlcipher/sqlcipher/tree/v4.12.0"
+
+[tool.setuptools]
+package-dir = { sqlcipher3 = "sqlcipher3" }

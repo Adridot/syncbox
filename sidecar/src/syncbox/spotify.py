@@ -36,14 +36,16 @@ API_BASE = "https://api.spotify.com/v1"
 REDIRECT_URI = "http://127.0.0.1:8765/callback"  # exact dashboard match; never derived
 SCOPES = "playlist-read-private playlist-read-collaborative"
 MAX_ATTEMPTS = 4
+AUTHORIZATION_TIMEOUT_SECONDS = 120
 
 ACCESS_TOKEN = "spotify.access_token"
 REFRESH_TOKEN = "spotify.refresh_token"
 
 
 class SpotifyApiError(RuntimeError):
-    def __init__(self, status_code: int, message: str):
+    def __init__(self, status_code: int, message: str, error_code: str | None = None):
         self.status_code = status_code
+        self.error_code = error_code
         super().__init__(message)
 
 
@@ -65,12 +67,17 @@ def _default_transport(url, data=None, headers=None, method="GET"):
 class SpotifyAuth:
     """PKCE flow state + token storage in the encrypted SecretsStore."""
 
-    def __init__(self, client_id_getter, secrets, transport=_default_transport):
+    def __init__(
+        self, client_id_getter, secrets, transport=_default_transport, clock=time.monotonic
+    ):
         self._client_id = client_id_getter
         self._secrets = secrets
         self._transport = transport
+        self._clock = clock
         self._verifier = None
         self._state = None
+        self._deadline = None
+        self._authorization_result = None
 
     def begin_authorization(self) -> str:
         """Return the authorize URL to open in the user's browser."""
@@ -81,6 +88,8 @@ class SpotifyAuth:
             hashlib.sha256(self._verifier.encode()).digest()
         ).rstrip(b"=").decode()
         self._state = pysecrets.token_urlsafe(16)
+        self._deadline = self._clock() + AUTHORIZATION_TIMEOUT_SECONDS
+        self._authorization_result = None
         params = {
             "client_id": self._client_id(),
             "response_type": "code",
@@ -94,34 +103,86 @@ class SpotifyAuth:
 
     def handle_callback(self, params: dict) -> dict:
         """GET /callback handler body: validate state, exchange code."""
-        if "error" in params:
-            return {"ok": False, "error": params["error"]}
-        if self._state is None or params.get("state") != self._state:
+        self._expire_pending()
+        if self._authorization_result == "expired":
+            return {"ok": False, "error": "state_expired"}
+        received_state = params.get("state")
+        if (
+            self._state is None
+            or not isinstance(received_state, str)
+            or not pysecrets.compare_digest(received_state, self._state)
+        ):
             return {"ok": False, "error": "state_mismatch"}
+        verifier = self._verifier
+        self._state = None
+        self._verifier = None
+        self._deadline = None
+        if "error" in params:
+            self._authorization_result = "error"
+            return {"ok": False, "error": params["error"]}
         code = params.get("code")
         if not code:
+            self._authorization_result = "error"
             return {"ok": False, "error": "missing_code"}
-        self._state = None
+        if verifier is None:
+            self._authorization_result = "error"
+            return {"ok": False, "error": "missing_verifier"}
         try:
             self._token_request(
                 grant_type="authorization_code",
                 code=code,
                 redirect_uri=REDIRECT_URI,  # hardcoded again: both calls (06 rule)
-                code_verifier=self._verifier,
+                code_verifier=verifier,
             )
         except SpotifyApiError as exc:
+            self._authorization_result = "error"
             return {"ok": False, "error": f"token_exchange_failed_{exc.status_code}"}
+        self._authorization_result = "ok"
         return {"ok": True}
+
+    def authorization_status(self) -> dict:
+        """Non-secret status for the UI polling the current PKCE attempt."""
+        self._expire_pending()
+        return {
+            "pending": self._state is not None,
+            "result": self._authorization_result,
+        }
+
+    def _expire_pending(self) -> None:
+        if self._deadline is None or self._clock() < self._deadline:
+            return
+        self._state = None
+        self._verifier = None
+        self._deadline = None
+        self._authorization_result = "expired"
 
     def connected(self) -> bool:
         """Token presence only - no network call (feeds GET /api/status, G1)."""
         return self._secrets.get(REFRESH_TOKEN) is not None
 
+    def disconnect(self) -> None:
+        """Forget the local Spotify session and any pending PKCE exchange."""
+        self._state = None
+        self._verifier = None
+        self._deadline = None
+        self._authorization_result = None
+        self._secrets.delete(ACCESS_TOKEN)
+        self._secrets.delete(REFRESH_TOKEN)
+
     def refresh(self) -> None:
         refresh_token = self._secrets.get(REFRESH_TOKEN)
         if not refresh_token:
             raise NotConnectedError("no refresh token stored")
-        self._token_request(grant_type="refresh_token", refresh_token=refresh_token)
+        try:
+            self._token_request(grant_type="refresh_token", refresh_token=refresh_token)
+        except SpotifyApiError as exc:
+            if exc.error_code != "invalid_grant":
+                raise
+            self._secrets.delete(ACCESS_TOKEN)
+            self._secrets.delete(REFRESH_TOKEN)
+            raise NotConnectedError(
+                "Spotify authorization expired or was revoked; reconnect the account"
+            ) from None
 
     def access_token(self) -> str:
         token = self._secrets.get(ACCESS_TOKEN)
@@ -138,7 +199,13 @@ class SpotifyAuth:
             method="POST",
         )
         if status >= 400:
-            raise SpotifyApiError(status, f"token endpoint returned {status}")
+            try:
+                error_code = json.loads(body).get("error")
+            except (json.JSONDecodeError, AttributeError):
+                error_code = None
+            raise SpotifyApiError(
+                status, f"token endpoint returned {status}", error_code=error_code
+            )
         payload = json.loads(body)
         self._secrets.set(ACCESS_TOKEN, payload["access_token"])
         if payload.get("refresh_token"):
@@ -176,6 +243,15 @@ class SpotifyClient:
             if status == 204:
                 return {}
             if status == 404:
+                # ponytail: prefix sniff — Spotify's Web API 404s all
+                # editorial/algorithmic playlists (37i9dQZF*) since Nov 2024;
+                # connecting an account does not help, say so.
+                if "/playlists/37i9dQZF" in url:
+                    raise SpotifyApiError(
+                        404,
+                        "This is a Spotify-owned editorial playlist; the "
+                        "Spotify API no longer exposes these (since Nov 2024).",
+                    )
                 raise SpotifyApiError(
                     404,
                     "Playlist not found or private. Connect your Spotify "

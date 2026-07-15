@@ -39,6 +39,14 @@ test('a never-applied event has no pending delta (nothing to REapply)', () => {
   expect(counts.pendMissing).toBe(0)
 })
 
+test('acquisition failures stay visible in the missing recovery family', () => {
+  const failed = track(8, 'acquisition_failed', 1)
+  const counts = eventCounts([...TRACKS, failed], true)
+  expect(counts.missing).toBe(3)
+  expect(counts.pendMissing).toBe(2)
+  expect(filterEventTracks([...TRACKS, failed], 'missing').map((t) => t.id)).toEqual([7, 8, 4])
+})
+
 test('pending additions sort to the top of every filter (§11.2 staging)', () => {
   const all = filterEventTracks(TRACKS, 'all')
   expect(all.slice(0, 2).map((t) => t.id)).toEqual([6, 7])

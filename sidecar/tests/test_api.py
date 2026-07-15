@@ -17,6 +17,9 @@ from syncbox.platform_os import PermanentDeleteConsentRequired
 from syncbox.quality import QualityResult
 from syncbox.safety import process_guard
 from syncbox.safety.process_guard import MutationBlockedError
+from syncbox.secrets import SecretsStore
+from syncbox.server import OAuthCallbackPortInUseError
+from syncbox.spotify import ACCESS_TOKEN, REFRESH_TOKEN, SpotifyAuth
 
 PLAYLIST_ID = "A" * 22  # valid 22-char base62 shape
 
@@ -40,18 +43,35 @@ class FakeCache:
         self.invalidated += 1
 
 
+class FakeOAuthListener:
+    def __init__(self, error=None):
+        self.error = error
+        self.starts = []
+        self.stops = 0
+
+    def start(self, callback, *, oauth_lock, timeout):
+        self.starts.append((callback, oauth_lock, timeout))
+        if self.error is not None:
+            raise self.error
+        return True
+
+    def stop(self):
+        self.stops += 1
+
+
 def rb_row(content_id, **over):
     row = {
         "content_id": str(content_id),
         "title": f"Track {content_id}",
         "artist": "Artist",
+        "remixer": None,
         "duration_ms": 200_000,
         "isrc": None,
         "bit_rate": 320,
         "file_path": f"/music/{content_id}.mp3",
         "resolved_path": None,
         "file_missing": False,
-        "protected": False,
+        "ownership": "external",
         "key_name": None,
         "genre": None,
         "play_count": 0,
@@ -72,7 +92,13 @@ def rb_row(content_id, **over):
     return row
 
 
-def make_env(tmp_path, rows=(), spotify_client=None, spotify_auth=None):
+def make_env(
+    tmp_path,
+    rows=(),
+    spotify_client=None,
+    spotify_auth=None,
+    oauth_listener=None,
+):
     conn = appdb.open_app_db(tmp_path / "app.db")
     storage = tmp_path / "storage"
     storage.mkdir(exist_ok=True)
@@ -85,6 +111,7 @@ def make_env(tmp_path, rows=(), spotify_client=None, spotify_auth=None):
         cache=cache,
         spotify_client=spotify_client,
         spotify_auth=spotify_auth,
+        oauth_listener=oauth_listener,
         log_path=tmp_path / "app.log",
         app_db_path=tmp_path / "app.db",
     )
@@ -114,7 +141,11 @@ def seed_source(conn, tracks, tags=()):
 
 def test_build_app_keeps_transport_routes(tmp_path):
     env = make_env(tmp_path)
-    assert env.client.get("/health").json() == {"ok": True}
+    assert env.client.get("/health").json() == {
+        "ok": True,
+        "service": "syncbox-sidecar",
+        "protocol": 1,
+    }
     # SSE and shutdown stay canonical; the REST surface lives under /api.
     assert env.client.post("/shutdown").status_code == 202
 
@@ -209,15 +240,16 @@ def test_sync_one_source_end_to_end(tmp_path):
         f"/playlists/{PLAYLIST_ID}": {
             "snapshot_id": "snap1",
             "name": "PL fresh",
-            "tracks": {
+            "items": {
                 "items": [
                     {
-                        "track": {
+                        "item": {
                             "id": "t1",
                             "name": "Song",
                             "artists": [{"name": "A"}],
                             "duration_ms": 200_000,
                             "external_ids": {"isrc": isrc},
+                            "type": "track",
                         }
                     }
                 ],
@@ -270,7 +302,7 @@ def test_sync_all_publishes_per_source_progress(tmp_path, monkeypatch):
 
     monkeypatch.setattr(api, "_Progress", RecordingProgress)
     second_id = "B" * 22
-    payload = {"snapshot_id": "s1", "name": "PL", "tracks": {"items": [], "next": None}}
+    payload = {"snapshot_id": "s1", "name": "PL", "items": {"items": [], "next": None}}
     payloads = {
         f"/playlists/{PLAYLIST_ID}": dict(payload),
         f"/playlists/{second_id}": dict(payload),
@@ -403,11 +435,17 @@ def test_events_list_reports_pending_delta_badge(tmp_path):
     env.conn.execute(
         "UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],)
     )
-    env.client.post(f"/api/events/{event['id']}/tracks", json={"title": "After"})
+    added = env.client.post(
+        f"/api/events/{event['id']}/tracks", json={"title": "After"}
+    ).json()
+    env.conn.execute(
+        "UPDATE event_tracks SET status = 'acquisition_failed' WHERE id = ?",
+        (added["id"],),
+    )
 
     listing = env.client.get("/api/events").json()["events"]
     assert listing[0]["n_tracks"] == 2
-    assert listing[0]["pending_delta"] == 1  # exactly the post-apply addition
+    assert listing[0]["pending_delta"] == 1  # failed acquisition remains actionable
 
 
 def test_event_create_add_manual_track_and_detail(tmp_path):
@@ -513,11 +551,13 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
     event = env.client.post("/api/events", json={"name": "Gig"}).json()
     seen = []
 
-    def fake_delete(conn, db_path, backups_root, cache, storage_root, ev, *, dry_run=True, consent_to_permanent_delete=False, retention=15):
-        seen.append({"dry_run": dry_run, "consent": consent_to_permanent_delete})
+    preview_plan = {"dry_run": True, "plan_version": 1, "event_id": event["id"]}
+
+    def fake_delete(conn, db_path, backups_root, cache, storage_root, ev, *, dry_run=True, plan=None, consent_to_permanent_delete=False, retention=15):
+        seen.append({"dry_run": dry_run, "plan": plan, "consent": consent_to_permanent_delete})
         if not dry_run and not consent_to_permanent_delete:
             raise PermanentDeleteConsentRequired(Path("/vol/x.mp3"), OSError("no trash"))
-        return {"dry_run": dry_run, "contents": [], "playlists": [], "artifacts": []}
+        return preview_plan if dry_run else {**preview_plan, "dry_run": False}
 
     monkeypatch.setattr(api.events_service, "delete_event", fake_delete)
     preview = env.client.post(f"/api/events/{event['id']}/delete")
@@ -525,7 +565,7 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
     assert preview.json()["dry_run"] is True  # preview is the DEFAULT (D11/D23)
 
     blocked = env.client.post(
-        f"/api/events/{event['id']}/delete", json={"dry_run": False}
+        f"/api/events/{event['id']}/delete", json={"dry_run": False, "plan": preview_plan}
     )
     assert blocked.status_code == 428
     payload = blocked.json()
@@ -535,10 +575,10 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
 
     ok = env.client.post(
         f"/api/events/{event['id']}/delete",
-        json={"dry_run": False, "consent_to_permanent_delete": True},
+        json={"dry_run": False, "plan": preview_plan, "consent_to_permanent_delete": True},
     )
     assert ok.status_code == 200
-    assert seen[-1] == {"dry_run": False, "consent": True}
+    assert seen[-1] == {"dry_run": False, "plan": preview_plan, "consent": True}
 
 
 # --- missing center ----------------------------------------------------------------
@@ -767,7 +807,7 @@ def test_duplicates_resolve_keeper_guard_equates_32_spellings(tmp_path, monkeypa
     equal - a loser stored in the other spelling must not defeat the guard."""
     env = make_env(tmp_path, rows=_isrc_pair_rows())
     # Keeper absolute under the storage root; loser volume-relative spelling
-    # of the SAME file (outside rekordbox/ so the protected guard passes).
+    # of the same physical file.
     absolute = str(env.storage / "inbox" / "song.mp3")
     volume_relative = f"/{env.storage.name}/inbox/song.mp3"
     states = {"1": (absolute, 0), "2": (volume_relative, 0)}
@@ -832,13 +872,11 @@ def test_duplicates_resolve_validation(tmp_path, monkeypatch):
     assert unknown.status_code == 404
 
 
-def test_duplicates_resolve_trashes_a_protected_loser_file(tmp_path, monkeypatch):
-    """Owner amendment to 5.4 (2026-07-07): a loser file inside the protected
-    zone resolves like any other — soft-delete + trash-first file delete —
-    the per-group confirmation being the consent. Keeper rules unchanged."""
+def test_duplicates_resolve_trashes_a_permanent_library_loser(tmp_path, monkeypatch):
+    """Per-group confirmation makes duplicate resolution ownership-neutral."""
     env = make_env(tmp_path, rows=_isrc_pair_rows())
-    protected_path = str(env.storage / "rekordbox" / "Collection" / "x.mp3")
-    states = {"1": ("/music/1.mp3", 0), "2": (protected_path, 0)}
+    permanent_path = str(env.storage / "rekordbox" / "Collection" / "x.mp3")
+    states = {"1": ("/music/1.mp3", 0), "2": (permanent_path, 0)}
     deleted = []
 
     class FakeRO:
@@ -870,7 +908,7 @@ def test_duplicates_resolve_trashes_a_protected_loser_file(tmp_path, monkeypatch
     )
     assert response.status_code == 200
     assert response.json()["files"][0]["result"] == "trashed"
-    assert deleted == [protected_path]
+    assert deleted == [permanent_path]
 
 
 def test_duplicates_resolve_permanent_delete_consent_428(tmp_path, monkeypatch):
@@ -923,10 +961,10 @@ def test_untagged_list_categorizes(tmp_path):
     assert [t["category"] for t in tracks] == ["junk", "review"]
 
 
-def test_untagged_delete_protected_guard_skip_report(tmp_path, monkeypatch):
+def test_untagged_delete_is_ownership_neutral_and_reports_stale_rows(tmp_path, monkeypatch):
     rows = [
         rb_row("1"),
-        rb_row("2", protected=True),
+        rb_row("2", ownership="permanent_library"),
         rb_row("3", tag_count=1),
     ]
     env = make_env(tmp_path, rows=rows)
@@ -945,10 +983,8 @@ def test_untagged_delete_protected_guard_skip_report(tmp_path, monkeypatch):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["soft_deleted"] == ["1"] == deleted
-    # D15: the protected guard applies with a REAL skip report.
+    assert body["soft_deleted"] == ["1", "2"] == deleted
     assert {(s["content_id"], s["reason"]) for s in body["skipped"]} == {
-        ("2", "protected"),
         ("3", "tagged"),
         ("9", "not_found"),
     }
@@ -971,6 +1007,35 @@ def test_mutation_blocked_maps_to_423(tmp_path, monkeypatch):
 
 
 # --- smart fixes -------------------------------------------------------------------
+
+
+def test_smartfixes_dry_run_works_while_rekordbox_is_running(tmp_path, monkeypatch):
+    env = make_env(tmp_path, rows=[rb_row("1", title="Song   Twice")])
+
+    def blocked(_db_path):
+        raise MutationBlockedError()
+
+    monkeypatch.setattr(process_guard, "assert_mutation_ready", blocked)
+    response = env.client.post("/api/smartfixes/dry-run", json={})
+
+    assert response.status_code == 200
+    assert response.json()["payload"][0]["after"] == "Song Twice"
+    assert not env.deps.backups_root.exists()
+
+
+def test_smartfixes_execute_is_guarded_before_backup(tmp_path, monkeypatch):
+    env = make_env(tmp_path, rows=[rb_row("1", title="Song   Twice")])
+    dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
+
+    def blocked(_db_path):
+        raise MutationBlockedError()
+
+    monkeypatch.setattr(process_guard, "assert_mutation_ready", blocked)
+    response = env.client.post("/api/smartfixes/execute", json=dry)
+
+    assert response.status_code == 423
+    assert response.json()["error"] == "mutation_blocked"
+    assert not env.deps.backups_root.exists()
 
 
 def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
@@ -1005,12 +1070,9 @@ def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
     assert captured["storage_root"] == str(env.storage)
 
 
-def test_smartfixes_include_protected_tracks(tmp_path, monkeypatch):
-    """Owner amendment to 5.11 (2026-07-07): Smart Fixes are metadata-only
-    (automatic backup before write), so protected tracks are planned and
-    written like any other - no per-call opt-in. The protected guard stays
-    on file-destructive operations (untagged delete, duplicates)."""
-    rows = [rb_row("p1", title="Bad   Title", protected=True)]
+def test_smartfixes_include_permanent_library_tracks(tmp_path, monkeypatch):
+    """Smart Fixes metadata writes are independent of file ownership."""
+    rows = [rb_row("p1", title="Bad   Title", ownership="permanent_library")]
     env = make_env(tmp_path, rows=rows)
 
     dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
@@ -1033,20 +1095,49 @@ def test_smartfixes_include_protected_tracks(tmp_path, monkeypatch):
     assert applied == [("p1", {"title": "Bad Title"})]
 
 
-def test_smartfixes_execute_refuses_payload_outside_plan(tmp_path):
-    """The server still re-derives the plan on execute: a forged payload
-    entry (not produced by the current plan) is refused before any backup."""
+def test_smartfixes_execute_requires_the_complete_canonical_payload(tmp_path):
+    env = make_env(
+        tmp_path,
+        rows=[
+            rb_row("1", title="Song   Twice"),
+            rb_row("2", artist="Artist  Two"),
+        ],
+    )
+    dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
+    assert len(dry["payload"]) == 2
+
+    changed = [dict(change) for change in dry["payload"]]
+    changed[0]["after"] = "Hacked"
+    enriched = [dict(change) for change in dry["payload"]]
+    enriched[0]["rule"] = "unexpected"
+    wrong_type = [dict(change) for change in dry["payload"]]
+    wrong_type[0]["content_id"] = 1
+    forged_payloads = (
+        dry["payload"][:-1],
+        list(reversed(dry["payload"])),
+        dry["payload"] + [dry["payload"][0]],
+        changed,
+        enriched,
+        wrong_type,
+    )
+
+    for payload in forged_payloads:
+        refused = env.client.post(
+            "/api/smartfixes/execute",
+            json={"payload": payload, "fingerprint": dry["fingerprint"]},
+        )
+        assert refused.status_code == 400
+        assert "exactly match" in refused.json()["message"]
+    assert not env.deps.backups_root.exists()
+
+
+def test_smartfixes_execute_requires_the_preview_fingerprint(tmp_path):
     env = make_env(tmp_path, rows=[rb_row("1", title="Song   Twice")])
     dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
-    forged = {
-        "payload": [
-            {"content_id": "1", "field": "title", "before": "Song   Twice", "after": "Hacked"}
-        ],
-        "fingerprint": dry["fingerprint"],
-    }
-    refused = env.client.post("/api/smartfixes/execute", json=forged)
-    assert refused.status_code == 400
-    assert "server-side plan" in refused.json()["message"]
+    response = env.client.post(
+        "/api/smartfixes/execute", json={"payload": dry["payload"]}
+    )
+    assert response.status_code == 400
     assert not env.deps.backups_root.exists()
 
 
@@ -1160,15 +1251,140 @@ def test_doctor_logs_tail(tmp_path):
 def test_spotify_authorize(tmp_path):
     env = make_env(tmp_path)
     assert env.client.get("/api/spotify/authorize").status_code == 503
+    listener = FakeOAuthListener()
+    auth = SimpleNamespace(
+        begin_authorization=lambda: "https://accounts.spotify.com/authorize?x=1",
+        handle_callback=lambda params: {"ok": True},
+    )
     env2 = make_env(
         tmp_path / "b",
-        spotify_auth=SimpleNamespace(
-            begin_authorization=lambda: "https://accounts.spotify.com/authorize?x=1",
-            handle_callback=lambda params: {"ok": True},
-        ),
+        spotify_auth=auth,
+        oauth_listener=listener,
     )
     body = env2.client.get("/api/spotify/authorize").json()
     assert body["url"].startswith("https://accounts.spotify.com/authorize")
+    assert listener.starts[0][0] == auth.handle_callback
+    assert listener.starts[0][1] is env2.deps.lock
+
+
+def test_spotify_authorize_reports_exact_callback_port_collision(tmp_path):
+    listener = FakeOAuthListener(OAuthCallbackPortInUseError("127.0.0.1", 8765))
+    env = make_env(
+        tmp_path,
+        spotify_auth=SimpleNamespace(
+            begin_authorization=lambda: "must not be called",
+            handle_callback=lambda params: {"ok": True},
+        ),
+        oauth_listener=listener,
+    )
+    response = env.client.get("/api/spotify/authorize")
+    assert response.status_code == 409
+    assert response.json()["error"] == "oauth_callback_port_in_use"
+    assert "127.0.0.1:8765" in response.json()["message"]
+
+
+def test_spotify_disconnect_deletes_relationships_without_touching_rekordbox(tmp_path):
+    secrets = SecretsStore(tmp_path / "secrets")
+    secrets.set(ACCESS_TOKEN, "access")
+    secrets.set(REFRESH_TOKEN, "refresh")
+    auth = SpotifyAuth(lambda: "a" * 32, secrets)
+    auth.begin_authorization()
+    listener = FakeOAuthListener()
+    env = make_env(tmp_path, spotify_auth=auth, oauth_listener=listener)
+    env.deps.settings.update({"spotify_client_id": "a" * 32})
+
+    source, tracks = seed_source(
+        env.conn,
+        [
+            {
+                "spotify_track_id": "track-1",
+                "title": "Track one",
+                "artist": "Artist",
+                "status": "missing",
+            }
+        ],
+    )
+    env.conn.execute(
+        "INSERT INTO sync_runs (source_id, started_at) VALUES (?, '2026-07-14')",
+        (source["id"],),
+    )
+    event = api.events_service.create_event(
+        env.conn,
+        env.storage,
+        "Local event",
+        spotify_playlist_id="B" * 22,
+    )
+    event_track = api.events_service.add_track(
+        env.conn,
+        event,
+        spotify_track_id="spotify-event-track",
+        resolver=lambda _track_id: {"title": "Keep locally", "artist": "Artist"},
+    )
+    env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+        "VALUES ('library', ?, 'Track one', 'downloaded')",
+        (str(tracks[0]["id"]),),
+    )
+    env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+        "VALUES ('event', ?, 'Keep locally', 'downloaded')",
+        (str(event_track["id"]),),
+    )
+    env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+        "VALUES ('collection', '42', 'Collection track', 'downloaded')"
+    )
+    rekordbox_before = env.db_file.read_bytes()
+
+    response = env.client.delete("/api/spotify/session")
+    assert response.status_code == 200
+    assert response.json() == {
+        "disconnected": True,
+        "rekordbox_changed": False,
+        "sources": 1,
+        "library_tracks": 1,
+        "sync_runs": 1,
+        "events_detached": 1,
+        "event_tracks_detached": 1,
+        "acquisition_jobs_deleted": 2,
+    }
+    assert secrets.get(ACCESS_TOKEN) is None
+    assert secrets.get(REFRESH_TOKEN) is None
+    assert auth._state is None
+    assert auth._verifier is None
+    assert listener.stops == 1
+    assert env.deps.settings.get("spotify_client_id") == "a" * 32
+    assert env.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
+    detached_event = env.conn.execute(
+        "SELECT spotify_playlist_id FROM events WHERE id = ?", (event["id"],)
+    ).fetchone()[0]
+    assert detached_event == f"manual:{event['slug']}"
+    detached_track = env.conn.execute(
+        "SELECT spotify_track_id, title FROM event_tracks WHERE id = ?",
+        (event_track["id"],),
+    ).fetchone()
+    assert tuple(detached_track) == (None, "Keep locally")
+    jobs = env.conn.execute(
+        "SELECT scope, ref FROM acquisition_jobs ORDER BY id"
+    ).fetchall()
+    assert [tuple(row) for row in jobs] == [("collection", "42")]
+    assert env.db_file.read_bytes() == rekordbox_before
+
+    again = env.client.delete("/api/spotify/session").json()
+    assert again["disconnected"] is True
+    assert all(
+        again[key] == 0
+        for key in (
+            "sources",
+            "library_tracks",
+            "sync_runs",
+            "events_detached",
+            "event_tracks_detached",
+            "acquisition_jobs_deleted",
+        )
+    )
+    assert listener.stops == 2
+    secrets.close()
 
 
 # --- SSE progress (F16) --------------------------------------------------------------
@@ -1230,19 +1446,25 @@ def test_status_reports_rb_and_spotify_truthfully(tmp_path, monkeypatch):
     env = make_env(
         tmp_path,
         spotify_auth=SimpleNamespace(
-            connected=lambda: True, handle_callback=lambda params: {"ok": True}
+            connected=lambda: True,
+            authorization_status=lambda: {"pending": True, "result": None},
+            handle_callback=lambda params: {"ok": True},
         ),
     )
     monkeypatch.setattr(process_guard, "is_rekordbox_running", lambda: True)
     assert env.client.get("/api/status").json() == {
         "rb_open": True,
         "spotify_connected": True,
+        "spotify_authorization_pending": True,
+        "spotify_authorization_result": None,
     }
     monkeypatch.setattr(process_guard, "is_rekordbox_running", lambda: False)
     bare = make_env(tmp_path / "bare")  # no spotify_auth wired
     assert bare.client.get("/api/status").json() == {
         "rb_open": False,
         "spotify_connected": False,
+        "spotify_authorization_pending": False,
+        "spotify_authorization_result": None,
     }
 
 
@@ -1316,10 +1538,10 @@ def test_track_manual_match_transition(tmp_path):
 
 def test_missing_remove_soft_deletes_via_mutate(tmp_path, monkeypatch):
     """G3: remove = soft-delete through mutate (fingerprint checked), no
-    audio deletion; protected and present-file rows are refused."""
+    audio deletion; ownership is irrelevant and present-file rows are refused."""
     rows = [
         rb_row("1", file_missing=True),
-        rb_row("2", file_missing=True, protected=True),
+        rb_row("2", file_missing=True, ownership="permanent_library"),
         rb_row("3"),  # file present
     ]
     env = make_env(tmp_path, rows=rows)
@@ -1340,7 +1562,8 @@ def test_missing_remove_soft_deletes_via_mutate(tmp_path, monkeypatch):
     assert deleted == ["1"]
     assert seen["fingerprint"] == env.cache.current_fingerprint
 
-    assert env.client.post("/api/missing/collection/2/remove").status_code == 409
+    assert env.client.post("/api/missing/collection/2/remove").status_code == 200
+    assert deleted == ["1", "2"]
     assert env.client.post("/api/missing/collection/3/remove").status_code == 409
     assert env.client.post("/api/missing/collection/9/remove").status_code == 404
 
@@ -1422,7 +1645,7 @@ def test_spotify_playlist_preview(tmp_path):
     payload = {
         "name": "Peak Time",
         "owner": {"display_name": "Adrien"},
-        "tracks": {"total": 42},
+        "items": {"total": 42},
         "images": [{"url": "https://i.scdn.co/image/x"}],
     }
     env = make_env(tmp_path, spotify_client=SimpleNamespace(get=lambda path: payload))
@@ -1479,7 +1702,7 @@ def test_spotify_playlists_walks_pages_and_maps(tmp_path):
                 "id": "PL1",
                 "name": "Peak Time",
                 "owner": {"display_name": "Adrien"},
-                "tracks": {"total": 42},
+                "items": {"total": 42},
                 "images": [{"url": "https://i.scdn.co/image/x"}],
             },
             None,  # Spotify pads deleted playlists with nulls
@@ -1609,18 +1832,19 @@ def test_events_create_playlist_mode_imports_tracks(tmp_path):
     """Owner-approved: 'from playlist' mode fetches the playlist's tracks at
     creation through the D20 mapper; a Spotify failure creates NO event."""
     payload = {
-        "tracks": {
+        "items": {
             "items": [
                 {
-                    "track": {
+                    "item": {
                         "id": "trk1",
                         "name": "Innerbloom",
                         "artists": [{"name": "RÜFÜS DU SOL"}],
                         "duration_ms": 574_000,
                         "external_ids": {"isrc": "AUUM71500123"},
+                        "type": "track",
                     }
                 },
-                {"track": {"id": None, "name": "unplayable"}},
+                {"item": {"id": None, "name": "unplayable"}},
             ],
             "next": None,
         }
@@ -1691,6 +1915,27 @@ def test_settings_export_import_roundtrip(tmp_path):
     assert imported.json()["skipped"] == {}
     assert env.deps.settings.get("language") == "fr"
     assert env.deps.settings.get("backup_retention") == 7
+
+
+def test_exports_and_logs_exclude_encrypted_oauth_tokens(tmp_path):
+    sentinel = "SYNCBOX-PHASE6-OAUTH-SENTINEL-DO-NOT-EXPORT"
+    secrets = SecretsStore(tmp_path / "secrets")
+    secrets.set(ACCESS_TOKEN, sentinel)
+    secrets.set(REFRESH_TOKEN, f"{sentinel}-refresh")
+    auth = SpotifyAuth(lambda: "client-id", secrets)
+    env = make_env(tmp_path / "app", spotify_auth=auth)
+
+    settings = tmp_path / "settings.json"
+    data = tmp_path / "data.db"
+    assert env.client.post("/api/settings/export", json={"path": str(settings)}).status_code == 200
+    assert env.client.post("/api/data/export", json={"path": str(data)}).status_code == 200
+
+    assert sentinel.encode() not in settings.read_bytes()
+    assert sentinel.encode() not in data.read_bytes()
+    if env.deps.log_path.exists():
+        assert sentinel.encode() not in env.deps.log_path.read_bytes()
+    assert secrets.get(ACCESS_TOKEN) == sentinel
+    secrets.close()
 
 
 def test_settings_import_skips_bad_paths_and_unknown_keys(tmp_path):
@@ -1785,4 +2030,20 @@ def test_data_import_rejects_non_syncbox_files(tmp_path):
         == 400
     )
     # the live DB survived both refusals untouched
+    assert env.client.get("/api/settings").json() == before
+
+
+def test_transfer_paths_must_be_absolute_and_live_db_cannot_import_itself(tmp_path):
+    env = make_env(tmp_path)
+    before = env.deps.settings.all()
+
+    relative = env.client.post("/api/data/export", json={"path": "relative.db"})
+    assert relative.status_code == 400
+    assert "absolute" in relative.json()["message"]
+
+    live = env.client.post(
+        "/api/data/import", json={"path": str(env.deps.app_db_path)}
+    )
+    assert live.status_code == 400
+    assert "live Syncbox database" in live.json()["message"]
     assert env.client.get("/api/settings").json() == before

@@ -18,7 +18,8 @@ export async function openExternal(url: string): Promise<void> {
   try {
     const { openUrl } = await import('@tauri-apps/plugin-opener')
     await openUrl(url)
-  } catch {
+  } catch (error) {
+    if (hasShell()) throw error
     window.open(url, '_blank', 'noopener') // browser dev fallback
   }
 }
@@ -83,10 +84,12 @@ export function hasShell(): boolean {
   return '__TAURI_INTERNALS__' in window
 }
 
-/** The shell emits `backend-down` when bounded restarts are exhausted. */
-export function onBackendDown(handler: () => void): void {
+/** The shell emits `backend-down` with an actionable lifecycle reason. */
+export function onBackendDown(handler: (reason: string) => void): void {
   import('@tauri-apps/api/event')
-    .then(({ listen }) => listen('backend-down', handler))
+    .then(({ listen }) =>
+      listen<string>('backend-down', (event) => handler(event.payload)),
+    )
     .catch(() => {
       /* browser dev: NetworkError polling covers it */
     })
