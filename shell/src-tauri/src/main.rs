@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use tauri::{Emitter, Manager};
 
-const SIDECAR_ADDR: (&str, u16) = ("127.0.0.1", 8765);
+const SIDECAR_ADDR: (&str, u16) = ("127.0.0.1", 8766);
 const MAX_RESTARTS: u32 = 3;
 const BACKOFF_SECS: [u64; 3] = [1, 2, 4];
 
@@ -221,9 +221,9 @@ fn http_status_body(response: &[u8]) -> Option<(u16, &[u8])> {
 }
 
 /// Exact protocol identity approved for stale-sidecar cleanup. This prevents
-/// Syncbox from sending /shutdown to an unrelated service using port 8765.
+/// Syncbox from sending /shutdown to an unrelated service using port 8766.
 fn syncbox_health() -> bool {
-    let request = "GET /health HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nConnection: close\r\n\r\n";
+    let request = "GET /health HTTP/1.1\r\nHost: 127.0.0.1:8766\r\nConnection: close\r\n\r\n";
     let Some(response) = http_request(request) else {
         return false;
     };
@@ -246,7 +246,7 @@ fn is_syncbox_health_response(response: &[u8]) -> bool {
 }
 
 fn post_shutdown() -> bool {
-    let request = "POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let request = "POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1:8766\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
     http_request(request)
         .and_then(|response| http_status_body(&response).map(|(status, _)| status))
         == Some(202)
@@ -371,7 +371,7 @@ fn main() {
                 }
                 StartupPort::Blocked => {
                     eprintln!(
-                        "PORT_COLLISION 127.0.0.1:8765 is occupied by a non-Syncbox service"
+                        "PORT_COLLISION 127.0.0.1:8766 is occupied by a non-Syncbox service"
                     );
                     let handle = app.handle().clone();
                     std::thread::spawn(move || {

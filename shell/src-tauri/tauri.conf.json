@@ -2,12 +2,12 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Syncbox",
   "version": "../../ui/package.json",
-  "identifier": "dev.syncbox.app",
+  "identifier": "io.github.adridot.syncbox",
   "build": {
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "pnpm dev",
     "frontendDist": "../../ui/dist",
-    "beforeBuildCommand": "pnpm build && pnpm freeze"
+    "beforeBuildCommand": "pnpm build && pnpm freeze:base"
   },
   "app": {
     "windows": [
@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8765; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8766; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     }
   },
   "bundle": {

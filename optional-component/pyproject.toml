@@ -1,10 +1,12 @@
 [project]
 name = "syncbox-deezer-component"
-version = "0.2.1"
+version = "0.2.2"
 description = "Separately distributed optional Deezer acquisition component for Syncbox"
-requires-python = ">=3.14,<3.15"
+license = "MIT"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "certifi==2026.6.17",
+    "pillow==10.4.0",
     "streamrip @ git+https://github.com/nathom/streamrip.git@189acda489927719aa8591f6acdd7d67aecf929b",
 ]
 

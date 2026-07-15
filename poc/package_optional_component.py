@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import platform
 import runpy
-import stat
 import tomllib
-import zipfile
 from pathlib import Path
+
+from reproducible_archive import write_tree_archive
 
 REPO = Path(__file__).resolve().parents[1]
 PROJECT = REPO / "optional-component"
@@ -19,21 +18,6 @@ COMPONENT = "syncbox-deezer-component"
 BUNDLE = PROJECT / "dist" / COMPONENT
 MANIFEST = REPO / "sidecar" / "src" / "syncbox" / "optional_component.json"
 RELEASE_REPOSITORY = "https://github.com/Adridot/syncbox"
-
-
-def _write_node(bundle: zipfile.ZipFile, path: Path) -> None:
-    relative = f"{COMPONENT}/{path.relative_to(BUNDLE).as_posix()}"
-    details = path.lstat()
-    info = zipfile.ZipInfo(relative, (1980, 1, 1, 0, 0, 0))
-    info.create_system = 3
-    if path.is_symlink():
-        info.external_attr = (stat.S_IFLNK | 0o777) << 16
-        payload = os.readlink(path).encode()
-    else:
-        info.external_attr = (stat.S_IFREG | stat.S_IMODE(details.st_mode)) << 16
-        payload = path.read_bytes()
-    info.compress_type = zipfile.ZIP_DEFLATED
-    bundle.writestr(info, payload, compresslevel=9)
 
 
 def main() -> int:
@@ -53,11 +37,7 @@ def main() -> int:
         run_name="syncbox_component_metadata",
     )
     archive = PROJECT / "dist" / f"{COMPONENT}-{version}-macos-arm64.zip"
-    archive.unlink(missing_ok=True)
-    with zipfile.ZipFile(archive, "w", allowZip64=True) as bundle:
-        for path in sorted(BUNDLE.rglob("*")):
-            if path.is_file() or path.is_symlink():
-                _write_node(bundle, path)
+    write_tree_archive(archive, BUNDLE, COMPONENT)
 
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     payload = {
@@ -77,10 +57,14 @@ def main() -> int:
         "streamrip_version": runner["STREAMRIP_VERSION"],
         "streamrip_commit": runner["STREAMRIP_COMMIT"],
         "certifi_version": "2026.6.17",
+        "python_version": "3.13.11",
+        "pillow_version": runner["PILLOW_VERSION"],
+        "pillow_wheel": runner["PILLOW_WHEEL"],
+        "pillow_wheel_sha256": runner["PILLOW_WHEEL_SHA256"],
     }
     temporary = MANIFEST.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    os.replace(temporary, MANIFEST)
+    temporary.replace(MANIFEST)
     print(json.dumps(payload, sort_keys=True))
     return 0
 

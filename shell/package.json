@@ -1,15 +1,20 @@
 {
   "name": "syncbox-shell",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": "24.13.0",
+    "pnpm": "10.29.3"
+  },
   "scripts": {
     "dev": "pnpm --dir ../ui dev",
     "build": "pnpm --dir ../ui build",
     "tauri": "tauri",
-    "freeze:component": "cd ../optional-component && uv run --locked --managed-python pyinstaller --noconfirm --clean syncbox-deezer-component.spec && uv run --locked --managed-python python ../poc/package_optional_component.py",
-    "freeze:base": "cd ../sidecar && uv run --locked --managed-python pyinstaller --noconfirm --clean sidecar.spec",
+    "freeze:component": "cd ../optional-component && uv run --locked --exact --managed-python pyinstaller --noconfirm --clean syncbox-deezer-component.spec && uv run --locked --exact --managed-python python ../poc/package_optional_component.py",
+    "freeze:base": "cd ../sidecar && uv run --locked --exact --managed-python pyinstaller --noconfirm --clean sidecar.spec",
     "freeze": "pnpm freeze:component && pnpm freeze:base",
-    "bundle:macos": "PATH=/usr/bin:/bin:$PATH RUSTFLAGS=\"--remap-path-prefix=$HOME=/Users/build\" tauri build --bundles app --target aarch64-apple-darwin -- --locked"
+    "bundle:macos": "python3 ../poc/build_macos_release.py"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0"
