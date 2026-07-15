@@ -32,5 +32,8 @@ poc/testdata/**
 # OS
 .DS_Store
 
+# Local agent tooling artifacts
+.playwright-mcp/
+
 # POC cargo shells
 poc/**/target/

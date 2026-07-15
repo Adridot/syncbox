@@ -397,6 +397,9 @@ def main() -> int:
             REPO / "sidecar",
             environment,
         )
+        # Convenience drag-to-Applications installer, built after the scanner
+        # passes. Not part of the reproducible/scanned contract; the ZIP is.
+        _run(["python3", "../poc/package_base_dmg.py"], SHELL, environment)
         return 0
     finally:
         _clean_local_build_products()
