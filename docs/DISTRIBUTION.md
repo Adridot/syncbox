@@ -94,6 +94,26 @@ discard the controlled entry order, modes, and `SOURCE_DATE_EPOCH` timestamps.
 
 Build artifacts are ignored and must not be committed.
 
+## Automated release (GitHub Actions)
+
+Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`, which rebuilds
+the artifacts on a hosted Apple Silicon runner through the same
+`pnpm bundle:macos` entry point and publishes the GitHub release with both
+ZIPs, the convenience DMG, and a `SHA256SUMS.txt`. The tag must match
+`ui/package.json` and `release-build.json`; the sidecar and UI test suites
+must pass; and two isolated absolute source roots are built in parallel —
+the release is blocked unless their ZIPs are byte-identical.
+
+Hosted runners cannot match the pinned Apple host toolchain, so the workflow
+sets `SYNCBOX_RELEASE_HOST_TOOLCHAIN=unpinned`: the six Apple host fields
+(`apple_clang`, `apple_ld`, `developer_dir`, `macos_build`, `macos_sdk`,
+`macos_sdk_path`) are logged for provenance instead of enforced, and
+`SDKROOT` is resolved from the runner's `xcrun`. Every other pin — rustc,
+cargo, node, pnpm, uv, the Tauri CLI, both managed Python runtimes, locks,
+licenses, and the full artifact scanner — remains fail-closed. CI artifacts
+are therefore reproducible against themselves on the runner image, not
+byte-identical to a build from the pinned local host.
+
 ## Verification
 
 From the repository root:

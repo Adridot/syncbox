@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.root }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two isolated absolute source roots must produce byte-identical
+        # ZIPs; the release job blocks on that comparison.
+        root: [primary, alt]
+    env:
+      SRC: ${{ runner.temp }}/${{ matrix.root }}/syncbox
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches the versioned release metadata
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          UI_VERSION="$(jq -r .version ui/package.json)"
+          META_VERSION="$(jq -r .release.version release-build.json)"
+          test "$TAG_VERSION" = "$UI_VERSION" \
+            || { echo "tag $TAG_VERSION != ui/package.json $UI_VERSION"; exit 1; }
+          test "$TAG_VERSION" = "$META_VERSION" \
+            || { echo "tag $TAG_VERSION != release-build.json $META_VERSION"; exit 1; }
+
+      - name: Read toolchain pins from release-build.json
+        id: pins
+        run: |
+          {
+            echo "node=$(jq -r .toolchain.node release-build.json | sed 's/^v//')"
+            echo "pnpm=$(jq -r .toolchain.pnpm release-build.json)"
+            echo "uv=$(jq -r .toolchain.uv release-build.json | awk '{print $2}')"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.pins.outputs.pnpm }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.pins.outputs.node }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Copy checkout to an isolated source root
+        run: |
+          mkdir -p "$(dirname "$SRC")"
+          cp -R "$GITHUB_WORKSPACE" "$SRC"
+
+      - name: Install locked dependencies
+        working-directory: ${{ env.SRC }}
+        run: |
+          rustup toolchain install
+          rustup show
+          pnpm install --frozen-lockfile
+          (cd sidecar && uv lock --check && uv sync --locked --managed-python)
+          (cd optional-component && uv lock --check && uv sync --locked --managed-python)
+
+      - name: Tests
+        if: matrix.root == 'primary'
+        working-directory: ${{ env.SRC }}
+        run: |
+          (cd sidecar && uv run --locked --exact --managed-python pytest -q)
+          pnpm --dir ui typecheck
+          pnpm --dir ui test
+
+      - name: Build release artifacts
+        working-directory: ${{ env.SRC }}/shell
+        env:
+          SYNCBOX_RELEASE_HOST_TOOLCHAIN: unpinned
+        run: pnpm bundle:macos
+
+      - name: Collect artifacts
+        working-directory: ${{ env.SRC }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BUNDLE="shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
+          OUT="$RUNNER_TEMP/out"
+          mkdir -p "$OUT"
+          cp "$BUNDLE/Syncbox-$VERSION-macos-arm64.zip" "$OUT/"
+          cp "$BUNDLE/Syncbox-$VERSION-macos-arm64.dmg" "$OUT/"
+          cp "optional-component/dist/syncbox-deezer-component-$VERSION-macos-arm64.zip" "$OUT/"
+          # The DMG is a convenience installer outside the reproducible
+          # contract; only the ZIPs are compared across roots.
+          (cd "$OUT" && shasum -a 256 *.zip > "REPRO-${{ matrix.root }}.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: syncbox-${{ matrix.root }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Verify both isolated roots built byte-identical ZIPs
+        run: |
+          sed 's/^/primary  /' dist/syncbox-primary/REPRO-primary.sha256
+          sed 's/^/alt      /' dist/syncbox-alt/REPRO-alt.sha256
+          diff dist/syncbox-primary/REPRO-primary.sha256 \
+               dist/syncbox-alt/REPRO-alt.sha256
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: dist/syncbox-primary
+        run: |
+          sha256sum *.zip *.dmg > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Syncbox ${GITHUB_REF_NAME#v}" \
+            --verify-tag \
+            --generate-notes \
+            *.zip *.dmg SHA256SUMS.txt

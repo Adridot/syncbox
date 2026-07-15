@@ -19,6 +19,23 @@ LOCAL_BUILD_PRODUCTS = (
     REPO / "sidecar/vendor/sqlcipher3-commoncrypto/build",
     REPO / "sidecar/vendor/sqlcipher3-commoncrypto/sqlcipher3_wheels.egg-info",
 )
+# Fields owned by the Apple host, not by any lockfile. CI runners cannot
+# match the owner's machine on these, so SYNCBOX_RELEASE_HOST_TOOLCHAIN=unpinned
+# logs them instead of enforcing them; every other pin stays fail-closed.
+HOST_TOOLCHAIN_KEYS = (
+    "apple_clang",
+    "apple_ld",
+    "developer_dir",
+    "macos_build",
+    "macos_sdk",
+    "macos_sdk_path",
+)
+
+
+def _is_pinned(section: str, name: str) -> bool:
+    if section != "toolchain" or name not in HOST_TOOLCHAIN_KEYS:
+        return True
+    return os.environ.get("SYNCBOX_RELEASE_HOST_TOOLCHAIN") != "unpinned"
 
 
 def _clean_local_build_products() -> None:
@@ -148,7 +165,7 @@ def _release_environment() -> dict[str, str]:
             "PYTHONHASHSEED": "0",
             "PYTHONNOUSERSITE": "1",
             "RANLIB": "/usr/bin/ranlib",
-            "SDKROOT": metadata["toolchain"]["macos_sdk_path"],
+            "SDKROOT": _sdkroot(metadata),
             "SOURCE_DATE_EPOCH": str(epoch),
             "TZ": "UTC",
             "UV_CACHE_DIR": "/tmp/syncbox-uv-cache",
@@ -157,6 +174,17 @@ def _release_environment() -> dict[str, str]:
         }
     )
     return environment
+
+
+def _sdkroot(metadata: dict) -> str:
+    if _is_pinned("toolchain", "macos_sdk_path"):
+        return metadata["toolchain"]["macos_sdk_path"]
+    return subprocess.run(
+        ["xcrun", "--sdk", "macosx", "--show-sdk-path"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 def _run(command: list[str], cwd: Path, environment: dict[str, str]) -> None:
@@ -274,6 +302,8 @@ print(json.dumps({
         ),
     ):
         for name, expected_value in expected_values.items():
+            if not _is_pinned(section, name):
+                continue
             actual_value = actual_values.get(name)
             if actual_value != expected_value:
                 mismatches.append(
@@ -281,6 +311,16 @@ print(json.dumps({
                 )
     if mismatches:
         raise SystemExit("release toolchain mismatch:\n" + "\n".join(mismatches))
+    unpinned = [
+        name for name in HOST_TOOLCHAIN_KEYS if not _is_pinned("toolchain", name)
+    ]
+    if unpinned:
+        print(
+            "host toolchain (unpinned): "
+            + json.dumps(
+                {name: actual_toolchain[name] for name in unpinned}, sort_keys=True
+            )
+        )
 
 
 def main() -> int:
