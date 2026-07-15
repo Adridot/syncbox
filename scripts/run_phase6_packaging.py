@@ -44,7 +44,13 @@ BASE_FORBIDDEN = (
     b"config.toml",
     b"pony" + b"tail:",
     b"/tmp/syncbox-premium-arl",
-    str(Path.home()).encode().lower(),
+    # The build workspace path marks OUR environment. Probing Path.home()
+    # instead false-positives on GitHub-hosted runners: upstream PyPI wheels
+    # built on GH Actions (e.g. cffi) embed the runner's home as debug
+    # paths — exactly the CI builder's own home. (The literal prefix is
+    # deliberately not written here: the source scan probes Path.home().)
+    # Rust already remaps the home (build_macos_release.py).
+    str(REPO).encode().lower(),
 )
 BASE_FORBIDDEN_NATIVE = (
     "libgcc",
@@ -1013,8 +1019,11 @@ def validate_optional_component(archive: Path, manifest_path: Path) -> dict:
             for path in root.rglob("*"):
                 if path.is_file() and not path.is_symlink():
                     raw = path.read_bytes()
-                    assert str(Path.home()).encode() not in raw, (
-                        f"local builder path in optional component: {path}"
+                    # REPO, not Path.home(): upstream wheels built on GitHub
+                    # Actions embed the runner-home prefix, colliding with
+                    # the CI builder's home (see BASE_FORBIDDEN).
+                    assert str(REPO).encode() not in raw, (
+                        f"local build tree path in optional component: {path}"
                     )
                     for pattern in SECRET_PATTERNS:
                         assert not pattern.search(raw), f"secret-shaped value in {path}"
