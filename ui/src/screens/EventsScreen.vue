@@ -285,7 +285,7 @@ async function onWriteDone() {
       <section v-if="selected" class="workspace">
         <div class="ws-head">
           <div class="ws-title">
-            <div class="ws-name-row">
+            <div class="ws-name-row hover-reveal">
               <template v-if="renaming">
                 <input
                   v-model="renameValue"
@@ -302,7 +302,6 @@ async function onWriteDone() {
                 <StatusBadge :status="selected.status" />
                 <SpotifyAttributionLink
                   v-if="!selected.spotify_playlist_id.startsWith('manual:')"
-                  compact
                   kind="playlist"
                   :spotify-id="selected.spotify_playlist_id"
                 />
@@ -474,7 +473,7 @@ async function onWriteDone() {
           <div
             v-for="track in visibleTracks"
             :key="track.id"
-            class="row"
+            class="row hover-reveal"
             :data-pending="track.added_after_apply === 1"
           >
             <div class="cell-title">
@@ -482,7 +481,6 @@ async function onWriteDone() {
                 <span class="row-title">{{ track.title }}</span>
                 <SpotifyAttributionLink
                   v-if="track.spotify_track_id"
-                  compact
                   kind="track"
                   :spotify-id="track.spotify_track_id"
                 />

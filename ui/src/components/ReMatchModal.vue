@@ -70,7 +70,6 @@ const markMissing = () => act(() => api.post<LibraryTrack>(`/api/library/tracks/
         </template>
       </i18n-t>
       <SpotifyAttributionLink
-        compact
         kind="track"
         :spotify-id="track.spotify_track_id"
       />

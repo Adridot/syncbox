@@ -24,6 +24,23 @@ export async function openExternal(url: string): Promise<void> {
   }
 }
 
+/** Spotify links prefer the installed desktop app: the `spotify:` scheme
+    errors when no app handles it (or the scheme is denied), and we fall
+    back to the web URL. Browser dev goes straight to the web URL — a
+    scheme probe is not possible there. */
+export async function openSpotify(appUri: string, webUrl: string): Promise<void> {
+  if (hasShell()) {
+    try {
+      const { openUrl } = await import('@tauri-apps/plugin-opener')
+      await openUrl(appUri)
+      return
+    } catch {
+      /* Spotify app absent — the web URL below covers it */
+    }
+  }
+  await openExternal(webUrl)
+}
+
 /** Reveal a local file's folder ("Ouvrir le dossier de logs") — same opener
     plugin; browser dev has no equivalent, so it degrades to a no-op. */
 export async function revealInFolder(path: string): Promise<void> {
