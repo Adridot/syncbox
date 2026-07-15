@@ -186,7 +186,7 @@ async function connect() {
           <div
             v-for="playlist in filteredPlaylists"
             :key="playlist.spotify_playlist_id"
-            class="picker-entry"
+            class="picker-entry hover-reveal"
           >
             <button
               class="picker-row"
@@ -215,7 +215,6 @@ async function connect() {
               </span>
             </button>
             <SpotifyAttributionLink
-              compact
               kind="playlist"
               :spotify-id="playlist.spotify_playlist_id"
             />
@@ -242,7 +241,7 @@ async function connect() {
       <div v-if="spotify.error.value" class="error-row">{{ spotify.error.value }}</div>
 
       <!-- resolved preview -->
-      <div v-if="resolved" class="preview">
+      <div v-if="resolved" class="preview hover-reveal">
         <img v-if="resolved.image_url" class="art" :src="resolved.image_url" alt="" />
         <span v-else class="art initial">{{ (resolved.name || '?').slice(0, 1).toUpperCase() }}</span>
         <div class="preview-text">
@@ -253,7 +252,6 @@ async function connect() {
           </div>
         </div>
         <SpotifyAttributionLink
-          compact
           kind="playlist"
           :spotify-id="playlistId!"
         />

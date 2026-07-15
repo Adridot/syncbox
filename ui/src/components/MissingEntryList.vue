@@ -5,7 +5,10 @@
 // transitions with a D22 inline undo, and the G3 collection remove.
 // Every action surfaces its outcome (B1). Optional acquisition appears only
 // when the backend marks it available; purchase links remain first.
-import { ref } from 'vue'
+// Row layout (owner decision 15/07): checkbox selection + floating bulk bar
+// for the groupable actions; per row only the buy CTA stays visible, the
+// rest lives in a ⋯ menu.
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, api } from '../api/client'
@@ -15,20 +18,22 @@ import { useJobsStore } from '../stores/jobs'
 import { useStatusStore } from '../stores/status'
 import ManualRelinkModal from './ManualRelinkModal.vue'
 import ScopeBadge from './ScopeBadge.vue'
+import SelectionBar from './SelectionBar.vue'
 import SpotifyAttributionLink from './SpotifyAttributionLink.vue'
 import StatusBadge from './StatusBadge.vue'
 
-defineProps<{ entries: MissingEntry[]; showScope?: boolean }>()
+const props = defineProps<{ entries: MissingEntry[]; showScope?: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 const { t } = useI18n()
 const status = useStatusStore()
 const jobs = useJobsStore()
 
-const banner = ref<{ tone: 'error' | 'success'; text: string; undo?: MissingEntry } | null>(null)
+const banner = ref<{ tone: 'error' | 'success'; text: string; undo?: MissingEntry[] } | null>(null)
 const relinkEntry = ref<MissingEntry | null>(null)
 const relinkBusy = ref(false)
 const relinkError = ref<string | null>(null)
 const purchaseMenu = ref<string | null>(null)
+const rowMenu = ref<string | null>(null)
 
 function describe(cause: unknown): string {
   return cause instanceof ApiError ? cause.message : t('common.networkError')
@@ -37,6 +42,54 @@ function describe(cause: unknown): string {
 function entryKey(entry: MissingEntry): string {
   return `${entry.scope}:${String(entry.id)}`
 }
+
+// popovers close on any outside click; toggles stop propagation
+function closeMenus() {
+  purchaseMenu.value = null
+  rowMenu.value = null
+}
+onMounted(() => document.addEventListener('click', closeMenus))
+onUnmounted(() => document.removeEventListener('click', closeMenus))
+
+function toggleRowMenu(entry: MissingEntry) {
+  const key = entryKey(entry)
+  rowMenu.value = rowMenu.value === key ? null : key
+  purchaseMenu.value = null
+}
+
+// --- selection (bulk over the groupable actions — owner decision 15/07) ----
+const selected = ref<Set<string>>(new Set())
+
+// entries change (reload, resolve) — drop keys that no longer exist
+watch(
+  () => props.entries,
+  (list) => {
+    const keys = new Set(list.map(entryKey))
+    const next = new Set([...selected.value].filter((key) => keys.has(key)))
+    if (next.size !== selected.value.size) selected.value = next
+  },
+)
+
+const allSelected = computed(
+  () => props.entries.length > 0 && props.entries.every((entry) => selected.value.has(entryKey(entry))),
+)
+function toggleAll() {
+  selected.value = allSelected.value ? new Set() : new Set(props.entries.map(entryKey))
+}
+function toggleOne(entry: MissingEntry) {
+  const next = new Set(selected.value)
+  const key = entryKey(entry)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  selected.value = next
+}
+
+const selectedEntries = computed(() =>
+  props.entries.filter((entry) => selected.value.has(entryKey(entry))),
+)
+const ignorable = computed(() => selectedEntries.value.filter((entry) => entry.scope !== 'collection'))
+const acquirable = computed(() => selectedEntries.value.filter((entry) => entry.acquisition?.available))
+const removable = computed(() => selectedEntries.value.filter((entry) => entry.scope === 'collection'))
 
 async function openPurchaseUrl(url: string) {
   banner.value = null
@@ -53,6 +106,7 @@ async function buy(entry: MissingEntry) {
     return
   }
   purchaseMenu.value = purchaseMenu.value === entryKey(entry) ? null : entryKey(entry)
+  rowMenu.value = null
 }
 
 async function openPurchase(url: string) {
@@ -60,7 +114,7 @@ async function openPurchase(url: string) {
   await openPurchaseUrl(url)
 }
 
-async function act(request: () => Promise<unknown>, success?: string, undo?: MissingEntry) {
+async function act(request: () => Promise<unknown>, success?: string, undo?: MissingEntry[]) {
   banner.value = null
   try {
     await request()
@@ -73,30 +127,41 @@ async function act(request: () => Promise<unknown>, success?: string, undo?: Mis
   }
 }
 
-const ignore = (entry: MissingEntry) =>
-  act(
-    () => api.post(`/api/missing/${entry.scope}/${entry.id}/status`, { status: 'ignored' }),
-    t('missing.ignored', { title: entry.title ?? '' }),
-    entry,
-  )
+const ignoreOne = (entry: MissingEntry) =>
+  api.post(`/api/missing/${entry.scope}/${entry.id}/status`, { status: 'ignored' })
 
-const restore = (entry: MissingEntry) =>
-  act(() => api.post(`/api/missing/${entry.scope}/${entry.id}/restore`))
+const ignore = (entry: MissingEntry) =>
+  act(() => ignoreOne(entry), t('missing.ignored', { title: entry.title ?? '' }), [entry])
+
+// D22 inline undo: restore puts the PRIOR status back, never 'new'
+async function restore(entries: MissingEntry[]) {
+  banner.value = null
+  try {
+    for (const entry of entries)
+      await api.post(`/api/missing/${entry.scope}/${entry.id}/restore`)
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  }
+  emit('changed')
+}
+
+const removeOne = (entry: MissingEntry) =>
+  api.post(`/api/missing/collection/${entry.content_id}/remove`)
 
 const removeCollection = (entry: MissingEntry) =>
-  act(
-    () => api.post(`/api/missing/collection/${entry.content_id}/remove`),
-    t('missing.removed', { title: entry.title ?? '' }),
-  )
+  act(() => removeOne(entry), t('missing.removed', { title: entry.title ?? '' }))
+
+const acquireOne = (entry: MissingEntry) =>
+  api.post<{ status: string }>('/api/acquisition/jobs', {
+    scope: entry.scope,
+    row_id: entry.scope === 'collection' ? undefined : entry.id,
+    content_id: entry.scope === 'collection' ? entry.content_id : undefined,
+  })
 
 async function acquire(entry: MissingEntry) {
   banner.value = null
   try {
-    const job = await api.post<{ status: string }>('/api/acquisition/jobs', {
-        scope: entry.scope,
-        row_id: entry.scope === 'collection' ? undefined : entry.id,
-        content_id: entry.scope === 'collection' ? entry.content_id : undefined,
-    })
+    const job = await acquireOne(entry)
     banner.value = {
       tone: job.status === 'downloaded' ? 'success' : 'error',
       text: t(
@@ -108,6 +173,68 @@ async function acquire(entry: MissingEntry) {
   } catch (cause) {
     banner.value = { tone: 'error', text: describe(cause) }
   }
+}
+
+// --- bulk actions: sequential over the selection, one aggregate banner -----
+async function bulkIgnore() {
+  banner.value = null
+  const done: MissingEntry[] = []
+  let failure: string | null = null
+  for (const entry of ignorable.value) {
+    try {
+      await ignoreOne(entry)
+      done.push(entry)
+    } catch (cause) {
+      failure = describe(cause)
+      break
+    }
+  }
+  banner.value = failure
+    ? { tone: 'error', text: failure }
+    : { tone: 'success', text: t('missing.bulkIgnored', { n: done.length }), undo: done }
+  selected.value = new Set()
+  emit('changed')
+}
+
+async function bulkRemove() {
+  banner.value = null
+  let n = 0
+  let failure: string | null = null
+  for (const entry of removable.value) {
+    try {
+      await removeOne(entry)
+      n += 1
+    } catch (cause) {
+      failure = describe(cause)
+      break
+    }
+  }
+  banner.value = failure
+    ? { tone: 'error', text: failure }
+    : { tone: 'success', text: t('missing.bulkRemoved', { n }) }
+  selected.value = new Set()
+  emit('changed')
+}
+
+async function bulkAcquire() {
+  banner.value = null
+  let ok = 0
+  let failed = 0
+  for (const entry of acquirable.value) {
+    try {
+      const job = await acquireOne(entry)
+      if (job.status === 'downloaded') ok += 1
+      else failed += 1
+    } catch {
+      failed += 1
+    }
+  }
+  banner.value = {
+    tone: failed ? 'error' : 'success',
+    text: t('missing.bulkAcquireDone', { ok, failed }),
+  }
+  selected.value = new Set()
+  emit('changed')
 }
 
 async function pickRelink(path: string) {
@@ -152,19 +279,49 @@ async function markNone() {
   <div>
     <div v-if="banner" class="banner" :data-tone="banner.tone" role="status">
       <span class="banner-text">{{ banner.text }}</span>
-      <!-- D22 inline undo: restore puts the PRIOR status back, never 'new' -->
-      <button v-if="banner.undo" class="undo" @click="restore(banner.undo)">
+      <button v-if="banner.undo?.length" class="undo" @click="restore(banner.undo)">
         {{ t('missing.undo') }}
       </button>
       <button class="banner-close" :aria-label="t('common.close')" @click="banner = null">✕</button>
     </div>
 
     <div class="list">
-      <div v-for="entry in entries" :key="entryKey(entry)" class="row">
+      <div v-if="entries.length" class="list-head">
+        <span class="cell-check">
+          <input
+            type="checkbox"
+            :checked="allSelected"
+            :aria-label="t('missing.selectAll')"
+            @change="toggleAll"
+          />
+        </span>
+        <span class="head-label">{{ t('missing.selectAll') }}</span>
+      </div>
+      <div
+        v-for="entry in entries"
+        :key="entryKey(entry)"
+        class="row hover-reveal"
+        :data-selected="selected.has(entryKey(entry))"
+      >
+        <span class="cell-check">
+          <input
+            type="checkbox"
+            :checked="selected.has(entryKey(entry))"
+            :aria-label="entry.title ?? ''"
+            @change="toggleOne(entry)"
+          />
+        </span>
         <div class="row-text">
-          <div class="row-title">
-            {{ entry.title || t('missing.untitled')
-            }}<template v-if="entry.artist"> — {{ entry.artist }}</template>
+          <div class="row-title-line">
+            <div class="row-title">
+              {{ entry.title || t('missing.untitled')
+              }}<template v-if="entry.artist"> — {{ entry.artist }}</template>
+            </div>
+            <SpotifyAttributionLink
+              v-if="entry.spotify_track_id"
+              kind="track"
+              :spotify-id="entry.spotify_track_id"
+            />
           </div>
           <div v-if="entry.file_path" class="row-path mono">{{ entry.file_path }}</div>
         </div>
@@ -174,69 +331,76 @@ async function markNone() {
           :status="entry.status"
         />
         <span class="actions">
-          <SpotifyAttributionLink
-            v-if="entry.spotify_track_id"
-            compact
-            kind="track"
-            :spotify-id="entry.spotify_track_id"
-          />
           <!-- legal path FIRST, prominent (§6.5); absent for removed_from_source -->
-          <button
-            v-if="entry.purchase_links.length"
-            class="buy"
-            :aria-expanded="
-              entry.purchase_links.length > 1
-                ? purchaseMenu === entryKey(entry)
-                : undefined
-            "
-            @click="buy(entry)"
-          >
-            {{
-              entry.purchase_links.length === 1
-                ? t('missing.buyOn', { store: entry.purchase_links[0].store })
-                : t('missing.buyMenu', { n: entry.purchase_links.length })
-            }}
-          </button>
-          <span
-            v-if="entry.purchase_links.length > 1 && purchaseMenu === entryKey(entry)"
-            class="buy-menu"
-          >
+          <span v-if="entry.purchase_links.length" class="menu-wrap">
             <button
-              v-for="link in entry.purchase_links"
-              :key="link.store"
-              class="buy-menu-item"
-              @click="openPurchase(link.url)"
+              class="buy"
+              :aria-expanded="
+                entry.purchase_links.length > 1
+                  ? purchaseMenu === entryKey(entry)
+                  : undefined
+              "
+              @click.stop="buy(entry)"
             >
-              {{ link.store }}
+              {{
+                entry.purchase_links.length === 1
+                  ? t('missing.buyOn', { store: entry.purchase_links[0].store })
+                  : t('missing.buyMenu', { n: entry.purchase_links.length })
+              }}
             </button>
+            <span
+              v-if="entry.purchase_links.length > 1 && purchaseMenu === entryKey(entry)"
+              class="menu buy-menu"
+            >
+              <button
+                v-for="link in entry.purchase_links"
+                :key="link.store"
+                class="menu-item"
+                @click="openPurchase(link.url)"
+              >
+                {{ link.store }}
+              </button>
+            </span>
           </span>
-          <button
-            v-if="entry.acquisition?.available"
-            class="secondary"
-            :disabled="jobs.jobRunning"
-            @click="acquire(entry)"
-          >
-            {{ t('missing.acquireDeezer') }}
-          </button>
-          <button class="secondary" @click="relinkEntry = entry">
-            {{ t('missing.relinkCta') }}
-          </button>
-          <button
-            v-if="entry.scope !== 'collection'"
-            class="secondary"
-            @click="ignore(entry)"
-          >
-            {{ t('missing.ignoreCta') }}
-          </button>
-          <button
-            v-else
-            class="remove"
-            :disabled="status.rbOpen || jobs.jobRunning"
-            :title="status.rbOpen ? t('rbGuard.blocked') : t('missing.removeTitle')"
-            @click="removeCollection(entry)"
-          >
-            {{ status.rbOpen ? t('rbGuard.blocked') : t('missing.removeCta') }}
-          </button>
+          <span class="menu-wrap">
+            <button
+              class="more"
+              :aria-label="t('missing.moreActions')"
+              :aria-expanded="rowMenu === entryKey(entry)"
+              @click.stop="toggleRowMenu(entry)"
+            >
+              ⋯
+            </button>
+            <span v-if="rowMenu === entryKey(entry)" class="menu">
+              <button
+                v-if="entry.acquisition?.available"
+                class="menu-item"
+                :disabled="jobs.jobRunning"
+                @click="acquire(entry)"
+              >
+                {{ t('missing.acquireDeezer') }}
+              </button>
+              <button class="menu-item" @click="relinkEntry = entry">
+                {{ t('missing.relinkCta') }}
+              </button>
+              <button
+                v-if="entry.scope !== 'collection'"
+                class="menu-item"
+                @click="ignore(entry)"
+              >
+                {{ t('missing.ignoreCta') }}
+              </button>
+              <button
+                v-else
+                class="menu-item danger"
+                :disabled="status.rbOpen || jobs.jobRunning"
+                :title="status.rbOpen ? t('rbGuard.blocked') : t('missing.removeTitle')"
+                @click="removeCollection(entry)"
+              >
+                {{ status.rbOpen ? t('rbGuard.blocked') : t('missing.removeCta') }}
+              </button>
+            </span>
+          </span>
         </span>
       </div>
       <div v-if="!entries.length" class="empty">
@@ -244,6 +408,31 @@ async function markNone() {
         <div class="empty-title">{{ t('missing.emptyTitle') }}</div>
         <p class="empty-body">{{ t('missing.emptyBody') }}</p>
       </div>
+    </div>
+
+    <div class="sel-float-anchor">
+      <SelectionBar :count="selected.size" @clear="selected = new Set()">
+        <button v-if="ignorable.length" class="sel-action" @click="bulkIgnore">
+          {{ t('missing.bulkIgnore', { n: ignorable.length }) }}
+        </button>
+        <button
+          v-if="acquirable.length"
+          class="sel-action"
+          :disabled="jobs.jobRunning"
+          @click="bulkAcquire"
+        >
+          {{ t('missing.bulkAcquire', { n: acquirable.length }) }}
+        </button>
+        <button
+          v-if="removable.length"
+          class="sel-action danger"
+          :disabled="status.rbOpen || jobs.jobRunning"
+          :title="status.rbOpen ? t('rbGuard.blocked') : t('missing.removeTitle')"
+          @click="bulkRemove"
+        >
+          {{ status.rbOpen ? t('rbGuard.blocked') : t('missing.bulkRemove', { n: removable.length }) }}
+        </button>
+      </SelectionBar>
     </div>
 
     <ManualRelinkModal
@@ -305,6 +494,25 @@ async function markNone() {
   border-radius: var(--radius-card);
   overflow: clip;
 }
+.list-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--size-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.cell-check {
+  width: 20px;
+  display: flex;
+  align-items: center;
+  flex: none;
+  align-self: stretch; /* the whole cell height stays clickable */
+}
 .row {
   display: flex;
   align-items: center;
@@ -312,13 +520,25 @@ async function markNone() {
   padding: 13px 18px;
   border-bottom: 1px solid var(--border-subtle);
 }
+.row:hover {
+  background: #0f131b;
+}
+.row[data-selected='true'] {
+  background: rgba(77, 163, 255, 0.06);
+}
 .row-text {
   flex: 1;
   min-width: 0;
 }
+.row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .row-title {
   font-size: 13.5px;
   font-weight: 500;
+  min-width: 0;
 }
 .row-path {
   font-size: 11.5px;
@@ -334,7 +554,7 @@ async function markNone() {
   display: flex;
   gap: 7px;
   flex: none;
-  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
 }
 .buy {
@@ -348,52 +568,105 @@ async function markNone() {
   cursor: pointer;
   white-space: nowrap;
 }
-.buy-menu {
+.menu-wrap {
+  position: relative;
   display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--teal-border);
-  border-radius: 8px;
-  background: var(--surface-raised);
 }
-.buy-menu-item {
+/* popover dropdown: never shifts the row (owner feedback 15/07) */
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.buy-menu {
+  border-color: var(--teal-border);
+}
+.menu-item {
   background: transparent;
   border: none;
-  color: var(--teal);
-  padding: 4px 8px;
+  color: var(--text-secondary);
+  padding: 7px 10px;
   border-radius: 6px;
   font-size: 12px;
-  font-weight: 600;
+  text-align: left;
   cursor: pointer;
+  white-space: nowrap;
 }
-.buy-menu-item:hover {
+.buy-menu .menu-item {
+  color: var(--teal);
+  font-weight: 600;
+}
+.menu-item:hover {
+  background: var(--accent-tint);
+  color: var(--accent-hover);
+}
+.buy-menu .menu-item:hover {
   background: var(--teal-tint);
+  color: var(--teal);
 }
-.secondary {
+.menu-item.danger {
+  color: var(--danger-text);
+}
+.menu-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.more {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: 1px solid #2a3140;
   color: var(--text-secondary);
-  padding: 6px 12px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
   cursor: pointer;
-  white-space: nowrap;
 }
-.secondary:hover {
+.more:hover,
+.more[aria-expanded='true'] {
   color: var(--accent-hover);
   border-color: var(--accent-border);
 }
-.remove {
-  background: transparent;
-  border: 1px solid #2a3140;
-  color: var(--danger-text);
-  padding: 6px 12px;
+.sel-float-anchor {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  z-index: 6;
+}
+.sel-float-anchor:not(:empty) {
+  margin-top: 12px;
+}
+.sel-action {
+  background: rgba(77, 163, 255, 0.16);
+  color: var(--accent-hover);
+  border: 1px solid var(--accent-border);
+  padding: 5px 11px;
   border-radius: 7px;
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
-.remove:disabled {
+.sel-action.danger {
+  background: var(--danger-tint);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
+}
+.sel-action:disabled {
   opacity: 0.55;
   cursor: default;
 }

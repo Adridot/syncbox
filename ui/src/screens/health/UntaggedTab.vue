@@ -11,6 +11,7 @@ import { ApiError, api } from '../../api/client'
 import type { UntaggedTrack } from '../../api/types'
 import ErrorState from '../../components/ErrorState.vue'
 import LoadingState from '../../components/LoadingState.vue'
+import SelectionBar from '../../components/SelectionBar.vue'
 import { useHealthStore } from '../../stores/health'
 import { useJobsStore } from '../../stores/jobs'
 import { useStatusStore } from '../../stores/status'
@@ -180,22 +181,7 @@ async function removePattern(id: number) {
               @change="toggleAll"
             />
           </span>
-          <template v-if="selection.size">
-            <span class="sel-count"
-              ><span class="mono">{{ selection.size }}</span>
-              {{ t('library.selection.selected') }}</span
-            >
-            <span class="spacer" />
-            <button
-              class="delete-sel"
-              :disabled="status.rbOpen || jobs.jobRunning"
-              @click="deleteSelection"
-            >
-              {{ status.rbOpen ? t('rbGuard.blocked') : t('untagged.deleteSelection') }}
-            </button>
-            <button class="sel-clear" @click="selection = new Set()">✕</button>
-          </template>
-          <span v-else class="head-label">{{ t('untagged.selectAll') }}</span>
+          <span class="head-label">{{ t('untagged.selectAll') }}</span>
         </div>
         <div v-for="track in visible" :key="track.content_id" class="row">
           <span class="cell-check">
@@ -218,6 +204,19 @@ async function removePattern(id: number) {
           }}</span>
         </div>
         <div v-if="!visible.length" class="table-empty">{{ t('untagged.empty') }}</div>
+      </div>
+
+      <!-- floating pill: the table never shifts when a selection starts -->
+      <div class="sel-float-anchor">
+        <SelectionBar :count="selection.size" @clear="selection = new Set()">
+          <button
+            class="delete-sel"
+            :disabled="status.rbOpen || jobs.jobRunning"
+            @click="deleteSelection"
+          >
+            {{ status.rbOpen ? t('rbGuard.blocked') : t('untagged.deleteSelection') }}
+          </button>
+        </SelectionBar>
       </div>
 
       <!-- D7 minimal junk-pattern editor -->
@@ -342,13 +341,15 @@ async function removePattern(id: number) {
   color: var(--text-muted);
   font-weight: 600;
 }
-.sel-count {
-  font-size: 12px;
-  color: var(--accent-hover);
-  font-weight: 600;
+.sel-float-anchor {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  z-index: 6;
 }
-.spacer {
-  flex: 1;
+.sel-float-anchor:not(:empty) {
+  margin-top: 12px;
 }
 .delete-sel {
   background: rgba(247, 110, 110, 0.12);
@@ -363,14 +364,6 @@ async function removePattern(id: number) {
 .delete-sel:disabled {
   opacity: 0.55;
   cursor: default;
-}
-.sel-clear {
-  background: transparent;
-  color: var(--text-muted-bright);
-  border: none;
-  padding: 5px;
-  font-size: 12px;
-  cursor: pointer;
 }
 .cell-check {
   width: 26px;

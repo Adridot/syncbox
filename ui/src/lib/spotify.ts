@@ -26,3 +26,10 @@ export function spotifyUrl(kind: 'playlist' | 'track', id: string): string {
   if (!valid) throw new Error(`invalid Spotify ${kind} id`)
   return `https://open.spotify.com/${kind}/${valid}`
 }
+
+/** Deep-link for the installed Spotify desktop app (scheme handler). */
+export function spotifyAppUri(kind: 'playlist' | 'track', id: string): string {
+  const valid = extract(kind, id)
+  if (!valid) throw new Error(`invalid Spotify ${kind} id`)
+  return `spotify:${kind}:${valid}`
+}

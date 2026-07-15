@@ -16,6 +16,7 @@ import ErrorState from '../components/ErrorState.vue'
 import JobRow from '../components/JobRow.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ReMatchModal from '../components/ReMatchModal.vue'
+import SelectionBar from '../components/SelectionBar.vue'
 import SpotifyAttributionLink from '../components/SpotifyAttributionLink.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import {
@@ -69,7 +70,9 @@ function describe(cause: unknown): { text: string; connect?: boolean } {
 }
 
 async function load() {
-  loading.value = true
+  // skeleton on FIRST load only: refreshes (sync, apply, add-source) keep
+  // the grid mounted — no full-screen flash (owner feedback 15/07)
+  loading.value = sources.value === null
   loadError.value = null
   try {
     const list = (await api.get<{ sources: Source[] }>('/api/sources')).sources
@@ -349,7 +352,7 @@ async function onSourceAdded(source: Source) {
           <div
             v-for="source in visibleSources"
             :key="source.id"
-            class="source-entry"
+            class="source-entry hover-reveal"
             :data-disabled="!source.enabled"
           >
             <button
@@ -378,7 +381,6 @@ async function onSourceAdded(source: Source) {
               }}</span>
             </button>
             <SpotifyAttributionLink
-              compact
               kind="playlist"
               :spotify-id="source.spotify_playlist_id"
             />
@@ -388,13 +390,12 @@ async function onSourceAdded(source: Source) {
 
       <!-- review surface -->
       <section class="review">
-        <div class="context">
+        <div class="context hover-reveal">
           <h2>{{ currentSource ? currentSource.name : t('library.allSources') }}</h2>
           <span class="context-sub">{{ contextSub }}</span>
           <span class="spacer" />
           <template v-if="currentSource">
             <SpotifyAttributionLink
-              compact
               kind="playlist"
               :spotify-id="currentSource.spotify_playlist_id"
             />
@@ -440,28 +441,7 @@ async function onSourceAdded(source: Source) {
             {{ t(`library.filters.${chip}`) }}
           </button>
           <span class="spacer" />
-          <div v-if="selection.size" class="selection-bar">
-            <span class="sel-count"
-              ><span class="mono">{{ selection.size }}</span>
-              {{ t('library.selection.selected') }}</span
-            >
-            <button class="sel-action" @click="modal = 'tags'">
-              {{ t('library.selection.editTags') }}
-            </button>
-            <button
-              class="sel-action apply"
-              :disabled="status.rbOpen || jobs.jobRunning || !applicableSelected.length"
-              @click="applySelection"
-            >
-              {{
-                status.rbOpen
-                  ? t('rbGuard.blocked')
-                  : t('library.selection.apply', { n: applicableSelected.length })
-              }}
-            </button>
-            <button class="sel-clear" @click="selection = new Set()">✕</button>
-          </div>
-          <span v-else class="sel-hint">{{ t('library.selection.hint') }}</span>
+          <span class="sel-hint">{{ t('library.selection.hint') }}</span>
         </div>
 
         <div class="table">
@@ -482,7 +462,7 @@ async function onSourceAdded(source: Source) {
             <div
               v-for="track in visibleTracks"
               :key="track.id"
-              class="row"
+              class="row hover-reveal"
               :data-selected="selection.has(track.id)"
             >
               <span class="cell-check">
@@ -498,7 +478,6 @@ async function onSourceAdded(source: Source) {
                   <div class="row-title">{{ track.title }}</div>
                   <SpotifyAttributionLink
                     v-if="track.spotify_track_id"
-                    compact
                     kind="track"
                     :spotify-id="track.spotify_track_id"
                   />
@@ -577,6 +556,26 @@ async function onSourceAdded(source: Source) {
               <p class="empty-body">{{ t('library.tableEmptyBody') }}</p>
             </div>
           </div>
+        </div>
+
+        <!-- floating pill: the table never shifts when a selection starts -->
+        <div class="sel-float-anchor">
+          <SelectionBar :count="selection.size" @clear="selection = new Set()">
+            <button class="sel-action" @click="modal = 'tags'">
+              {{ t('library.selection.editTags') }}
+            </button>
+            <button
+              class="sel-action apply"
+              :disabled="status.rbOpen || jobs.jobRunning || !applicableSelected.length"
+              @click="applySelection"
+            >
+              {{
+                status.rbOpen
+                  ? t('rbGuard.blocked')
+                  : t('library.selection.apply', { n: applicableSelected.length })
+              }}
+            </button>
+          </SelectionBar>
         </div>
       </section>
     </div>
@@ -821,6 +820,7 @@ h1 {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative; /* anchors the floating selection pill */
 }
 .context {
   display: flex;
@@ -928,19 +928,18 @@ h1 {
   background: rgba(77, 163, 255, 0.14);
   border-color: var(--accent-border);
 }
-.selection-bar {
+.sel-float-anchor {
+  position: absolute;
+  bottom: 18px;
+  left: 0;
+  right: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(77, 163, 255, 0.08);
-  border: 1px solid var(--accent-border);
-  border-radius: 9px;
-  padding: 5px 6px 5px 12px;
+  justify-content: center;
+  z-index: 6;
+  pointer-events: none;
 }
-.sel-count {
-  font-size: 12px;
-  color: var(--accent-hover);
-  font-weight: 600;
+.sel-float-anchor > * {
+  pointer-events: auto;
 }
 .sel-action {
   background: rgba(77, 163, 255, 0.16);
@@ -961,14 +960,6 @@ h1 {
 .sel-action:disabled {
   opacity: 0.55;
   cursor: default;
-}
-.sel-clear {
-  background: transparent;
-  color: var(--text-muted-bright);
-  border: none;
-  padding: 4px;
-  font-size: 12px;
-  cursor: pointer;
 }
 .sel-hint {
   font-size: 12px;

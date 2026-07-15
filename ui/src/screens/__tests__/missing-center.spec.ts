@@ -91,11 +91,13 @@ test('"all" merges the 3 scopes with scope badges; purchase links only when the 
   // scope badges visible in the merged view
   expect(wrapper.findAll('.row').length).toBe(2)
   // ONE buy button on the linked row, ZERO on the purchase_link_unavailable
-  // row; multiple providers live behind the unified purchase menu.
+  // row; multiple providers live behind the unified purchase menu and the
+  // remaining actions behind the ⋯ row menu (owner decision 15/07).
   const rows = wrapper.findAll('.row')
   expect(rows[0].findAll('.buy')).toHaveLength(1)
   expect(rows[0].get('.buy').text()).toBe('Acheter (2 boutiques) ↗')
-  expect(rows[0].findAll('.secondary')[0].text()).toBe('Télécharger via Deezer')
+  await rows[0].get('.more').trigger('click')
+  expect(rows[0].findAll('.menu-item')[0].text()).toBe('Télécharger via Deezer')
   expect(rows[1].findAll('.buy')).toHaveLength(0)
 })
 
@@ -113,11 +115,11 @@ test('purchase buttons delegate the URL to the external browser bridge', async (
   await flushPromises()
 
   await wrapper.get('.buy').trigger('click')
-  expect(wrapper.findAll('.buy-menu-item').map((button) => button.text())).toEqual([
+  expect(wrapper.findAll('.buy-menu .menu-item').map((button) => button.text())).toEqual([
     'Beatport',
     'Bandcamp',
   ])
-  await wrapper.get('.buy-menu-item').trigger('click')
+  await wrapper.get('.buy-menu .menu-item').trigger('click')
 
   expect(openExternal).toHaveBeenCalledWith(LIB_ENTRY.purchase_links[0].url)
 })
@@ -129,7 +131,7 @@ test('a rejected external purchase link is reported as an error', async () => {
   await flushPromises()
 
   await wrapper.get('.buy').trigger('click')
-  await wrapper.get('.buy-menu-item').trigger('click')
+  await wrapper.get('.buy-menu .menu-item').trigger('click')
   await flushPromises()
 
   expect(wrapper.get('.banner[data-tone="error"]').text()).toContain(
@@ -142,8 +144,9 @@ test('D22: ignoring a row offers an inline undo that calls restore', async () =>
   const wrapper = await mountCenter('library')
   await flushPromises()
 
+  await wrapper.get('.more').trigger('click')
   const ignoreButton = wrapper
-    .findAll('.secondary')
+    .findAll('.menu-item')
     .find((button) => button.text() === 'Ignorer')
   await ignoreButton!.trigger('click')
   await flushPromises()
@@ -163,8 +166,9 @@ test('a failed acquisition job is never presented as a successful download', asy
   const wrapper = await mountCenter('library')
   await flushPromises()
 
+  await wrapper.get('.more').trigger('click')
   const acquireButton = wrapper
-    .findAll('.secondary')
+    .findAll('.menu-item')
     .find((button) => button.text() === 'Télécharger via Deezer')
   await acquireButton!.trigger('click')
   await flushPromises()
