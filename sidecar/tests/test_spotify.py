@@ -300,6 +300,14 @@ def test_404_carries_actionable_message():
     assert "Connect your Spotify account" in str(info.value)
 
 
+def test_404_editorial_playlist_names_the_real_cause():
+    client, _, _ = make_client((404, {}, b""))
+    with pytest.raises(SpotifyApiError) as info:
+        client.get("/playlists/37i9dQZF1DWWo4kzWesMJm")
+    assert info.value.status_code == 404
+    assert "editorial" in str(info.value)
+
+
 def test_500_preserves_status_code():
     client, _, _ = make_client((500, {}, b""))
     with pytest.raises(SpotifyApiError) as info:

@@ -243,6 +243,15 @@ class SpotifyClient:
             if status == 204:
                 return {}
             if status == 404:
+                # ponytail: prefix sniff — Spotify's Web API 404s all
+                # editorial/algorithmic playlists (37i9dQZF*) since Nov 2024;
+                # connecting an account does not help, say so.
+                if "/playlists/37i9dQZF" in url:
+                    raise SpotifyApiError(
+                        404,
+                        "This is a Spotify-owned editorial playlist; the "
+                        "Spotify API no longer exposes these (since Nov 2024).",
+                    )
                 raise SpotifyApiError(
                     404,
                     "Playlist not found or private. Connect your Spotify "
