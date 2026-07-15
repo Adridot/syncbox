@@ -155,7 +155,6 @@ docstring says how to run it.
 | `shell/` | Tauri shell (Rust supervisor) + packaging harnesses |
 | `docs/` | Specification, plans, owner decisions, dated research |
 | `poc/` | De-risking proofs-of-concept with their verdicts |
-| `syncbox-ui-ux-design/` | Design kit and reference mockup |
 
 ## Status & roadmap
 
@@ -164,7 +163,7 @@ passes its strict scanner, two isolated absolute source roots produce
 byte-identical base and optional ZIPs and unpacked trees, and the exact source,
 frozen, installed, and packaged Deezer lanes embed real artwork. Both public
 assets passed download-back, scanner, installation, and runtime validation as
-recorded in the [release closure report](docs/_handoffs/final-release-closure.md).
+recorded in the release closure report (archived in git history).
 The app is ad-hoc signed without a Developer ID or notarization.
 
 - **Signing, notarization, and Keychain** — deferred; the v1 distribution uses

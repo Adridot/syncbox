@@ -170,7 +170,7 @@ optional bytes. Two isolated absolute source roots produced byte-identical
 ZIPs and unpacked trees for both artifacts. The public downloads are
 byte-identical to those validated streams and pass the downloaded scanner and
 runtime matrix. The authoritative evidence is
-[`docs/_handoffs/final-release-closure.md`](_handoffs/final-release-closure.md).
+`docs/_handoffs/final-release-closure.md` (archived in git history).
 
 ## Trust boundary and completed release gates
 

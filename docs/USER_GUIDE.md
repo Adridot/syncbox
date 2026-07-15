@@ -3,7 +3,7 @@
 Syncbox 0.2.2 supports macOS 14 or later on Apple Silicon. It is an ad-hoc
 signed application with no Developer ID signature, notarization, or automatic
 updater. Public availability and successful download-back evidence are recorded in the
-[release closure report](_handoffs/final-release-closure.md).
+release closure report (archived in git history).
 
 ## Install and first launch
 

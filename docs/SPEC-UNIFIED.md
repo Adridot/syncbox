@@ -1,10 +1,10 @@
 # Syncbox — Unified Specification (SPEC-UNIFIED)
 
-> **Purpose.** Current product and architecture specification for Syncbox v1. It consolidates the historical functional spec ([SPEC-01-syncbox.md](SPEC-01-syncbox.md)), architecture review ([SPEC-02-architecture.md](SPEC-02-architecture.md)), owner decisions, completed POCs, and the release contract in [PROMPT-05-implementation.md](PROMPT-05-implementation.md). The exact release evidence and material official sources are maintained in [_handoffs/final-release-closure.md](_handoffs/final-release-closure.md).
+> **Purpose.** Current product and architecture specification for Syncbox v1. It consolidates the historical functional spec ([SPEC-01-syncbox.md](SPEC-01-syncbox.md)), architecture review ([SPEC-02-architecture.md](SPEC-02-architecture.md)), owner decisions, completed POCs, and the release contract in PROMPT-05-implementation.md. The exact release evidence and material official sources are maintained in _handoffs/final-release-closure.md. These historical pipeline documents were removed from the working tree on 2026-07-15 and remain available in git history.
 >
 > **Source of truth.** For architecture and product behavior, **this document is authoritative**, subject to the later owner override in §3.0 and the release gates in PROMPT-05. SPEC-01 and SPEC-02 are historical evidence and motivation only. The current source, tests, POC reports, and final release handoff decide any implementation or evidence question.
 >
-> **Scope/value.** [OVERHAUL-01-valeur-features.md](OVERHAUL-01-valeur-features.md) (2026-06-16) is the **record of value and product-scope decisions** (feature audit, candidates, journal). Its **target v1 scope is folded in here** (§4 domain model, §5.11–§5.13 invariants, §6.5/§6.12 architecture, §7.4 journal, §8 POC), arbitrated by two additional gates (2026-06-16, see §0). **SPEC-UNIFIED remains the consolidated architecture+product source of truth**; OVERHAUL-01 is authoritative only on the *what/value*, and is corrected where §10 research disproved it (Chromaprint license, cues/ANLZ attribution). Its v1/v2 split is **refined by Gates 1/2 (2026-06-16)**: **§7.4 below is authoritative on v1 scope** (the pre-Gate-2 lists in OVERHAUL-01 §1/§6/§7.2/§8 are historical).
+> **Scope/value.** OVERHAUL-01-valeur-features.md (2026-06-16, archived in git history) is the **record of value and product-scope decisions** (feature audit, candidates, journal). Its **target v1 scope is folded in here** (§4 domain model, §5.11–§5.13 invariants, §6.5/§6.12 architecture, §7.4 journal, §8 POC), arbitrated by two additional gates (2026-06-16, see §0). **SPEC-UNIFIED remains the consolidated architecture+product source of truth**; OVERHAUL-01 is authoritative only on the *what/value*, and is corrected where §10 research disproved it (Chromaprint license, cues/ANLZ attribution). Its v1/v2 split is **refined by Gates 1/2 (2026-06-16)**: **§7.4 below is authoritative on v1 scope** (the pre-Gate-2 lists in OVERHAUL-01 §1/§6/§7.2/§8 are historical).
 >
 > **Language.** English. The product keeps parallel English and French user-facing locales.
 
@@ -370,7 +370,7 @@ Three v1 additions live **in the Python sidecar**, without a new shell or servic
 | A1 Smart Fixes (metadata cleanup) | **ADD v1** | §4 (Smart Fixes job), §5.11, §6.12 |
 | A2 fingerprint dedup (Chromaprint) | **DEFERRED to v2** (narrow residual + native binary, no v1 integration) | §4, §6.12 |
 | A3 fake-320/FLAC detection | **CONSERVATIVE FALLBACK v1**; full classification `NO-GO`, only keeper-neutral `ok`/`incertain` | §4, §5.12, §6.12 |
-| B1 streamrip backend (Deezer-only) | **ADD v1** after Phase 5 `GO`: optional OFF by default, exact pinned component, artwork support, encrypted one-shot ARL, and no Deezer runtime in the base. SoundCloud → v2/B4 | §5.5, §6.5, §7.1, [_handoffs/phase-05-b1-acquisition.md](_handoffs/phase-05-b1-acquisition.md) |
+| B1 streamrip backend (Deezer-only) | **ADD v1** after Phase 5 `GO`: optional OFF by default, exact pinned component, artwork support, encrypted one-shot ARL, and no Deezer runtime in the base. SoundCloud → v2/B4 | §5.5, §6.5, §7.1, _handoffs/phase-05-b1-acquisition.md (archived) |
 | B2 Legal Track Matcher (ISRC purchase links) | **ADD v1** | §4, §5.13, §6.5/§6.12, [POC evidence](../poc/07-b2-purchase-links.md) |
 | D7 structural + configurable untagged | already decided (KEEP-BUT-FIX) | §5.8 |
 
@@ -415,6 +415,6 @@ The design phase closed the two questions that Gate 1 delegated:
 
 ## 10. Appendices
 
-- **Current implementation and test authority**: [PROMPT-05](PROMPT-05-implementation.md), [Phase 1 report](PHASE-1-REPORT.md), the phase handoffs in [_handoffs/](_handoffs/), and the executable POCs indexed by [poc/README.md](../poc/README.md).
-- **Material official and upstream sources**: recorded with URLs and access dates in the phase handoffs and [final release closure](_handoffs/final-release-closure.md). Historical `_research` and `_analysis` paths referenced by older prompts are not present in the current workspace and are not release inputs.
+- **Current implementation and test authority**: PROMPT-05, the Phase 1 report, and the phase handoffs (all archived in git history), plus the executable POCs indexed by [poc/README.md](../poc/README.md).
+- **Material official and upstream sources**: recorded with URLs and access dates in the phase handoffs and final release closure (archived in git history). Historical `_research` and `_analysis` paths referenced by older prompts are not present in the current workspace and are not release inputs.
 - **Release closure**: every applicable macOS v1 gate, including GitHub publication and public download-back, is closed for 0.2.2. Windows packaging and any evidence that could justify A2 belong to v2.
