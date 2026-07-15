@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from syncbox import rb
-from syncbox.rb_write import migrate_content_path, signed32, smartlist_payload
+from syncbox.rb_write import add_content, migrate_content_path, signed32, smartlist_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTDATA = REPO_ROOT / "poc" / "testdata"
@@ -44,6 +44,11 @@ def test_smartlist_payload_shape():
     small = smartlist_payload("1248102774", "999")
     assert 'Id="1248102774"' in small  # stays positive (real RB behavior)
     assert 'ValueLeft="999"' in small
+
+
+def test_add_content_rejects_a_missing_staged_file_before_writing(tmp_path):
+    with pytest.raises(FileNotFoundError, match="staged audio file is unavailable"):
+        add_content(object(), tmp_path / "gone.mp3", {}, storage_root=tmp_path)
 
 
 def test_migrate_content_path_delegates_anlz_without_committing():

@@ -219,6 +219,72 @@ def test_copy_publishes_verified_destination_and_keeps_source(tmp_path):
     assert event_delete._sha256(destination) == digest
 
 
+def test_copy_checksum_mismatch_keeps_source_and_publishes_nothing(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "staging" / "Track.mp3"
+    destination = tmp_path / "Collection" / source.name
+    source.parent.mkdir()
+    source.write_bytes(b"audio")
+    expected = {"content_id": "10", **event_delete._file_state(source)}
+    actual_sha256 = event_delete._sha256
+
+    def mismatched_temp(path):
+        if Path(path).name.startswith(".syncbox-migrate-"):
+            return "0" * 64
+        return actual_sha256(path)
+
+    monkeypatch.setattr(event_delete, "_sha256", mismatched_temp)
+    with pytest.raises(event_delete.EventMigrationError, match="checksum"):
+        event_delete._copy_migration(
+            {
+                "source_path": str(source),
+                "destination_path": str(destination),
+                "destination_reused": False,
+            },
+            expected,
+        )
+    assert source.read_bytes() == b"audio"
+    assert not destination.exists()
+    assert not list(destination.parent.glob(".syncbox-migrate-*"))
+
+
+def test_copy_write_failure_keeps_source_and_publishes_nothing(tmp_path, monkeypatch):
+    source = tmp_path / "staging" / "Track.mp3"
+    destination = tmp_path / "Collection" / source.name
+    source.parent.mkdir()
+    source.write_bytes(b"audio")
+    expected = {"content_id": "10", **event_delete._file_state(source)}
+    original_fdopen = event_delete.os.fdopen
+
+    class FailingOutput:
+        def __init__(self, descriptor, mode):
+            self.stream = original_fdopen(descriptor, mode)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.stream.close()
+
+        def write(self, block):
+            raise OSError("copy failed")
+
+    monkeypatch.setattr(event_delete.os, "fdopen", FailingOutput)
+    with pytest.raises(OSError, match="copy failed"):
+        event_delete._copy_migration(
+            {
+                "source_path": str(source),
+                "destination_path": str(destination),
+                "destination_reused": False,
+            },
+            expected,
+        )
+    assert source.read_bytes() == b"audio"
+    assert not destination.exists()
+    assert not list(destination.parent.glob(".syncbox-migrate-*"))
+
+
 def test_copy_removes_destination_when_post_publish_fsync_fails(
     tmp_path, monkeypatch
 ):

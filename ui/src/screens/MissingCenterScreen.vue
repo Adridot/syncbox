@@ -2,7 +2,8 @@
 // Missing tracks center (M4.10 — SPEC-DESIGN §2): ONE unified surface for
 // the 3 scopes, purchase-first legal path (§6.5), deep-linkable scope param
 // (#/missing/<scope>). Library/Events rows link HERE pre-filtered instead
-// of duplicating the UI. No download control of any kind exists.
+// of duplicating the UI. Optional acquisition is shown only when the
+// backend reports that the separately installed component is available.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

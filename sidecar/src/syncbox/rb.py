@@ -18,7 +18,7 @@ import sqlcipher3
 from pyrekordbox.db6.database import BLOB
 from pyrekordbox.utils import deobfuscate
 
-from syncbox.safety.mutate import fingerprint
+from syncbox.safety.mutate import StaleSnapshotError, fingerprint
 from syncbox.safety.paths import classify_ownership, resolve_stored_path, tcc_exists
 
 
@@ -135,9 +135,20 @@ class SnapshotCache:
             or current != self._fingerprint
             or str(storage_root) != self._storage_root
         ):
-            self._rows = self._loader(self._db_path, storage_root)
-            self._fingerprint = current
-            self._storage_root = str(storage_root)
+            for _ in range(3):
+                rows = self._loader(self._db_path, storage_root)
+                after = fingerprint(self._db_path)
+                if current == after:
+                    self._rows = rows
+                    self._fingerprint = after
+                    self._storage_root = str(storage_root)
+                    break
+                current = after
+            else:
+                raise StaleSnapshotError(
+                    f"{self._db_path} kept changing while its snapshot was loaded; "
+                    "nothing was written. Retry when Rekordbox is fully closed."
+                )
         return self._rows
 
     @property

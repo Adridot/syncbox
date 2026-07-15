@@ -13,6 +13,7 @@ import { extractPlaylistId } from '../lib/spotify'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
 import { useStatusStore } from '../stores/status'
 import ModalShell from './ModalShell.vue'
+import SpotifyAttributionLink from './SpotifyAttributionLink.vue'
 import TagSearchInput from './TagSearchInput.vue'
 
 const props = defineProps<{ followedIds?: string[] }>()
@@ -182,32 +183,43 @@ async function connect() {
         </div>
         <div v-if="pickerLoading" class="hint">{{ t('common.loading') }}</div>
         <div v-else-if="playlists" class="picker-list">
-          <button
+          <div
             v-for="playlist in filteredPlaylists"
             :key="playlist.spotify_playlist_id"
-            class="picker-row"
-            :data-active="picked?.spotify_playlist_id === playlist.spotify_playlist_id"
-            @click="picked = playlist"
+            class="picker-entry"
           >
-            <img
-              v-if="playlist.image_url"
-              class="cover art"
-              :src="playlist.image_url"
-              alt=""
-              loading="lazy"
-            />
-            <span v-else class="cover">{{ (playlist.name || '?').slice(0, 1).toUpperCase() }}</span>
-            <span class="picker-text">
-              <span class="picker-name">{{ playlist.name }}</span>
-              <span class="picker-meta mono"
-                >{{ t('library.add.tracksUnit', { n: playlist.tracks_total }) }}<template
-                  v-if="playlist.owner"
+            <button
+              class="picker-row"
+              :data-active="picked?.spotify_playlist_id === playlist.spotify_playlist_id"
+              @click="picked = playlist"
+            >
+              <img
+                v-if="playlist.image_url"
+                class="cover art"
+                :src="playlist.image_url"
+                alt=""
+                loading="lazy"
+              />
+              <span v-else class="cover">{{
+                (playlist.name || '?').slice(0, 1).toUpperCase()
+              }}</span>
+              <span class="picker-text">
+                <span class="picker-name">{{ playlist.name }}</span>
+                <span class="picker-meta mono"
+                  >{{ t('library.add.tracksUnit', { n: playlist.tracks_total }) }}<template
+                    v-if="playlist.owner"
+                  >
+                    · {{ playlist.owner }}</template
+                  ></span
                 >
-                  · {{ playlist.owner }}</template
-                ></span
-              >
-            </span>
-          </button>
+              </span>
+            </button>
+            <SpotifyAttributionLink
+              compact
+              kind="playlist"
+              :spotify-id="playlist.spotify_playlist_id"
+            />
+          </div>
           <div v-if="!filteredPlaylists.length" class="hint">
             {{ t('library.add.pickerEmpty') }}
           </div>
@@ -240,6 +252,11 @@ async function connect() {
             <template v-if="resolved.owner">· {{ resolved.owner }}</template> · Spotify
           </div>
         </div>
+        <SpotifyAttributionLink
+          compact
+          kind="playlist"
+          :spotify-id="playlistId!"
+        />
         <span class="resolved-tick">✓ {{ t('library.add.resolved') }}</span>
       </div>
 
@@ -361,6 +378,13 @@ h3 {
   cursor: pointer;
   text-align: left;
   color: inherit;
+  flex: 1;
+  min-width: 0;
+}
+.picker-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .picker-row:hover {
   background: var(--surface-raised);
@@ -382,7 +406,7 @@ h3 {
   color: rgba(255, 255, 255, 0.92);
 }
 .cover.art {
-  object-fit: cover;
+  object-fit: contain;
   background: var(--surface-raised);
 }
 .picker-text {
@@ -433,7 +457,7 @@ h3 {
   height: 52px;
   flex: none;
   border-radius: 9px;
-  object-fit: cover;
+  object-fit: contain;
 }
 .art.initial {
   background: linear-gradient(135deg, #1db954, var(--teal));

@@ -89,6 +89,8 @@ test('event deletion renders the exact migration plan and executes that same pay
   expect(wrapper.text()).toContain('Géré par Syncbox')
   expect(wrapper.text()).toContain('Externe')
   expect(wrapper.text()).toContain('House, Favorites')
+  expect(wrapper.text()).toContain('content-1')
+  expect(wrapper.text()).toContain('content-2')
   expect(wrapper.text()).toContain('/Music/rekordbox/Collection/keep.flac')
   expect(wrapper.text()).toContain('Mise à jour du chemin requise')
   expect(wrapper.text()).toContain('/Music/_syncbox/events/summer-set/keep.flac')

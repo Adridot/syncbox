@@ -1,10 +1,9 @@
 """Tests for load-bearing path resolution (SPEC-UNIFIED 3.2/3.3/5.2, SPEC-01 1.4/1.5).
 
-The storage rule: a file under <storage_root>/rekordbox/... is stored
-volume-relative (/<VolumeName>/..., VolumeName = basename of the storage
-root); everything else is stored absolute. Volume-relative and absolute
-spellings of the same file must be equal and hash-equal, and existence
-checks must never enumerate the parent directory (macOS TCC cloud quirk).
+Rekordbox 7 on macOS receives canonical absolute paths. The pre-0.2.2
+/<VolumeName>/... spelling remains readable and compares equal and hash-equal
+to its canonical absolute path. Existence checks must never enumerate the
+parent directory (macOS TCC cloud quirk).
 """
 
 import os
@@ -34,9 +33,9 @@ def root(tmp_path):
 # --- stored_form: the storage-root boundary -----------------------------------
 
 
-def test_stored_form_under_rekordbox_is_volume_relative(root):
+def test_stored_form_under_rekordbox_is_canonical_absolute(root):
     p = root / "rekordbox" / "Collection" / "track.mp3"
-    assert stored_form(p, root) == "/Music SSD/rekordbox/Collection/track.mp3"
+    assert stored_form(p, root) == str(p)
 
 
 def test_stored_form_inbox_is_absolute(root):
@@ -69,9 +68,11 @@ def test_stored_form_other_root_with_shared_prefix_stays_absolute(tmp_path, root
     assert stored_form(other, root) == str(other)
 
 
-def test_stored_form_is_idempotent_on_volume_relative_input(root):
+def test_stored_form_upgrades_legacy_volume_input(root):
     rel = "/Music SSD/rekordbox/Collection/track.mp3"
-    assert stored_form(rel, root) == rel
+    assert stored_form(rel, root) == str(
+        root / "rekordbox" / "Collection" / "track.mp3"
+    )
 
 
 def test_stored_form_expands_user(root):
@@ -95,7 +96,7 @@ def test_lookup_keys_volume_relative_row_yields_absolute_form(root):
     assert str(root / "rekordbox" / "Collection" / "a.mp3") in keys
 
 
-def test_lookup_keys_absolute_path_yields_volume_relative_form(root):
+def test_lookup_keys_absolute_path_yields_legacy_compatibility_form(root):
     staging = root / "rekordbox" / "Collection" / "a.mp3"
     keys = path_lookup_keys(staging, root)
     assert "/Music SSD/rekordbox/Collection/a.mp3" in keys

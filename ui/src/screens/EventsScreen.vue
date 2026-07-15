@@ -16,6 +16,7 @@ import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import NewEventModal from '../components/NewEventModal.vue'
 import ReapplyEventModal from '../components/ReapplyEventModal.vue'
+import SpotifyAttributionLink from '../components/SpotifyAttributionLink.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import {
   EVENT_FILTERS,
@@ -116,12 +117,17 @@ function srcLine(event: EventSummary): string {
 // --- workspace actions (B1 on every one) -----------------------------------
 
 /** Matching is automatic (owner request 07/07 — no button): the sidecar
-    matches on add, and this re-matches missing/ambiguous rows when the event
-    opens or when Rekordbox closes (matching needs it closed) — best-effort,
-    silent, updating the tracks in place so it never loops through load(). */
+    matches on add, and this re-matches unresolved rows when the event opens
+    or when Rekordbox closes (matching needs it closed) — best-effort, silent,
+    updating the tracks in place so it never loops through load(). */
 async function autoMatch(eventId: number) {
   const tracks = tracksByEvent[eventId] ?? []
-  if (!tracks.some((t) => t.status === 'missing' || t.status === 'ambiguous')) return
+  if (
+    !tracks.some((t) =>
+      ['missing', 'ambiguous', 'acquisition_failed'].includes(t.status),
+    )
+  )
+    return
   if (status.rbOpen) return // matcher needs Rekordbox closed; retried on close
   try {
     const { tracks: matched } = await api.post<{ tracks: EventTrack[] }>(
@@ -294,6 +300,12 @@ async function onWriteDone() {
               <template v-else>
                 <div class="ws-name">{{ selected.name }}</div>
                 <StatusBadge :status="selected.status" />
+                <SpotifyAttributionLink
+                  v-if="!selected.spotify_playlist_id.startsWith('manual:')"
+                  compact
+                  kind="playlist"
+                  :spotify-id="selected.spotify_playlist_id"
+                />
                 <button
                   v-if="selected.status === 'pending'"
                   class="ghost"
@@ -468,6 +480,12 @@ async function onWriteDone() {
             <div class="cell-title">
               <div class="row-title-line">
                 <span class="row-title">{{ track.title }}</span>
+                <SpotifyAttributionLink
+                  v-if="track.spotify_track_id"
+                  compact
+                  kind="track"
+                  :spotify-id="track.spotify_track_id"
+                />
                 <span v-if="track.added_after_apply === 1" class="added-chip">{{
                   t('events.addedChip')
                 }}</span>
@@ -480,7 +498,7 @@ async function onWriteDone() {
             }}</span>
             <span class="cell-actions">
               <router-link
-                v-if="track.status === 'missing'"
+                v-if="['missing', 'acquisition_failed'].includes(track.status)"
                 class="action-link"
                 to="/missing/event"
                 >{{ t('events.resolveMissing') }}</router-link

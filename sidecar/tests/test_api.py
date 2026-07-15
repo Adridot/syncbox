@@ -18,6 +18,7 @@ from syncbox.quality import QualityResult
 from syncbox.safety import process_guard
 from syncbox.safety.process_guard import MutationBlockedError
 from syncbox.secrets import SecretsStore
+from syncbox.server import OAuthCallbackPortInUseError
 from syncbox.spotify import ACCESS_TOKEN, REFRESH_TOKEN, SpotifyAuth
 
 PLAYLIST_ID = "A" * 22  # valid 22-char base62 shape
@@ -40,6 +41,22 @@ class FakeCache:
 
     def invalidate(self):
         self.invalidated += 1
+
+
+class FakeOAuthListener:
+    def __init__(self, error=None):
+        self.error = error
+        self.starts = []
+        self.stops = 0
+
+    def start(self, callback, *, oauth_lock, timeout):
+        self.starts.append((callback, oauth_lock, timeout))
+        if self.error is not None:
+            raise self.error
+        return True
+
+    def stop(self):
+        self.stops += 1
 
 
 def rb_row(content_id, **over):
@@ -75,7 +92,13 @@ def rb_row(content_id, **over):
     return row
 
 
-def make_env(tmp_path, rows=(), spotify_client=None, spotify_auth=None):
+def make_env(
+    tmp_path,
+    rows=(),
+    spotify_client=None,
+    spotify_auth=None,
+    oauth_listener=None,
+):
     conn = appdb.open_app_db(tmp_path / "app.db")
     storage = tmp_path / "storage"
     storage.mkdir(exist_ok=True)
@@ -88,6 +111,7 @@ def make_env(tmp_path, rows=(), spotify_client=None, spotify_auth=None):
         cache=cache,
         spotify_client=spotify_client,
         spotify_auth=spotify_auth,
+        oauth_listener=oauth_listener,
         log_path=tmp_path / "app.log",
         app_db_path=tmp_path / "app.db",
     )
@@ -216,15 +240,16 @@ def test_sync_one_source_end_to_end(tmp_path):
         f"/playlists/{PLAYLIST_ID}": {
             "snapshot_id": "snap1",
             "name": "PL fresh",
-            "tracks": {
+            "items": {
                 "items": [
                     {
-                        "track": {
+                        "item": {
                             "id": "t1",
                             "name": "Song",
                             "artists": [{"name": "A"}],
                             "duration_ms": 200_000,
                             "external_ids": {"isrc": isrc},
+                            "type": "track",
                         }
                     }
                 ],
@@ -277,7 +302,7 @@ def test_sync_all_publishes_per_source_progress(tmp_path, monkeypatch):
 
     monkeypatch.setattr(api, "_Progress", RecordingProgress)
     second_id = "B" * 22
-    payload = {"snapshot_id": "s1", "name": "PL", "tracks": {"items": [], "next": None}}
+    payload = {"snapshot_id": "s1", "name": "PL", "items": {"items": [], "next": None}}
     payloads = {
         f"/playlists/{PLAYLIST_ID}": dict(payload),
         f"/playlists/{second_id}": dict(payload),
@@ -410,11 +435,17 @@ def test_events_list_reports_pending_delta_badge(tmp_path):
     env.conn.execute(
         "UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],)
     )
-    env.client.post(f"/api/events/{event['id']}/tracks", json={"title": "After"})
+    added = env.client.post(
+        f"/api/events/{event['id']}/tracks", json={"title": "After"}
+    ).json()
+    env.conn.execute(
+        "UPDATE event_tracks SET status = 'acquisition_failed' WHERE id = ?",
+        (added["id"],),
+    )
 
     listing = env.client.get("/api/events").json()["events"]
     assert listing[0]["n_tracks"] == 2
-    assert listing[0]["pending_delta"] == 1  # exactly the post-apply addition
+    assert listing[0]["pending_delta"] == 1  # failed acquisition remains actionable
 
 
 def test_event_create_add_manual_track_and_detail(tmp_path):
@@ -1220,15 +1251,140 @@ def test_doctor_logs_tail(tmp_path):
 def test_spotify_authorize(tmp_path):
     env = make_env(tmp_path)
     assert env.client.get("/api/spotify/authorize").status_code == 503
+    listener = FakeOAuthListener()
+    auth = SimpleNamespace(
+        begin_authorization=lambda: "https://accounts.spotify.com/authorize?x=1",
+        handle_callback=lambda params: {"ok": True},
+    )
     env2 = make_env(
         tmp_path / "b",
-        spotify_auth=SimpleNamespace(
-            begin_authorization=lambda: "https://accounts.spotify.com/authorize?x=1",
-            handle_callback=lambda params: {"ok": True},
-        ),
+        spotify_auth=auth,
+        oauth_listener=listener,
     )
     body = env2.client.get("/api/spotify/authorize").json()
     assert body["url"].startswith("https://accounts.spotify.com/authorize")
+    assert listener.starts[0][0] == auth.handle_callback
+    assert listener.starts[0][1] is env2.deps.lock
+
+
+def test_spotify_authorize_reports_exact_callback_port_collision(tmp_path):
+    listener = FakeOAuthListener(OAuthCallbackPortInUseError("127.0.0.1", 8765))
+    env = make_env(
+        tmp_path,
+        spotify_auth=SimpleNamespace(
+            begin_authorization=lambda: "must not be called",
+            handle_callback=lambda params: {"ok": True},
+        ),
+        oauth_listener=listener,
+    )
+    response = env.client.get("/api/spotify/authorize")
+    assert response.status_code == 409
+    assert response.json()["error"] == "oauth_callback_port_in_use"
+    assert "127.0.0.1:8765" in response.json()["message"]
+
+
+def test_spotify_disconnect_deletes_relationships_without_touching_rekordbox(tmp_path):
+    secrets = SecretsStore(tmp_path / "secrets")
+    secrets.set(ACCESS_TOKEN, "access")
+    secrets.set(REFRESH_TOKEN, "refresh")
+    auth = SpotifyAuth(lambda: "a" * 32, secrets)
+    auth.begin_authorization()
+    listener = FakeOAuthListener()
+    env = make_env(tmp_path, spotify_auth=auth, oauth_listener=listener)
+    env.deps.settings.update({"spotify_client_id": "a" * 32})
+
+    source, tracks = seed_source(
+        env.conn,
+        [
+            {
+                "spotify_track_id": "track-1",
+                "title": "Track one",
+                "artist": "Artist",
+                "status": "missing",
+            }
+        ],
+    )
+    env.conn.execute(
+        "INSERT INTO sync_runs (source_id, started_at) VALUES (?, '2026-07-14')",
+        (source["id"],),
+    )
+    event = api.events_service.create_event(
+        env.conn,
+        env.storage,
+        "Local event",
+        spotify_playlist_id="B" * 22,
+    )
+    event_track = api.events_service.add_track(
+        env.conn,
+        event,
+        spotify_track_id="spotify-event-track",
+        resolver=lambda _track_id: {"title": "Keep locally", "artist": "Artist"},
+    )
+    env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+        "VALUES ('library', ?, 'Track one', 'downloaded')",
+        (str(tracks[0]["id"]),),
+    )
+    env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+        "VALUES ('event', ?, 'Keep locally', 'downloaded')",
+        (str(event_track["id"]),),
+    )
+    env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+        "VALUES ('collection', '42', 'Collection track', 'downloaded')"
+    )
+    rekordbox_before = env.db_file.read_bytes()
+
+    response = env.client.delete("/api/spotify/session")
+    assert response.status_code == 200
+    assert response.json() == {
+        "disconnected": True,
+        "rekordbox_changed": False,
+        "sources": 1,
+        "library_tracks": 1,
+        "sync_runs": 1,
+        "events_detached": 1,
+        "event_tracks_detached": 1,
+        "acquisition_jobs_deleted": 2,
+    }
+    assert secrets.get(ACCESS_TOKEN) is None
+    assert secrets.get(REFRESH_TOKEN) is None
+    assert auth._state is None
+    assert auth._verifier is None
+    assert listener.stops == 1
+    assert env.deps.settings.get("spotify_client_id") == "a" * 32
+    assert env.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
+    detached_event = env.conn.execute(
+        "SELECT spotify_playlist_id FROM events WHERE id = ?", (event["id"],)
+    ).fetchone()[0]
+    assert detached_event == f"manual:{event['slug']}"
+    detached_track = env.conn.execute(
+        "SELECT spotify_track_id, title FROM event_tracks WHERE id = ?",
+        (event_track["id"],),
+    ).fetchone()
+    assert tuple(detached_track) == (None, "Keep locally")
+    jobs = env.conn.execute(
+        "SELECT scope, ref FROM acquisition_jobs ORDER BY id"
+    ).fetchall()
+    assert [tuple(row) for row in jobs] == [("collection", "42")]
+    assert env.db_file.read_bytes() == rekordbox_before
+
+    again = env.client.delete("/api/spotify/session").json()
+    assert again["disconnected"] is True
+    assert all(
+        again[key] == 0
+        for key in (
+            "sources",
+            "library_tracks",
+            "sync_runs",
+            "events_detached",
+            "event_tracks_detached",
+            "acquisition_jobs_deleted",
+        )
+    )
+    assert listener.stops == 2
+    secrets.close()
 
 
 # --- SSE progress (F16) --------------------------------------------------------------
@@ -1290,19 +1446,25 @@ def test_status_reports_rb_and_spotify_truthfully(tmp_path, monkeypatch):
     env = make_env(
         tmp_path,
         spotify_auth=SimpleNamespace(
-            connected=lambda: True, handle_callback=lambda params: {"ok": True}
+            connected=lambda: True,
+            authorization_status=lambda: {"pending": True, "result": None},
+            handle_callback=lambda params: {"ok": True},
         ),
     )
     monkeypatch.setattr(process_guard, "is_rekordbox_running", lambda: True)
     assert env.client.get("/api/status").json() == {
         "rb_open": True,
         "spotify_connected": True,
+        "spotify_authorization_pending": True,
+        "spotify_authorization_result": None,
     }
     monkeypatch.setattr(process_guard, "is_rekordbox_running", lambda: False)
     bare = make_env(tmp_path / "bare")  # no spotify_auth wired
     assert bare.client.get("/api/status").json() == {
         "rb_open": False,
         "spotify_connected": False,
+        "spotify_authorization_pending": False,
+        "spotify_authorization_result": None,
     }
 
 
@@ -1483,7 +1645,7 @@ def test_spotify_playlist_preview(tmp_path):
     payload = {
         "name": "Peak Time",
         "owner": {"display_name": "Adrien"},
-        "tracks": {"total": 42},
+        "items": {"total": 42},
         "images": [{"url": "https://i.scdn.co/image/x"}],
     }
     env = make_env(tmp_path, spotify_client=SimpleNamespace(get=lambda path: payload))
@@ -1540,7 +1702,7 @@ def test_spotify_playlists_walks_pages_and_maps(tmp_path):
                 "id": "PL1",
                 "name": "Peak Time",
                 "owner": {"display_name": "Adrien"},
-                "tracks": {"total": 42},
+                "items": {"total": 42},
                 "images": [{"url": "https://i.scdn.co/image/x"}],
             },
             None,  # Spotify pads deleted playlists with nulls
@@ -1670,18 +1832,19 @@ def test_events_create_playlist_mode_imports_tracks(tmp_path):
     """Owner-approved: 'from playlist' mode fetches the playlist's tracks at
     creation through the D20 mapper; a Spotify failure creates NO event."""
     payload = {
-        "tracks": {
+        "items": {
             "items": [
                 {
-                    "track": {
+                    "item": {
                         "id": "trk1",
                         "name": "Innerbloom",
                         "artists": [{"name": "RÜFÜS DU SOL"}],
                         "duration_ms": 574_000,
                         "external_ids": {"isrc": "AUUM71500123"},
+                        "type": "track",
                     }
                 },
-                {"track": {"id": None, "name": "unplayable"}},
+                {"item": {"id": None, "name": "unplayable"}},
             ],
             "next": None,
         }

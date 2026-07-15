@@ -15,7 +15,7 @@ import SpotifyClientIdHelp from '../components/SpotifyClientIdHelp.vue'
 import { replayOnboarding } from '../lib/onboarding'
 import { MACOS_DB_DEFAULT, usePathFields } from '../lib/usePathFields'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
-import { confirmDialog, hasShell, pickFile, pickSaveFile } from '../shell'
+import { confirmDialog, hasShell, openExternal, pickFile, pickSaveFile } from '../shell'
 import { type MatchWeights, useSettingsStore } from '../stores/settings'
 import { useStatusStore } from '../stores/status'
 
@@ -50,6 +50,9 @@ const deezerEnabled = ref(false)
 const deezerArl = ref('')
 const deezerStatus = ref<DeezerStatus | null>(null)
 const deezerBusy = ref(false)
+const spotifyBusy = ref(false)
+
+const PRIVACY_URL = `https://github.com/Adridot/syncbox/blob/v${__APP_VERSION__}/docs/PRIVACY.md`
 
 const banner = ref<{ tone: 'error' | 'success'; text: string } | null>(null)
 const connectAttempted = ref(false)
@@ -106,6 +109,23 @@ async function connect() {
   connectAttempted.value = false
   await spotify.connect()
   connectAttempted.value = true
+}
+
+async function disconnectSpotify() {
+  if (!(await confirmDialog(t('settings.spotify.disconnectConfirm')))) return
+  banner.value = null
+  spotifyBusy.value = true
+  try {
+    await api.delete('/api/spotify/session')
+    connectAttempted.value = false
+    spotify.error.value = null
+    await status.refresh()
+    banner.value = { tone: 'success', text: t('settings.spotify.disconnected') }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    spotifyBusy.value = false
+  }
 }
 const connectFailed = computed(
   () => connectAttempted.value && !status.spotifyConnected && !spotify.connecting.value,
@@ -311,7 +331,7 @@ const derivedRows = computed(() => {
         </div>
         <button
           class="btn-primary"
-          :disabled="!settings.values?.spotify_client_id || spotify.connecting.value"
+          :disabled="!settings.values?.spotify_client_id || spotify.connecting.value || spotifyBusy"
           :title="
             !settings.values?.spotify_client_id ? t('settings.spotify.needClientId') : undefined
           "
@@ -324,6 +344,13 @@ const derivedRows = computed(() => {
                 ? t('settings.spotify.reconnect')
                 : t('settings.spotify.connect')
           }}
+        </button>
+        <button
+          class="btn-secondary spotify-disconnect"
+          :disabled="spotifyBusy || spotify.connecting.value"
+          @click="disconnectSpotify"
+        >
+          {{ t('settings.spotify.disconnect') }}
         </button>
       </div>
       <div v-if="spotify.error.value" class="inline-error">{{ spotify.error.value }}</div>
@@ -346,6 +373,9 @@ const derivedRows = computed(() => {
           </button>
         </div>
         <SpotifyClientIdHelp />
+        <button class="link privacy-link" @click="openExternal(PRIVACY_URL)">
+          {{ t('settings.spotify.privacy') }} ↗
+        </button>
       </div>
     </section>
 

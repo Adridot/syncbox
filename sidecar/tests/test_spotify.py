@@ -52,10 +52,13 @@ def token_response(access="acc-1", refresh="ref-1"):
     return (200, {}, json.dumps(payload).encode())
 
 
-def make_auth(*responses, secrets=None):
+def make_auth(*responses, secrets=None, clock=None):
     transport = FakeTransport(*responses)
     secrets = secrets if secrets is not None else FakeSecrets()
-    auth = SpotifyAuth(lambda: "client-123", secrets, transport=transport)
+    kwargs = {"transport": transport}
+    if clock is not None:
+        kwargs["clock"] = clock
+    auth = SpotifyAuth(lambda: "client-123", secrets, **kwargs)
     return auth, transport, secrets
 
 
@@ -95,6 +98,9 @@ def test_callback_exchanges_code_with_hardcoded_redirect_uri():
     assert "client_secret" not in body  # PKCE only, D3
     assert secrets.get(spotify.ACCESS_TOKEN) == "acc-1"
     assert secrets.get(spotify.REFRESH_TOKEN) == "ref-1"
+    assert auth._state is None
+    assert auth._verifier is None
+    assert auth.authorization_status() == {"pending": False, "result": "ok"}
 
 
 def test_callback_rejects_state_mismatch_error_and_missing_code():
@@ -104,12 +110,58 @@ def test_callback_rejects_state_mismatch_error_and_missing_code():
         "ok": False,
         "error": "state_mismatch",
     }
-    assert auth.handle_callback({"error": "access_denied"})["ok"] is False
+    assert auth.handle_callback({"error": "access_denied"}) == {
+        "ok": False,
+        "error": "state_mismatch",
+    }
+    auth.begin_authorization()
+    assert auth.handle_callback(
+        {"error": "access_denied", "state": auth._state}
+    ) == {"ok": False, "error": "access_denied"}
+    assert auth._state is None
+    assert auth._verifier is None
     auth.begin_authorization()
     assert auth.handle_callback({"state": auth._state}) == {
         "ok": False,
         "error": "missing_code",
     }
+    assert auth.authorization_status() == {"pending": False, "result": "error"}
+
+
+def test_authorization_state_expires_with_the_ui_poll_window():
+    now = [100.0]
+    auth, _, _ = make_auth(clock=lambda: now[0])
+    auth.begin_authorization()
+    state = auth._state
+    assert auth.authorization_status() == {"pending": True, "result": None}
+
+    now[0] += spotify.AUTHORIZATION_TIMEOUT_SECONDS
+
+    assert auth.handle_callback({"code": "late", "state": state}) == {
+        "ok": False,
+        "error": "state_expired",
+    }
+    assert auth.authorization_status() == {"pending": False, "result": "expired"}
+    assert auth._state is None
+    assert auth._verifier is None
+
+
+def test_disconnect_clears_tokens_and_pending_pkce_state():
+    secrets = FakeSecrets()
+    secrets.set(spotify.ACCESS_TOKEN, "access")
+    secrets.set(spotify.REFRESH_TOKEN, "refresh")
+    auth, _, _ = make_auth(secrets=secrets)
+    auth.begin_authorization()
+
+    auth.disconnect()
+    auth.disconnect()  # idempotent
+
+    assert auth.connected() is False
+    assert secrets.get(spotify.ACCESS_TOKEN) is None
+    assert secrets.get(spotify.REFRESH_TOKEN) is None
+    assert auth._state is None
+    assert auth._verifier is None
+    assert auth.authorization_status() == {"pending": False, "result": None}
 
 
 def test_no_client_secret_anywhere_in_module():
@@ -148,6 +200,22 @@ def test_refresh_without_stored_token_raises():
     auth, _, _ = make_auth()
     with pytest.raises(NotConnectedError):
         auth.refresh()
+
+
+def test_revoked_refresh_token_clears_session_for_reauthorization():
+    secrets = FakeSecrets()
+    secrets.set(spotify.ACCESS_TOKEN, "expired-access")
+    secrets.set(spotify.REFRESH_TOKEN, "revoked-refresh")
+    auth, _, secrets = make_auth(
+        (400, {}, b'{"error":"invalid_grant"}'), secrets=secrets
+    )
+
+    with pytest.raises(NotConnectedError, match="reconnect"):
+        auth.refresh()
+
+    assert auth.connected() is False
+    assert secrets.get(spotify.ACCESS_TOKEN) is None
+    assert secrets.get(spotify.REFRESH_TOKEN) is None
 
 
 # --- retry ladder (SPEC-01 2.5) ----------------------------------------------

@@ -14,6 +14,7 @@ Load-bearing mechanics owned by Syncbox, not pyrekordbox:
 - a soft-deleted artist found by name is self-healed (reactivated, 1.6).
 """
 
+import stat
 import uuid
 from pathlib import Path
 
@@ -295,15 +296,17 @@ def add_content(db, staging_path, metadata: dict, *, storage_root):
     from datetime import datetime
 
     path = Path(staging_path)
+    try:
+        file_stat = path.stat()
+    except OSError as exc:
+        raise FileNotFoundError(f"staged audio file is unavailable: {path}") from exc
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise ValueError(f"staged audio path is not a regular file: {path}")
     content_id = _new_id(db, tables.DjmdContent)
     artist = find_or_create_artist(db, metadata.get("artist") or "Unknown Artist")
     device = db.get_device().first()
     now = datetime.now()
     duration_ms = metadata.get("duration_ms") or 0
-    try:
-        file_size = path.stat().st_size
-    except OSError:
-        file_size = 0
     row = tables.DjmdContent.create(
         ID=content_id,
         MasterSongID=content_id,
@@ -319,7 +322,7 @@ def add_content(db, staging_path, metadata: dict, *, storage_root):
         # re-derives the real type at import/analysis. Extend the
         # map only when a real event stages another container.
         FileType=_FILE_TYPE_BY_EXT.get(path.suffix.lower(), 0),
-        FileSize=file_size,
+        FileSize=file_stat.st_size,
         DeviceID=device.ID if device else None,
         MasterDBID=device.MasterDBID if device else None,
         StockDate=now.strftime("%Y-%m-%d"),

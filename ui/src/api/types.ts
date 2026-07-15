@@ -161,6 +161,7 @@ export interface MissingEntry {
   content_id?: string
   title: string | null
   artist: string | null
+  spotify_track_id?: string | null
   status?: string
   file_path?: string | null
   resolved_path?: string | null

@@ -13,6 +13,7 @@ import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+APP_IDENTIFIER = "io.github.adridot.syncbox"
 
 CANONICAL = json.loads((REPO / "ui" / "package.json").read_text())["version"]
 
@@ -59,11 +60,12 @@ def test_tauri_conf_derives_from_package_json():
     conf = json.loads((REPO / "shell" / "src-tauri" / "tauri.conf.json").read_text())
     # Native derivation (tauri-utils: version may be a path to a package.json).
     assert conf["version"] == "../../ui/package.json"
+    assert conf["identifier"] == APP_IDENTIFIER
 
 
-def test_readme_release_matches_canonical():
+def test_readme_source_version_matches_canonical():
     readme = (REPO / "README.md").read_text()
-    assert f"Current release: **{CANONICAL}**" in readme
+    assert f"Current source version: **{CANONICAL}**" in readme
 
 
 def test_vite_injects_the_version():

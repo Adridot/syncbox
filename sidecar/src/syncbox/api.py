@@ -69,10 +69,14 @@ from syncbox.safety.paths import (
 )
 from syncbox.safety import process_guard
 from syncbox.safety.process_guard import MutationBlockedError
-from syncbox.server import JobBus, create_app
+from syncbox.server import JobBus, OAuthCallbackPortInUseError, create_app
 from syncbox.settings import DEFAULTS as SETTINGS_DEFAULTS
 from syncbox.settings import Settings, validate_directory
-from syncbox.spotify import NotConnectedError, SpotifyApiError
+from syncbox.spotify import (
+    AUTHORIZATION_TIMEOUT_SECONDS,
+    NotConnectedError,
+    SpotifyApiError,
+)
 
 # Statuses a single-track re-match refuses to clobber: 'ignored' would
 # silently unignore (D22 owns that transition), 'imported' is already in
@@ -106,6 +110,7 @@ class Deps:
         bus: JobBus | None = None,
         spotify_auth=None,
         spotify_client=None,
+        oauth_listener=None,
         cache=None,
         log_path=None,
         app_db_path=None,
@@ -123,6 +128,7 @@ class Deps:
         self.bus = bus if bus is not None else JobBus()
         self.spotify_auth = spotify_auth
         self.spotify_client = spotify_client
+        self.oauth_listener = oauth_listener
         self.log_path = log_path
         self.data_dir = Path(data_dir or (Path(app_db_path).parent if app_db_path else "."))
         self.secrets = secrets
@@ -159,15 +165,11 @@ class Deps:
         return self._cache
 
 
-def build_app(deps: Deps, *, oauth_callback=None):
+def build_app(deps: Deps):
     """Assemble the full sidecar app: transport routes (server.create_app)
     plus the REST routes below, sharing one JobBus."""
-    if oauth_callback is None and deps.spotify_auth is not None:
-        oauth_callback = deps.spotify_auth.handle_callback
     app = create_app(
         bus=deps.bus,
-        oauth_callback=oauth_callback,
-        oauth_lock=deps.lock,
         routes=routes(deps),
     )
     app.state.deps = deps
@@ -227,6 +229,14 @@ def _error_response(exc) -> JSONResponse | None:
                 "message": str(exc),
             },
             status_code=502,
+        )
+    if isinstance(exc, OAuthCallbackPortInUseError):
+        return JSONResponse(
+            {
+                "error": "oauth_callback_port_in_use",
+                "message": str(exc),
+            },
+            status_code=409,
         )
     if isinstance(exc, KeyError):
         message = str(exc.args[0]) if exc.args else "not found"
@@ -549,9 +559,16 @@ def status_get(deps, request, body):
     HealthPill without waiting for a failing mutation. The UI polls it
     (interval + window focus + after any 423)."""
     connected = deps.spotify_auth is not None and deps.spotify_auth.connected()
+    authorization = (
+        deps.spotify_auth.authorization_status()
+        if deps.spotify_auth is not None
+        else {"pending": False, "result": None}
+    )
     return {
         "rb_open": process_guard.is_rekordbox_running(),
         "spotify_connected": connected,
+        "spotify_authorization_pending": authorization["pending"],
+        "spotify_authorization_result": authorization["result"],
     }
 
 
@@ -722,7 +739,8 @@ def events_list(deps, request, body):
         for row in deps.conn.execute(
             "SELECT event_id, COUNT(*) AS n_tracks, "
             "SUM(CASE WHEN status IN ('matched', 'ready') THEN 1 "
-            "         WHEN added_after_apply = 1 AND status = 'missing' THEN 1 "
+            "         WHEN added_after_apply = 1 "
+            "              AND status IN ('missing', 'acquisition_failed') THEN 1 "
             "         ELSE 0 END) AS pending_delta "
             "FROM event_tracks GROUP BY event_id"
         )
@@ -1108,7 +1126,24 @@ def _job_row(conn, job_id: int) -> dict:
     return dict(row)
 
 
+_JOB_TRANSITIONS = {
+    "queued": frozenset({"running", "failed"}),
+    "running": frozenset(
+        {"downloaded", "relinked", "relink_blocked", "relink_failed", "failed"}
+    ),
+}
+
+
 def _update_job(conn, job_id: int, **values) -> dict:
+    current = _job_row(conn, job_id)
+    next_status = values.get("status")
+    if next_status is not None and next_status != current["status"]:
+        allowed = _JOB_TRANSITIONS.get(current["status"], frozenset())
+        if next_status not in allowed:
+            raise ValueError(
+                f"invalid acquisition job transition "
+                f"{current['status']!r} -> {next_status!r}"
+            )
     assignments = ", ".join(f"{key} = ?" for key in values)
     conn.execute(
         f"UPDATE acquisition_jobs SET {assignments}, updated_at = datetime('now') WHERE id = ?",
@@ -1197,6 +1232,13 @@ def acquisition_job_start(deps, request, body):
         return job
     except Exception as exc:
         arl = ""
+        if scope in ("library", "event"):
+            table = {"library": "library_tracks", "event": "event_tracks"}[scope]
+            deps.conn.execute(
+                f"UPDATE {table} SET status = 'acquisition_failed', "
+                "updated_at = datetime('now') WHERE id = ?",
+                (ref,),
+            )
         job = _update_job(deps.conn, job_id, status="failed", error=type(exc).__name__)
         progress.done(id=job_id, status="failed", error=type(exc).__name__)
         return job
@@ -1679,12 +1721,15 @@ def spotify_playlists(deps, request, body):
             if not item or not item.get("id"):
                 continue  # Spotify pads deleted playlists with nulls
             images = item.get("images") or []
+            page = item.get("items")
+            if not isinstance(page, dict):
+                page = item.get("tracks") or {}
             playlists.append(
                 {
                     "spotify_playlist_id": item["id"],
                     "name": item.get("name") or "",
                     "owner": (item.get("owner") or {}).get("display_name"),
-                    "tracks_total": (item.get("tracks") or {}).get("total") or 0,
+                    "tracks_total": page.get("total") or 0,
                     "image_url": images[0]["url"] if images else None,
                 }
             )
@@ -1695,9 +1740,74 @@ def spotify_playlists(deps, request, body):
 
 
 def spotify_authorize(deps, request, body):
+    if deps.spotify_auth is None or deps.oauth_listener is None:
+        return 503, {"error": "oauth not configured"}
+    created = deps.oauth_listener.start(
+        deps.spotify_auth.handle_callback,
+        oauth_lock=deps.lock,
+        timeout=AUTHORIZATION_TIMEOUT_SECONDS,
+    )
+    try:
+        return {"url": deps.spotify_auth.begin_authorization()}
+    except Exception:
+        if created:
+            deps.oauth_listener.stop()
+        raise
+
+
+def spotify_disconnect(deps, request, body):
+    """Disconnect Spotify and delete local playlist relationships.
+
+    The token deletion happens first so a later SQLite failure cannot leave
+    Syncbox able to make new Spotify requests. Followed sources and their
+    tracks/runs are deleted by cascade. Events remain usable as local
+    lifecycle records, with Spotify identifiers detached. Rekordbox and local
+    audio files are never opened by this endpoint.
+    """
     if deps.spotify_auth is None:
         return 503, {"error": "oauth not configured"}
-    return {"url": deps.spotify_auth.begin_authorization()}
+    if deps.oauth_listener is not None:
+        deps.oauth_listener.stop()
+    deps.spotify_auth.disconnect()
+
+    counts = {
+        "sources": deps.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0],
+        "library_tracks": deps.conn.execute(
+            "SELECT COUNT(*) FROM library_tracks"
+        ).fetchone()[0],
+        "sync_runs": deps.conn.execute("SELECT COUNT(*) FROM sync_runs").fetchone()[0],
+        "events_detached": deps.conn.execute(
+            "SELECT COUNT(*) FROM events "
+            "WHERE spotify_playlist_id IS NOT NULL "
+            "AND spotify_playlist_id NOT LIKE 'manual:%'"
+        ).fetchone()[0],
+        "event_tracks_detached": deps.conn.execute(
+            "SELECT COUNT(*) FROM event_tracks WHERE spotify_track_id IS NOT NULL"
+        ).fetchone()[0],
+        "acquisition_jobs_deleted": deps.conn.execute(
+            "SELECT COUNT(*) FROM acquisition_jobs WHERE scope IN ('library', 'event')"
+        ).fetchone()[0],
+    }
+    deps.conn.execute("BEGIN")
+    try:
+        deps.conn.execute("DELETE FROM sources")
+        deps.conn.execute(
+            "UPDATE events SET spotify_playlist_id = 'manual:' || slug "
+            "WHERE spotify_playlist_id IS NOT NULL "
+            "AND spotify_playlist_id NOT LIKE 'manual:%'"
+        )
+        deps.conn.execute(
+            "UPDATE event_tracks SET spotify_track_id = NULL "
+            "WHERE spotify_track_id IS NOT NULL"
+        )
+        deps.conn.execute(
+            "DELETE FROM acquisition_jobs WHERE scope IN ('library', 'event')"
+        )
+        deps.conn.execute("COMMIT")
+    except BaseException:
+        deps.conn.execute("ROLLBACK")
+        raise
+    return {"disconnected": True, "rekordbox_changed": False, **counts}
 
 
 def spotify_playlist_preview(deps, request, body):
@@ -1706,15 +1816,15 @@ def spotify_playlist_preview(deps, request, body):
     automatically (404 = private playlist, actionable)."""
     client = _sync_client(deps)
     playlist_id = request.path_params["playlist_id"]
-    payload = client.get(
-        f"/playlists/{playlist_id}"
-        "?fields=name,owner(display_name),tracks(total),images(url)"
-    )
+    payload = client.get(f"/playlists/{playlist_id}")
     images = payload.get("images") or []
+    page = payload.get("items")
+    if not isinstance(page, dict):
+        page = payload.get("tracks") or {}
     return {
         "name": payload.get("name"),
         "owner": (payload.get("owner") or {}).get("display_name"),
-        "tracks_total": (payload.get("tracks") or {}).get("total") or 0,
+        "tracks_total": page.get("total") or 0,
         "image_url": images[0]["url"] if images else None,
     }
 
@@ -1796,6 +1906,7 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/doctor/retention", doctor_retention, ["POST"]),
         r("/api/doctor/logs", doctor_logs, ["GET"]),
         r("/api/spotify/authorize", spotify_authorize, ["GET"]),
+        r("/api/spotify/session", spotify_disconnect, ["DELETE"]),
         r("/api/spotify/playlists", spotify_playlists, ["GET"]),
         r(
             "/api/spotify/playlists/{playlist_id}/preview",

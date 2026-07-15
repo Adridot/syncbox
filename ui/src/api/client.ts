@@ -4,7 +4,7 @@
    re-call once with the consent flag, network failure → NetworkError so the
    backend-down surfaces can tell "down" from "refused". */
 
-export const BASE_URL = 'http://127.0.0.1:8765'
+export const BASE_URL = 'http://127.0.0.1:8766'
 
 export type ApiErrorCode =
   | 'mutation_blocked'
@@ -13,6 +13,7 @@ export type ApiErrorCode =
   | 'consent_required'
   | 'spotify_not_connected'
   | 'spotify_api_error'
+  | 'oauth_callback_port_in_use'
   | 'not_found'
   | 'invalid_request'
 

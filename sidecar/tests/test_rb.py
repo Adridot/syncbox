@@ -8,6 +8,7 @@ import pytest
 
 from syncbox import rb
 from syncbox.rb import SnapshotCache
+from syncbox.safety.mutate import StaleSnapshotError, fingerprint
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = REPO_ROOT / "poc" / "testdata" / "master.db"
@@ -75,9 +76,44 @@ def test_fingerprint_exposed_for_freshness_guard(tmp_path):
     db = make_db(tmp_path)
     cache = SnapshotCache(db, loader=lambda p, r: [])
     cache.get("/root")
-    from syncbox.safety.mutate import fingerprint
 
     assert cache.current_fingerprint == fingerprint(db)
+
+
+def test_cache_retries_when_wal_changes_during_load(tmp_path):
+    db = make_db(tmp_path)
+    wal = tmp_path / "master.db-wal"
+    calls = []
+
+    def loader(_path, _root):
+        calls.append(1)
+        if len(calls) == 1:
+            wal.write_bytes(b"wal")
+        return [{"attempt": len(calls)}]
+
+    cache = SnapshotCache(db, loader=loader)
+
+    assert cache.get("/root") == [{"attempt": 2}]
+    assert len(calls) == 2
+    assert cache.current_fingerprint == fingerprint(db)
+
+
+def test_cache_fails_closed_when_database_keeps_changing(tmp_path):
+    db = make_db(tmp_path)
+    wal = tmp_path / "master.db-wal"
+    calls = []
+
+    def loader(_path, _root):
+        calls.append(1)
+        wal.write_bytes(b"x" * len(calls))
+        return []
+
+    cache = SnapshotCache(db, loader=loader)
+
+    with pytest.raises(StaleSnapshotError, match="kept changing"):
+        cache.get("/root")
+    assert len(calls) == 3
+    assert cache.current_fingerprint is None
 
 
 def test_snapshot_exposes_ownership_without_legacy_protection(monkeypatch, tmp_path):

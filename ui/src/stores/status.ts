@@ -10,6 +10,8 @@ import { onBackendDown } from '../shell'
 interface StatusPayload {
   rb_open: boolean
   spotify_connected: boolean
+  spotify_authorization_pending?: boolean
+  spotify_authorization_result?: 'ok' | 'error' | 'expired' | null
 }
 
 export const POLL_INTERVAL_MS = 30_000
@@ -23,6 +25,8 @@ export const useStatusStore = defineStore('status', {
   state: () => ({
     rbOpen: false,
     spotifyConnected: false,
+    spotifyAuthorizationPending: false,
+    spotifyAuthorizationResult: null as 'ok' | 'error' | 'expired' | null,
     /** true once the supervisor exhausted its restarts (shell event) or the
         sidecar stops answering; the backend-down overlay reads this */
     backendDown: false,
@@ -36,6 +40,8 @@ export const useStatusStore = defineStore('status', {
         const status = await api.get<StatusPayload>('/api/status')
         this.rbOpen = status.rb_open
         this.spotifyConnected = status.spotify_connected
+        this.spotifyAuthorizationPending = Boolean(status.spotify_authorization_pending)
+        this.spotifyAuthorizationResult = status.spotify_authorization_result ?? null
         this.backendDown = false
         this.backendDownReason = null
         this.failures = 0

@@ -29,6 +29,10 @@ DEEZER_ARL_SECRET = "deezer.arl"
 STREAMRIP_VERSION = "2.2.0"
 STREAMRIP_COMMIT = "189acda489927719aa8591f6acdd7d67aecf929b"
 CERTIFI_VERSION = "2026.6.17"
+OPTIONAL_PYTHON_VERSION = "3.13.11"
+PILLOW_VERSION = "10.4.0"
+PILLOW_WHEEL = "pillow-10.4.0-cp313-cp313-macosx_11_0_arm64.whl"
+PILLOW_WHEEL_SHA256 = "6209bb41dc692ddfee4942517c19ee81b86c864b626dbfca272ec0f7cff5d9fb"
 COMPONENT_NAME = "syncbox-deezer-component"
 COMPONENT_ARCHIVE_ENV = "SYNCBOX_DEEZER_COMPONENT_ARCHIVE"
 MAX_COMPONENT_BYTES = 512 * 1024 * 1024
@@ -85,6 +89,10 @@ def _component_manifest() -> dict:
         "streamrip_version",
         "streamrip_commit",
         "certifi_version",
+        "python_version",
+        "pillow_version",
+        "pillow_wheel",
+        "pillow_wheel_sha256",
     }
     if set(payload) != required:
         raise RuntimeError("optional component manifest fields are invalid")
@@ -98,6 +106,10 @@ def _component_manifest() -> dict:
         "streamrip_version": STREAMRIP_VERSION,
         "streamrip_commit": STREAMRIP_COMMIT,
         "certifi_version": CERTIFI_VERSION,
+        "python_version": OPTIONAL_PYTHON_VERSION,
+        "pillow_version": PILLOW_VERSION,
+        "pillow_wheel": PILLOW_WHEEL,
+        "pillow_wheel_sha256": PILLOW_WHEEL_SHA256,
     }
     if any(payload.get(key) != value for key, value in expected.items()):
         raise RuntimeError("optional component manifest does not match this build")
@@ -139,6 +151,8 @@ def component_status(data_dir) -> dict:
             "streamrip_version": STREAMRIP_VERSION,
             "streamrip_commit": STREAMRIP_COMMIT,
             "certifi_version": CERTIFI_VERSION,
+            "python_version": OPTIONAL_PYTHON_VERSION,
+            "pillow_version": PILLOW_VERSION,
             "component_version": manifest["component_version"],
         }
     try:
@@ -153,6 +167,10 @@ def component_status(data_dir) -> dict:
             "streamrip_version",
             "streamrip_commit",
             "certifi_version",
+            "python_version",
+            "pillow_version",
+            "pillow_wheel",
+            "pillow_wheel_sha256",
         )
     )
     return {**payload, "installed": installed}
@@ -260,6 +278,11 @@ def _checked_component_payload(completed, manifest: dict) -> dict:
         "streamrip_version": STREAMRIP_VERSION,
         "streamrip_commit": STREAMRIP_COMMIT,
         "certifi_version": CERTIFI_VERSION,
+        "pillow_version": PILLOW_VERSION,
+        "pillow_wheel": PILLOW_WHEEL,
+        "pillow_wheel_sha256": PILLOW_WHEEL_SHA256,
+        "artwork": "pillow_jpeg_ready",
+        "cryptography": "aes_blowfish_ready",
     }
     if any(payload.get(key) != value for key, value in expected.items()):
         raise RuntimeError("optional Deezer component check failed")
@@ -269,6 +292,10 @@ def _checked_component_payload(completed, manifest: dict) -> dict:
         "streamrip_version": STREAMRIP_VERSION,
         "streamrip_commit": STREAMRIP_COMMIT,
         "certifi_version": CERTIFI_VERSION,
+        "python_version": OPTIONAL_PYTHON_VERSION,
+        "pillow_version": PILLOW_VERSION,
+        "pillow_wheel": PILLOW_WHEEL,
+        "pillow_wheel_sha256": PILLOW_WHEEL_SHA256,
     }
 
 
@@ -362,9 +389,22 @@ def run_deezer_download(data_dir, arl: str, isrc: str, output_dir, *, runner=sub
     payload = json.loads(completed.stdout.splitlines()[-1])
     if payload.get("result") != "FULL_TRACK_DOWNLOADED":
         raise RuntimeError(payload.get("reason") or "Deezer acquisition failed")
-    output_path = Path(payload["output_path"]).resolve(strict=True)
+    filename = payload.get("output_filename")
+    if (
+        not isinstance(filename, str)
+        or not filename
+        or filename in {".", ".."}
+        or Path(filename).name != filename
+        or "/" in filename
+        or "\\" in filename
+    ):
+        raise RuntimeError("Deezer acquisition output filename is invalid")
+    output_path = (output_dir / filename).resolve(strict=True)
     if not output_path.is_relative_to(output_dir.resolve()):
         raise RuntimeError("Deezer acquisition output escaped the job directory")
+    if not output_path.is_file():
+        raise RuntimeError("Deezer acquisition output is not a regular file")
+    payload["output_path"] = str(output_path)
     return payload
 
 

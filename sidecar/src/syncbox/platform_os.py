@@ -16,6 +16,9 @@ from pathlib import Path
 
 from send2trash import send2trash
 
+# Deliberately independent from the macOS CFBundleIdentifier. Keeping the
+# product directory stable preserves the existing database, settings, and
+# encrypted OAuth secret store when the application identifier changes.
 APP_NAME = "Syncbox"
 
 

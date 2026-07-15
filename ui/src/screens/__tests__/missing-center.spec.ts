@@ -13,6 +13,7 @@ let pinia: ReturnType<typeof createPinia>
 beforeEach(() => {
   pinia = createPinia()
   setActivePinia(pinia)
+  vi.mocked(openExternal).mockResolvedValue(undefined)
 })
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -25,6 +26,7 @@ const LIB_ENTRY = {
   content_id: null,
   title: 'Greece 2000',
   artist: 'Three Drives',
+  spotify_track_id: '37i9dQZF1DXcBWIGoYBM5M',
   status: 'missing',
   purchase_links: [
     { store: 'Beatport', url: 'https://www.beatport.com/search?q=x' },
@@ -45,13 +47,18 @@ const NO_LINK_ENTRY = {
   relink_candidates: [],
 }
 
-function stubApi() {
+function stubApi(acquisitionJob: unknown = {}) {
   vi.stubGlobal(
     'fetch',
     vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const path = new URL(url).pathname
       if (init?.method === 'POST')
-        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(path === '/api/acquisition/jobs' ? acquisitionJob : {}),
+        })
       const payloads: Record<string, unknown> = {
         '/api/missing/library': { entries: [LIB_ENTRY] },
         '/api/missing/event': { entries: [NO_LINK_ENTRY] },
@@ -115,6 +122,21 @@ test('purchase buttons delegate the URL to the external browser bridge', async (
   expect(openExternal).toHaveBeenCalledWith(LIB_ENTRY.purchase_links[0].url)
 })
 
+test('a rejected external purchase link is reported as an error', async () => {
+  stubApi()
+  vi.mocked(openExternal).mockRejectedValueOnce(new Error('opener failed'))
+  const wrapper = await mountCenter('library')
+  await flushPromises()
+
+  await wrapper.get('.buy').trigger('click')
+  await wrapper.get('.buy-menu-item').trigger('click')
+  await flushPromises()
+
+  expect(wrapper.get('.banner[data-tone="error"]').text()).toContain(
+    'n’a pas pu être ouvert',
+  )
+})
+
 test('D22: ignoring a row offers an inline undo that calls restore', async () => {
   stubApi()
   const wrapper = await mountCenter('library')
@@ -134,4 +156,21 @@ test('D22: ignoring a row offers an inline undo that calls restore', async () =>
   const calls = fetchMock.mock.calls.map(([url]) => new URL(String(url)).pathname)
   expect(calls).toContain('/api/missing/library/1/status')
   expect(calls).toContain('/api/missing/library/1/restore')
+})
+
+test('a failed acquisition job is never presented as a successful download', async () => {
+  stubApi({ status: 'failed', error: 'RuntimeError' })
+  const wrapper = await mountCenter('library')
+  await flushPromises()
+
+  const acquireButton = wrapper
+    .findAll('.secondary')
+    .find((button) => button.text() === 'Télécharger via Deezer')
+  await acquireButton!.trigger('click')
+  await flushPromises()
+
+  expect(wrapper.get('.banner[data-tone="error"]').text()).toContain(
+    'n’a pas pu être téléchargé',
+  )
+  expect(wrapper.findAll('.banner[data-tone="success"]')).toHaveLength(0)
 })

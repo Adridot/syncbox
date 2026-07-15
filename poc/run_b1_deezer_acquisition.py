@@ -17,6 +17,7 @@ import os
 import platform
 import re
 import secrets
+import shutil
 import ssl
 import stat
 import sys
@@ -28,6 +29,9 @@ from pathlib import Path
 
 STREAMRIP_VERSION = "2.2.0"
 STREAMRIP_COMMIT = "189acda489927719aa8591f6acdd7d67aecf929b"
+PILLOW_VERSION = "10.4.0"
+PILLOW_WHEEL = "pillow-10.4.0-cp313-cp313-macosx_11_0_arm64.whl"
+PILLOW_WHEEL_SHA256 = "6209bb41dc692ddfee4942517c19ee81b86c864b626dbfca272ec0f7cff5d9fb"
 ISRC_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
 
 
@@ -127,24 +131,18 @@ def _verify_streamrip_distribution() -> dict:
         certifi_version = importlib.metadata.version("certifi")
     except importlib.metadata.PackageNotFoundError as error:
         raise PocBlocked("certifi_not_installed") from error
+    try:
+        pillow_version = importlib.metadata.version("pillow")
+    except importlib.metadata.PackageNotFoundError as error:
+        raise PocBlocked("pillow_not_installed") from error
+    if pillow_version != PILLOW_VERSION:
+        raise PocBlocked("pillow_version_mismatch")
     return {
         "streamrip_version": distribution.version,
         "streamrip_commit": installed_commit,
         "certifi_version": certifi_version,
+        "pillow_version": pillow_version,
     }
-
-
-def _disable_artwork_processing() -> None:
-    def disabled(*_args, **_kwargs):
-        raise PocFailed("artwork_processing_disabled")
-
-    image = types.ModuleType("PIL.Image")
-    image.open = disabled
-    pillow = types.ModuleType("PIL")
-    pillow.__path__ = []
-    pillow.Image = image
-    sys.modules["PIL"] = pillow
-    sys.modules["PIL.Image"] = image
 
 
 def _prepare_deezer_client_package() -> types.ModuleType:
@@ -182,10 +180,10 @@ def _load_component(temp_root: Path, real_home: Path):
     logging.disable(logging.CRITICAL)
 
     versions = _verify_streamrip_distribution()
-    _disable_artwork_processing()
     client_package = _prepare_deezer_client_package()
     try:
         import certifi
+        from PIL import Image
         from mutagen import File as MutagenFile
         from streamrip import Config
         from streamrip import config as streamrip_config
@@ -200,6 +198,8 @@ def _load_component(temp_root: Path, real_home: Path):
         client_package.Client = client_module.Client
         client_package.Downloadable = downloadable_module.Downloadable
         client_package.BasicDownloadable = downloadable_module.BasicDownloadable
+        artwork_module = importlib.import_module("streamrip.media.artwork")
+        artwork_module.BasicDownloadable = downloadable_module.BasicDownloadable
         DeezerClient = importlib.import_module(
             "streamrip.client.deezer"
         ).DeezerClient
@@ -225,11 +225,14 @@ def _load_component(temp_root: Path, real_home: Path):
     return {
         **versions,
         "certifi": certifi,
+        "Image": Image,
         "MutagenFile": MutagenFile,
         "Config": Config,
         "streamrip_db": streamrip_db,
         "DeezerClient": DeezerClient,
         "PendingSingle": PendingSingle,
+        "artwork_downloadable": artwork_module.BasicDownloadable,
+        "basic_downloadable": downloadable_module.BasicDownloadable,
         "real_app_dir": real_app_dir,
         "real_app_dir_before": real_app_dir_before,
     }
@@ -277,7 +280,9 @@ async def _download(component: dict, arl: str, isrc: str, output_dir: Path) -> d
     config.session.downloads.max_connections = 1
     config.session.downloads.verify_ssl = True
     config.session.filepaths.add_singles_to_folder = False
-    config.session.artwork.embed = False
+    config.session.artwork.embed = True
+    config.session.artwork.embed_size = "large"
+    config.session.artwork.embed_max_width = -1
     config.session.artwork.save_artwork = False
     config.session.database.downloads_enabled = False
     config.session.database.failed_downloads_enabled = False
@@ -331,6 +336,15 @@ async def _download(component: dict, arl: str, isrc: str, output_dir: Path) -> d
     ):
         raise PocFailed("downloaded_file_is_not_full_track")
 
+    artwork = _embedded_artwork(component["Image"], audio, output_path.suffix.lower())
+    artwork_dir = resolved_output_dir / "__artwork"
+    if artwork_dir.is_symlink():
+        raise PocFailed("artwork_directory_is_symlink")
+    if artwork_dir.exists():
+        if not artwork_dir.is_dir():
+            raise PocFailed("artwork_directory_is_not_directory")
+        shutil.rmtree(artwork_dir)
+
     return {
         "deezer_track_id": track_id,
         "api_duration_seconds": api_duration,
@@ -338,13 +352,80 @@ async def _download(component: dict, arl: str, isrc: str, output_dir: Path) -> d
         "file_size_bytes": output_path.stat().st_size,
         "format": output_path.suffix.lower().lstrip("."),
         "quality": int(track.downloadable.quality),
-        "output_path": str(output_path),
         "output_filename": output_path.name,
         "output_path_source": "track.download_path",
+        **artwork,
+    }
+
+
+def _embedded_artwork(Image, audio, suffix: str) -> dict[str, object]:
+    tags = getattr(audio, "tags", None)
+    payload = None
+    container = None
+    if suffix == ".flac":
+        pictures = list(getattr(audio, "pictures", ()))
+        if pictures:
+            payload = pictures[0].data
+            container = "FLAC Picture"
+    elif suffix == ".mp3" and tags is not None:
+        pictures = tags.getall("APIC")
+        if pictures:
+            payload = pictures[0].data
+            container = "ID3 APIC"
+    elif suffix == ".m4a" and tags is not None:
+        pictures = tags.get("covr", ())
+        if pictures:
+            payload = bytes(pictures[0])
+            container = "MP4 covr"
+    if not payload or len(payload) < 512:
+        raise PocFailed("downloaded_file_artwork_missing")
+    if not payload.startswith(b"\xff\xd8\xff"):
+        raise PocFailed("downloaded_file_artwork_not_jpeg")
+    try:
+        with Image.open(io.BytesIO(payload)) as image:
+            image.verify()
+            dimensions = [image.width, image.height]
+            image_format = image.format
+    except Exception as error:
+        raise PocFailed("downloaded_file_artwork_invalid") from error
+    if image_format != "JPEG" or min(dimensions) <= 0:
+        raise PocFailed("downloaded_file_artwork_invalid")
+    return {
+        "artwork_embedded": True,
+        "artwork_container": container,
+        "artwork_bytes": len(payload),
+        "artwork_dimensions": dimensions,
+        "artwork_format": image_format,
     }
 
 
 def _check(component: dict, temp_root: Path) -> dict:
+    from Cryptodome.Cipher import AES, Blowfish
+
+    if component["artwork_downloadable"] is not component["basic_downloadable"]:
+        raise PocFailed("artwork_downloadable_binding_failed")
+
+    aes = AES.new(b"0123456789abcdef", AES.MODE_ECB)
+    aes_payload = b"0123456789abcdef"
+    if aes.decrypt(aes.encrypt(aes_payload)) != aes_payload:
+        raise PocFailed("aes_self_check_failed")
+    blowfish = Blowfish.new(b"0123456789abcdef", Blowfish.MODE_CBC, b"12345678")
+    blowfish_payload = b"01234567"
+    encrypted = blowfish.encrypt(blowfish_payload)
+    blowfish = Blowfish.new(b"0123456789abcdef", Blowfish.MODE_CBC, b"12345678")
+    if blowfish.decrypt(encrypted) != blowfish_payload:
+        raise PocFailed("blowfish_self_check_failed")
+
+    image_buffer = io.BytesIO()
+    component["Image"].new("RGB", (32, 24), "#6536f2").save(
+        image_buffer, format="JPEG"
+    )
+    image_buffer.seek(0)
+    with component["Image"].open(image_buffer) as image:
+        resized = image.resize((16, 12))
+        if image.format != "JPEG" or resized.size != (16, 12):
+            raise PocFailed("pillow_jpeg_self_check_failed")
+
     credential = temp_root / "credential"
     expected = secrets.token_hex(96)
     credential.write_text(expected)
@@ -394,12 +475,17 @@ def _check(component: dict, temp_root: Path) -> dict:
         "credential_io": "one_shot_file_removed",
         "global_config_dir": "untouched",
         "tls_verification": "certifi_required",
+        "artwork": "pillow_jpeg_ready",
+        "cryptography": "aes_blowfish_ready",
+        "pillow_wheel": PILLOW_WHEEL,
+        "pillow_wheel_sha256": PILLOW_WHEEL_SHA256,
         **{
             key: component[key]
             for key in (
                 "streamrip_version",
                 "streamrip_commit",
                 "certifi_version",
+                "pillow_version",
             )
         },
     }
@@ -466,8 +552,6 @@ def main(argv=None) -> int:
                 raise PocFailed("streamrip_database_written")
         if Path(raw_temp).exists():
             raise PocFailed("temporary_output_not_removed")
-        if not args.check:
-            result["output_removed"] = not Path(result["output_path"]).exists()
     except PocBlocked as error:
         _emit(result="BLOCKED", reason=str(error))
         return 2

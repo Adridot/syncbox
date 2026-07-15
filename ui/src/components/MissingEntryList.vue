@@ -3,7 +3,8 @@
 // purchase-first legal path (§5.5/§5.13 — links open in the SYSTEM browser,
 // the sidecar never contacts stores), manual relink, §5.5 status
 // transitions with a D22 inline undo, and the G3 collection remove.
-// Every action surfaces its outcome (B1). No download control exists.
+// Every action surfaces its outcome (B1). Optional acquisition appears only
+// when the backend marks it available; purchase links remain first.
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -14,6 +15,7 @@ import { useJobsStore } from '../stores/jobs'
 import { useStatusStore } from '../stores/status'
 import ManualRelinkModal from './ManualRelinkModal.vue'
 import ScopeBadge from './ScopeBadge.vue'
+import SpotifyAttributionLink from './SpotifyAttributionLink.vue'
 import StatusBadge from './StatusBadge.vue'
 
 defineProps<{ entries: MissingEntry[]; showScope?: boolean }>()
@@ -36,17 +38,26 @@ function entryKey(entry: MissingEntry): string {
   return `${entry.scope}:${String(entry.id)}`
 }
 
-function buy(entry: MissingEntry) {
+async function openPurchaseUrl(url: string) {
+  banner.value = null
+  try {
+    await openExternal(url)
+  } catch {
+    banner.value = { tone: 'error', text: t('missing.purchaseOpenFailed') }
+  }
+}
+
+async function buy(entry: MissingEntry) {
   if (entry.purchase_links.length === 1) {
-    openExternal(entry.purchase_links[0].url)
+    await openPurchaseUrl(entry.purchase_links[0].url)
     return
   }
   purchaseMenu.value = purchaseMenu.value === entryKey(entry) ? null : entryKey(entry)
 }
 
-function openPurchase(url: string) {
+async function openPurchase(url: string) {
   purchaseMenu.value = null
-  openExternal(url)
+  await openPurchaseUrl(url)
 }
 
 async function act(request: () => Promise<unknown>, success?: string, undo?: MissingEntry) {
@@ -78,16 +89,26 @@ const removeCollection = (entry: MissingEntry) =>
     t('missing.removed', { title: entry.title ?? '' }),
   )
 
-const acquire = (entry: MissingEntry) =>
-  act(
-    () =>
-      api.post('/api/acquisition/jobs', {
+async function acquire(entry: MissingEntry) {
+  banner.value = null
+  try {
+    const job = await api.post<{ status: string }>('/api/acquisition/jobs', {
         scope: entry.scope,
         row_id: entry.scope === 'collection' ? undefined : entry.id,
         content_id: entry.scope === 'collection' ? entry.content_id : undefined,
-      }),
-    t('missing.acquired', { title: entry.title ?? '' }),
-  )
+    })
+    banner.value = {
+      tone: job.status === 'downloaded' ? 'success' : 'error',
+      text: t(
+        job.status === 'downloaded' ? 'missing.acquired' : 'missing.acquisitionFailed',
+        { title: entry.title ?? '' },
+      ),
+    }
+    emit('changed')
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  }
+}
 
 async function pickRelink(path: string) {
   const entry = relinkEntry.value
@@ -135,11 +156,11 @@ async function markNone() {
       <button v-if="banner.undo" class="undo" @click="restore(banner.undo)">
         {{ t('missing.undo') }}
       </button>
-      <button class="banner-close" @click="banner = null">✕</button>
+      <button class="banner-close" :aria-label="t('common.close')" @click="banner = null">✕</button>
     </div>
 
     <div class="list">
-      <div v-for="entry in entries" :key="String(entry.id)" class="row">
+      <div v-for="entry in entries" :key="entryKey(entry)" class="row">
         <div class="row-text">
           <div class="row-title">
             {{ entry.title || t('missing.untitled')
@@ -153,11 +174,16 @@ async function markNone() {
           :status="entry.status"
         />
         <span class="actions">
+          <SpotifyAttributionLink
+            v-if="entry.spotify_track_id"
+            compact
+            kind="track"
+            :spotify-id="entry.spotify_track_id"
+          />
           <!-- legal path FIRST, prominent (§6.5); absent for removed_from_source -->
           <button
             v-if="entry.purchase_links.length"
             class="buy"
-            :aria-haspopup="entry.purchase_links.length > 1 ? true : undefined"
             :aria-expanded="
               entry.purchase_links.length > 1
                 ? purchaseMenu === entryKey(entry)

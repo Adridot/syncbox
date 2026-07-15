@@ -5,7 +5,9 @@ import io
 import json
 import ssl
 import stat
+import threading
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -45,6 +47,10 @@ def _install_marker(data_dir):
         "streamrip_version": acquisition.STREAMRIP_VERSION,
         "streamrip_commit": acquisition.STREAMRIP_COMMIT,
         "certifi_version": acquisition.CERTIFI_VERSION,
+        "python_version": acquisition.OPTIONAL_PYTHON_VERSION,
+        "pillow_version": acquisition.PILLOW_VERSION,
+        "pillow_wheel": acquisition.PILLOW_WHEEL,
+        "pillow_wheel_sha256": acquisition.PILLOW_WHEEL_SHA256,
     }
     (acquisition.component_root(data_dir) / "syncbox-component.json").write_text(
         json.dumps(marker), encoding="utf-8"
@@ -99,6 +105,18 @@ def seed_library_missing(conn):
         ],
     )
     return repos.list_source_tracks(conn, source["id"])[0]
+
+
+def seed_event_missing(conn):
+    event = conn.execute(
+        "INSERT INTO events (name, slug, default_tag) VALUES ('Event', 'event', 'Event')"
+    )
+    track = conn.execute(
+        "INSERT INTO event_tracks (event_id, title, artist, isrc, status) "
+        "VALUES (?, 'Instant Crush', 'Daft Punk', ?, 'missing')",
+        (event.lastrowid, ISRC),
+    )
+    return track.lastrowid
 
 
 def test_deezer_arl_is_secret_not_setting_or_export(tmp_path):
@@ -161,7 +179,7 @@ def _test_manifest(archive):
     return {
         "schema": 1,
         "component": acquisition.COMPONENT_NAME,
-        "component_version": "0.2.1",
+        "component_version": "0.2.2",
         "platform": "macos",
         "architecture": "arm64",
         "archive": "component.zip",
@@ -173,6 +191,10 @@ def _test_manifest(archive):
         "streamrip_version": acquisition.STREAMRIP_VERSION,
         "streamrip_commit": acquisition.STREAMRIP_COMMIT,
         "certifi_version": acquisition.CERTIFI_VERSION,
+        "python_version": acquisition.OPTIONAL_PYTHON_VERSION,
+        "pillow_version": acquisition.PILLOW_VERSION,
+        "pillow_wheel": acquisition.PILLOW_WHEEL,
+        "pillow_wheel_sha256": acquisition.PILLOW_WHEEL_SHA256,
     }
 
 
@@ -191,6 +213,11 @@ def test_component_archive_is_verified_checked_and_installed_atomically(
                 "streamrip_version": acquisition.STREAMRIP_VERSION,
                 "streamrip_commit": acquisition.STREAMRIP_COMMIT,
                 "certifi_version": acquisition.CERTIFI_VERSION,
+                "pillow_version": acquisition.PILLOW_VERSION,
+                "pillow_wheel": acquisition.PILLOW_WHEEL,
+                "pillow_wheel_sha256": acquisition.PILLOW_WHEEL_SHA256,
+                "artwork": "pillow_jpeg_ready",
+                "cryptography": "aes_blowfish_ready",
             }
         )
     )
@@ -275,10 +302,10 @@ def test_component_archive_rejects_escaping_symlink(tmp_path):
 def test_component_download_uses_verified_tls_and_exact_bytes(tmp_path, monkeypatch):
     payload = b"component archive"
     manifest = {
-        "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.2.1/component.zip",
+        "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.2.2/component.zip",
         "size": len(payload),
         "sha256": hashlib.sha256(payload).hexdigest(),
-        "component_version": "0.2.1",
+        "component_version": "0.2.2",
     }
     captured = {}
 
@@ -315,7 +342,7 @@ def test_download_secret_uses_only_one_shot_file_not_process_arguments(tmp_path)
         output.write_bytes(b"audio")
         return SimpleNamespace(
             stdout=json.dumps(
-                {"result": "FULL_TRACK_DOWNLOADED", "output_path": str(output)}
+                {"result": "FULL_TRACK_DOWNLOADED", "output_filename": output.name}
             )
         )
 
@@ -325,6 +352,75 @@ def test_download_secret_uses_only_one_shot_file_not_process_arguments(tmp_path)
 
     assert result["result"] == "FULL_TRACK_DOWNLOADED"
     assert all(not Path(path).exists() for path in credential_paths)
+
+
+def test_concurrent_downloads_keep_credentials_and_outputs_job_local(tmp_path):
+    _install_marker(tmp_path)
+    barrier = threading.Barrier(2)
+    calls = {}
+
+    def runner(command, **kwargs):
+        isrc = command[command.index("--isrc") + 1]
+        credential = Path(command[command.index("--credential-file") + 1])
+        output_dir = Path(command[command.index("--output-dir") + 1])
+        calls[isrc] = (credential, output_dir)
+        barrier.wait(timeout=2)
+        output = output_dir / f"{isrc}.mp3"
+        output.write_bytes(isrc.encode())
+        return SimpleNamespace(
+            stdout=json.dumps(
+                {"result": "FULL_TRACK_DOWNLOADED", "output_filename": output.name}
+            )
+        )
+
+    jobs = [("USQX91300105", tmp_path / "job-1"), ("GBUM71029604", tmp_path / "job-2")]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                lambda job: acquisition.run_deezer_download(
+                    tmp_path, SECRET_SENTINEL, job[0], job[1], runner=runner
+                ),
+                jobs,
+            )
+        )
+
+    assert {Path(result["output_path"]).parent for result in results} == {
+        output_dir for _, output_dir in jobs
+    }
+    assert all(not credential.exists() for credential, _ in calls.values())
+
+
+def test_download_rejects_directory_as_output(tmp_path):
+    _install_marker(tmp_path)
+    output_dir = tmp_path / "downloads"
+
+    def runner(command, **kwargs):
+        nested = output_dir / "nested"
+        nested.mkdir()
+        return SimpleNamespace(
+            stdout=json.dumps(
+                {"result": "FULL_TRACK_DOWNLOADED", "output_filename": nested.name}
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="not a regular file"):
+        acquisition.run_deezer_download(
+            tmp_path, SECRET_SENTINEL, ISRC, output_dir, runner=runner
+        )
+
+
+def test_acquisition_job_transitions_are_bounded_and_idempotent(tmp_path):
+    env = make_env(tmp_path)
+    cursor = env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, status) VALUES ('library', '1', 'queued')"
+    )
+    job_id = cursor.lastrowid
+
+    assert api._update_job(env.conn, job_id, status="running")["status"] == "running"
+    assert api._update_job(env.conn, job_id, status="running")["status"] == "running"
+    assert api._update_job(env.conn, job_id, status="downloaded")["status"] == "downloaded"
+    with pytest.raises(ValueError, match="invalid acquisition job transition"):
+        api._update_job(env.conn, job_id, status="running")
 
 
 def test_library_acquisition_job_downloads_to_staging(tmp_path):
@@ -411,3 +507,26 @@ def test_acquisition_failure_is_a_job_not_500(tmp_path):
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
     assert response.json()["error"] == "RuntimeError"
+    assert repos.get_track(env.conn, track["id"])["status"] == "acquisition_failed"
+
+
+def test_event_acquisition_failure_remains_visible_for_recovery(tmp_path):
+    env = make_env(
+        tmp_path,
+        runner=lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    _install_marker(tmp_path)
+    env.deps.settings.update({"deezer_acquisition_enabled": True})
+    env.secrets.set(acquisition.DEEZER_ARL_SECRET, SECRET_SENTINEL)
+    track_id = seed_event_missing(env.conn)
+
+    response = env.client.post(
+        "/api/acquisition/jobs", json={"scope": "event", "row_id": track_id}
+    )
+
+    row = env.conn.execute(
+        "SELECT status FROM event_tracks WHERE id = ?", (track_id,)
+    ).fetchone()
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert row["status"] == "acquisition_failed"

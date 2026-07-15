@@ -32,7 +32,7 @@ export const en = {
     title: 'The Syncbox engine is not responding',
     body: 'Several restart attempts failed. Your collection was not touched — no write was in progress.',
     portCollision:
-      'Port 8765 is used by another application. Close that application, then restart the engine. Syncbox did not stop it.',
+      'Port 8766 is used by another application. Close that application, then restart the engine. Syncbox did not stop it.',
     retry: '↻ Restart the engine',
     retrying: 'Restarting…',
   },
@@ -44,6 +44,7 @@ export const en = {
     ready: 'Ready',
     imported: 'Imported',
     missing: 'Missing',
+    acquisition_failed: 'Acquisition failed',
     removed_from_source: 'Removed from source',
     ignored: 'Ignored',
     purchase_link_unavailable: 'Purchase link unavailable',
@@ -249,6 +250,7 @@ export const en = {
       filesCount: '{n} file | {n} files',
       tracksCount: '{n} track planned | {n} tracks planned',
       noTracks: 'No Rekordbox track is linked to this event.',
+      contentId: 'Content ID',
       sourcePath: 'Source path',
       retainingTags: 'Other active MyTags',
       noRetainingTags: 'None',
@@ -337,6 +339,8 @@ export const en = {
     removed: '“{title}” removed from the collection (soft-delete, reversible).',
     relinked: '“{title}” relinked.',
     acquired: '“{title}” downloaded to the Syncbox acquisition folder.',
+    acquisitionFailed: '“{title}” could not be downloaded. Purchase links remain available.',
+    purchaseOpenFailed: 'The purchase link could not be opened in your browser. Try again.',
     undo: 'Undo',
     untitled: '(untitled)',
     buyOn: 'Buy on {store} ↗',
@@ -448,6 +452,15 @@ export const en = {
       connect: 'Connect',
       reconnect: 'Reconnect',
       connecting: 'Connecting…',
+      disconnect: 'Disconnect and delete Spotify data',
+      disconnectConfirm:
+        'Disconnect Spotify? Syncbox will delete followed playlists and their local sync history, detach Spotify IDs from events, and preserve local Rekordbox data, audio files, and your Client ID.',
+      disconnected: 'Spotify disconnected and local playlist relationships deleted.',
+      privacy: 'Spotify data and privacy',
+      timeout: 'Spotify authorization timed out. Retry and complete the browser approval.',
+      authorizationFailed: 'Spotify authorization was declined or failed. Retry in the browser.',
+      callbackPortInUse:
+        'Spotify cannot connect because callback port 8765 is in use. Close the application holding that port, then retry. Syncbox did not stop it.',
       failed: 'connection failed — retry',
       needClientId: 'Enter your Spotify Client ID below to enable the connection.',
       clientIdLabel: 'Spotify Client ID',
@@ -455,7 +468,7 @@ export const en = {
       clientIdSaved: 'Spotify Client ID saved.',
       clientIdHelpTitle: 'Create my Spotify app, step by step',
       helpIntro:
-        'Syncbox connects through your own (free) Spotify app, created once. Allow 5 minutes:',
+        'Syncbox connects through your own Spotify Development Mode app, created once. The app owner must have an active Spotify Premium subscription. Development Mode supports at most 5 allowlisted users. Allow 5 minutes:',
       helpStep1: 'Open the Spotify Developer Dashboard and sign in with your regular Spotify account.',
       helpStep2: '“Create app” — pick any name (e.g. Syncbox) and description.',
       helpStep3:
@@ -465,7 +478,7 @@ export const en = {
       helpStep4:
         'For “Which API/SDKs are you planning to use?”, tick “Web API”, accept the terms and Save.',
       helpStep5:
-        'On your app page, “Settings” → copy the “Client ID” (NOT the secret — none is needed) into the field above, then Validate and Connect.',
+        'On your app page, add the account under User Management if it is not the owner, then “Settings” → copy the “Client ID” (NOT the secret — none is needed) into the field above, then Validate and Connect.',
       redirectErrorHint:
         'If Spotify shows “redirect_uri: Not matching configuration”, the address registered in your Spotify app does not match: go back to its Settings and re-paste the address above, with no extra space or trailing slash.',
       copy: 'Copy',

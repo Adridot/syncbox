@@ -36,7 +36,7 @@ export const fr: typeof en = {
     title: 'Le moteur Syncbox ne répond plus',
     body: "Plusieurs tentatives de redémarrage ont échoué. Ta collection n'a pas été touchée — aucune écriture n'était en cours.",
     portCollision:
-      "Le port 8765 est utilisé par une autre application. Ferme cette application, puis relance le moteur. Syncbox ne l'a pas arrêtée.",
+      "Le port 8766 est utilisé par une autre application. Ferme cette application, puis relance le moteur. Syncbox ne l'a pas arrêtée.",
     retry: '↻ Relancer le moteur',
     retrying: 'Redémarrage…',
   },
@@ -48,6 +48,7 @@ export const fr: typeof en = {
     ready: 'Prêt',
     imported: 'Importé',
     missing: 'Manquant',
+    acquisition_failed: 'Échec de l’acquisition',
     removed_from_source: 'Retiré de la source',
     ignored: 'Ignoré',
     purchase_link_unavailable: "Lien d'achat indisponible",
@@ -253,6 +254,7 @@ export const fr: typeof en = {
       filesCount: '{n} fichier | {n} fichiers',
       tracksCount: '{n} track planifié | {n} tracks planifiés',
       noTracks: 'Aucun track Rekordbox n’est lié à cet event.',
+      contentId: 'ID du contenu',
       sourcePath: 'Chemin source',
       retainingTags: 'Autres MyTags actifs',
       noRetainingTags: 'Aucun',
@@ -341,6 +343,8 @@ export const fr: typeof en = {
     removed: '« {title} » retiré de la collection (soft-delete, réversible).',
     relinked: '« {title} » relié.',
     acquired: '« {title} » téléchargé dans le dossier d’acquisition Syncbox.',
+    acquisitionFailed: '« {title} » n’a pas pu être téléchargé. Les liens d’achat restent disponibles.',
+    purchaseOpenFailed: 'Le lien d’achat n’a pas pu être ouvert dans ton navigateur. Réessaie.',
     undo: 'Annuler',
     untitled: '(sans titre)',
     buyOn: 'Acheter sur {store} ↗',
@@ -452,6 +456,15 @@ export const fr: typeof en = {
       connect: 'Connecter',
       reconnect: 'Reconnecter',
       connecting: 'Connexion…',
+      disconnect: 'Déconnecter et supprimer les données Spotify',
+      disconnectConfirm:
+        'Déconnecter Spotify ? Syncbox supprimera les playlists suivies et leur historique local de synchronisation, détachera les identifiants Spotify des événements et conservera les données Rekordbox locales, les fichiers audio et ton Client ID.',
+      disconnected: 'Spotify déconnecté et relations locales avec les playlists supprimées.',
+      privacy: 'Données Spotify et confidentialité',
+      timeout: 'L’autorisation Spotify a expiré. Réessaie et termine la validation dans le navigateur.',
+      authorizationFailed: 'L’autorisation Spotify a été refusée ou a échoué. Réessaie dans le navigateur.',
+      callbackPortInUse:
+        "Spotify ne peut pas se connecter car le port de callback 8765 est utilisé. Ferme l’application qui utilise ce port, puis réessaie. Syncbox ne l’a pas arrêtée.",
       failed: 'échec de connexion — réessaie',
       needClientId: 'Renseigne ton Client ID Spotify ci-dessous pour activer la connexion.',
       clientIdLabel: 'Spotify Client ID',
@@ -459,7 +472,7 @@ export const fr: typeof en = {
       clientIdSaved: 'Client ID Spotify enregistré.',
       clientIdHelpTitle: 'Créer mon app Spotify, pas à pas',
       helpIntro:
-        'Syncbox se connecte via ta propre app Spotify (gratuite, à créer une seule fois). Compte 5 minutes :',
+        'Syncbox se connecte via ta propre app Spotify en mode développement, à créer une seule fois. Le propriétaire de l’app doit disposer d’un abonnement Spotify Premium actif. Le mode développement accepte au maximum 5 utilisateurs autorisés. Compte 5 minutes :',
       helpStep1: 'Ouvre le Spotify Developer Dashboard et connecte-toi avec ton compte Spotify habituel.',
       helpStep2:
         '« Create app » — donne un nom (ex. Syncbox) et une description au choix.',
@@ -470,7 +483,7 @@ export const fr: typeof en = {
       helpStep4:
         'À la question « Which API/SDKs are you planning to use? », coche « Web API », accepte les conditions et enregistre (« Save »).',
       helpStep5:
-        'Sur la page de ton app, « Settings » → copie le « Client ID » (PAS le secret — aucun n’est requis) et colle-le dans le champ ci-dessus, puis Valider et Connecter.',
+        'Sur la page de ton app, ajoute le compte dans « User Management » s’il ne s’agit pas du propriétaire, puis « Settings » → copie le « Client ID » (PAS le secret — aucun n’est requis) et colle-le dans le champ ci-dessus, puis Valider et Connecter.',
       redirectErrorHint:
         'Si Spotify affiche « redirect_uri: Not matching configuration », l’adresse enregistrée dans ton app Spotify ne correspond pas : retourne dans ses Settings et recolle l’adresse ci-dessus, sans espace ni / final en plus.',
       copy: 'Copier',

@@ -11,8 +11,25 @@ from syncbox.quality import QualityResult
 from syncbox.spotify import ACCESS_TOKEN, REFRESH_TOKEN
 
 
+class FakeOAuthListener:
+    def __init__(self):
+        self.started = 0
+        self.stopped = 0
+
+    def start(self, callback, *, oauth_lock, timeout):
+        self.started += 1
+        return True
+
+    def stop(self):
+        self.stopped += 1
+
+    def wait_closed(self, timeout=4):
+        return None
+
+
 def test_compose_builds_a_live_wired_app(tmp_path):
-    app = compose(tmp_path)
+    listener = FakeOAuthListener()
+    app = compose(tmp_path, oauth_listener=listener)
     client = TestClient(app)
 
     # transport routes alive
@@ -34,16 +51,19 @@ def test_compose_builds_a_live_wired_app(tmp_path):
     response = client.get("/api/spotify/authorize")
     assert response.status_code == 200
     assert response.json()["url"].startswith("https://accounts.spotify.com/authorize")
+    assert listener.started == 1
 
     # data lives under the given dir, not the OS location
     assert (tmp_path / "syncbox.db").is_file()
     assert (tmp_path / "logs" / "syncbox.log").is_file()
+    app.state.secrets.close()
+    app.state.deps.conn.close()
 
 
 def test_composed_exports_and_logs_exclude_encrypted_oauth_tokens(tmp_path):
     sentinel = "SYNCBOX-PHASE6-COMPOSED-OAUTH-SENTINEL"
     deezer_sentinel = "SYNCBOX-PHASE6-COMPOSED-DEEZER-SENTINEL"
-    app = compose(tmp_path)
+    app = compose(tmp_path, oauth_listener=FakeOAuthListener())
     client = TestClient(app)
     app.state.secrets.set(ACCESS_TOKEN, sentinel)
     app.state.secrets.set(REFRESH_TOKEN, f"{sentinel}-refresh")
@@ -114,14 +134,20 @@ def test_packaging_check_exercises_runtime_dependencies_without_app_data(
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] is True
     assert result["architecture"] == "arm64"
-    assert set(result["packages"]) == {
-        "certifi",
-        "miniaudio",
-        "numpy",
-        "pyrekordbox",
-        "send2trash",
-        "sqlcipher3-wheels",
+    assert result["packages"] == {
+        "certifi": "2026.6.17",
+        "miniaudio": "1.71",
+        "numpy": "2.5.1",
+        "pyrekordbox": "0.4.4",
+        "send2trash": "2.1.0",
+        "sqlcipher3-wheels": "0.6.2+syncbox.commoncrypto.1",
     }
+    assert result["sqlcipher"] == "4.12.0 community"
+    assert result["sqlcipher_provider"] == "commoncrypto"
+    assert result["sqlcipher_provider_version"]
+    assert result["sqlcipher_status"] == "1"
+    assert result["api_port"] == 8766
+    assert result["oauth_callback_port"] == 8765
     assert result["streamrip_importable"] is False
     assert list(tmp_path.iterdir()) == []
 

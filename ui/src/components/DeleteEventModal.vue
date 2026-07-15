@@ -102,6 +102,10 @@ async function confirm() {
               }}</span>
             </div>
             <dl class="track-grid">
+              <div class="field">
+                <dt>{{ t('events.del.contentId') }}</dt>
+                <dd class="mono">{{ track.content_id }}</dd>
+              </div>
               <div class="field wide">
                 <dt>{{ t('events.del.sourcePath') }}</dt>
                 <dd class="mono path">{{ track.source_path || '—' }}</dd>

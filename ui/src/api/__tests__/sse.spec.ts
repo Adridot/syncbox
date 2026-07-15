@@ -37,7 +37,7 @@ test('decodes job.progress and job.done payloads', () => {
   const onDone = vi.fn()
   const { source } = connect({ onProgress, onDone })
 
-  expect(source.url).toBe('http://127.0.0.1:8765/events')
+  expect(source.url).toBe('http://127.0.0.1:8766/events')
   source.emit(
     'job.progress',
     JSON.stringify({ job: 'j1', kind: 'duplicates.scan', done: 3, total: 10, pct: 30 }),

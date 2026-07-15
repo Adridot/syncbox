@@ -3,7 +3,9 @@
 
 import json
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -59,12 +61,13 @@ def item(track_id, title, artist, duration_ms=200_000, isrc=None, extra_ids=None
     if isrc:
         external_ids["isrc"] = isrc
     return {
-        "track": {
+        "item": {
             "id": track_id,
             "name": title,
             "artists": [{"name": artist}],
             "duration_ms": duration_ms,
             "external_ids": external_ids,
+            "type": "track",
         }
     }
 
@@ -73,7 +76,7 @@ def playlist_payload(items, snapshot="snap-1", next_url=None, name="My List"):
     return {
         "name": name,
         "snapshot_id": snapshot,
-        "tracks": {"items": list(items), "next": next_url},
+        "items": {"items": list(items), "next": next_url},
     }
 
 
@@ -120,7 +123,7 @@ def source(conn):
 
 
 def test_sync_paginates_matches_and_persists(conn, source, tmp_path):
-    page2_url = "https://api.spotify.com/v1/playlists/x/tracks?offset=100"
+    page2_url = "https://api.spotify.com/v1/playlists/x/items?offset=100"
     client, transport = make_client(
         api_ok(
             playlist_payload(
@@ -223,8 +226,9 @@ def test_null_and_local_tracks_are_skipped(conn, source, tmp_path):
         api_ok(
             playlist_payload(
                 [
-                    {"track": None},
-                    {"track": {"id": None, "name": "local file"}},
+                    {"item": None},
+                    {"item": {"id": None, "name": "local file"}},
+                    {"item": {"id": "episode", "type": "episode"}},
                     item("t1", "Strobe", "deadmau5"),
                 ]
             )
@@ -233,6 +237,41 @@ def test_null_and_local_tracks_are_skipped(conn, source, tmp_path):
     sync_one_source(conn, client, FakeCache([]), tmp_path, source)
     rows = repos.list_source_tracks(conn, source["id"])
     assert [r["spotify_track_id"] for r in rows] == ["t1"]
+
+
+def test_legacy_playlist_payload_remains_supported(conn, source, tmp_path):
+    legacy_item = item("t1", "Strobe", "deadmau5")
+    legacy_item = {"track": legacy_item["item"]}
+    payload = {
+        "name": "Legacy",
+        "snapshot_id": "legacy-1",
+        "tracks": {"items": [legacy_item], "next": None},
+    }
+    client, _ = make_client(api_ok(payload))
+
+    sync_one_source(conn, client, FakeCache([]), tmp_path, source)
+
+    assert repos.list_source_tracks(conn, source["id"])[0]["spotify_track_id"] == "t1"
+
+
+def test_sync_fails_closed_when_playlist_items_are_unavailable(
+    conn, source, tmp_path
+):
+    existing = {
+        "spotify_track_id": "t1",
+        "title": "Keep",
+        "artist": "Artist",
+        "status": "missing",
+    }
+    repos.replace_source_tracks(conn, source["id"], [existing])
+    before = repos.list_source_tracks(conn, source["id"])
+    client, _ = make_client(api_ok({"name": "Metadata only", "snapshot_id": "s2"}))
+
+    with pytest.raises(ConflictError, match="owned by the connected account"):
+        sync_one_source(conn, client, FakeCache([]), tmp_path, source)
+
+    assert repos.list_source_tracks(conn, source["id"]) == before
+    assert repos.list_sync_runs(conn, source["id"]) == []
 
 
 def test_sync_carries_ignored_prior_status(conn, source, tmp_path):
@@ -317,6 +356,65 @@ def test_apply_refuses_rows_without_content_link(conn, source, tmp_path):
             conn, tmp_path / "no.db", tmp_path / "b", FakeCache([]), tmp_path,
             source["id"], [row["id"]],
         )
+
+
+def test_apply_imports_ready_staged_file_and_persists_content_link(
+    conn, source, tmp_path, monkeypatch
+):
+    staged = tmp_path / "storage" / "_syncbox" / "acquisition" / "job-1" / "song.mp3"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b"audio")
+    repos.replace_source_tracks(
+        conn,
+        source["id"],
+        [
+            {
+                "spotify_track_id": "t1",
+                "status": "ready",
+                "title": "Song",
+                "artist": "Artist",
+                "staging_file_path": str(staged),
+            }
+        ],
+    )
+    row = repos.list_source_tracks(conn, source["id"])[0]
+    db = object()
+    calls = []
+
+    @contextmanager
+    def fake_mutate(*args, **kwargs):
+        yield db
+
+    monkeypatch.setattr(library_service, "mutate", fake_mutate)
+    monkeypatch.setattr(library_service, "_library_tag_ids", lambda *args: ["T1"])
+    monkeypatch.setattr(
+        library_service, "find_active_content_by_path", lambda *args: None
+    )
+    monkeypatch.setattr(
+        library_service,
+        "add_content",
+        lambda database, path, metadata, **kwargs: SimpleNamespace(ID="C-new"),
+    )
+    monkeypatch.setattr(
+        library_service,
+        "apply_tag_delta",
+        lambda database, content_id, **kwargs: calls.append((database, content_id, kwargs)),
+    )
+
+    result = apply_to_rekordbox(
+        conn,
+        tmp_path / "master.db",
+        tmp_path / "backups",
+        FakeCache([]),
+        tmp_path / "storage",
+        source["id"],
+        [row["id"]],
+    )
+
+    updated = repos.get_track(conn, row["id"])
+    assert result == {"imported": 1, "tags_per_track": 1}
+    assert (updated["status"], updated["content_id"]) == ("imported", "C-new")
+    assert calls == [(db, "C-new", {"add_tag_ids": ["T1"]})]
 
 
 def test_apply_unknown_source_or_track_raises_key_error(conn, source, tmp_path):

@@ -36,6 +36,8 @@ test('startup grace: backend-down only after sustained failures, and one success
   expect(status.backendDownReason).toBeNull()
   expect(status.failures).toBe(0)
   expect(status.spotifyConnected).toBe(true)
+  expect(status.spotifyAuthorizationPending).toBe(false)
+  expect(status.spotifyAuthorizationResult).toBeNull()
 })
 
 test('shell lifecycle reason is preserved for the backend-down overlay', () => {

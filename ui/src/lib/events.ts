@@ -9,6 +9,7 @@ import type { EventTrack } from '../api/types'
     tracks must not inflate the "prêts" count). */
 export const APPLIABLE = new Set(['matched', 'ready'])
 export const READY_FAMILY = APPLIABLE
+const MISSING_FAMILY = new Set(['missing', 'acquisition_failed'])
 
 /** Event lifecycle: applied/partially_applied stay open to additions (§11.2). */
 export function isBaseApplied(status: string): boolean {
@@ -38,14 +39,14 @@ export function eventCounts(tracks: EventTrack[], baseApplied = false): EventCou
     : 0
   const pendMissing = baseApplied
     ? tracks.filter(
-        (track) => track.added_after_apply === 1 && track.status === 'missing',
+        (track) => track.added_after_apply === 1 && MISSING_FAMILY.has(track.status),
       ).length
     : 0
   return {
     total: tracks.length,
     ready: tracks.filter((track) => APPLIABLE.has(track.status)).length,
     applied: tracks.filter((track) => track.status === 'applied').length,
-    missing: tracks.filter((track) => track.status === 'missing').length,
+    missing: tracks.filter((track) => MISSING_FAMILY.has(track.status)).length,
     ambiguous: tracks.filter((track) => track.status === 'ambiguous').length,
     pending: pendReady + pendMissing,
     pendReady,
@@ -60,7 +61,7 @@ export function filterEventTracks(tracks: EventTrack[], chip: EventFilter): Even
   const predicate: Record<EventFilter, (track: EventTrack) => boolean> = {
     all: () => true,
     ready: (track) => READY_FAMILY.has(track.status),
-    missing: (track) => track.status === 'missing',
+    missing: (track) => MISSING_FAMILY.has(track.status),
     ambiguous: (track) => track.status === 'ambiguous',
     // pending = will be written next (re)apply, or added since the last one
     pending: (track) => APPLIABLE.has(track.status) || track.added_after_apply === 1,

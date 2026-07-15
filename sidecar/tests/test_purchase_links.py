@@ -1,4 +1,4 @@
-"""Tests for B2 purchase links (SPEC-UNIFIED 5.13/6.5, POC #8)."""
+"""Tests for B2 purchase links (SPEC-UNIFIED 5.13/6.5, POC #7)."""
 
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -59,7 +59,7 @@ def test_store_removal_is_data_driven():
 def test_status_gate_excludes_removed_from_source():
     assert links_for_track("missing", "Bicep", "Glue")
     assert links_for_track("purchase_link_unavailable", "Bicep", "Glue")
-    assert links_for_track("acquisition_failed", "Bicep", "Glue") == []
+    assert links_for_track("acquisition_failed", "Bicep", "Glue")
     assert links_for_track("removed_from_source", "Bicep", "Glue") == []
     assert links_for_track("imported", "Bicep", "Glue") == []
 

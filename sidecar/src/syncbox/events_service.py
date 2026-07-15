@@ -3,9 +3,9 @@
 
 Legal scope (SPEC-UNIFIED 6.5/11.1): event tracks come from Spotify
 METADATA (an injected resolver over the read-only Spotify API), manual
-title/artist entry, or audio files the user already lawfully owns and
-drops into the event staging dir. No download code, no provider
-credential, no acquisition job - the staging dir is filled by the USER.
+title/artist entry, audio files the user already lawfully owns, or the
+separately enabled optional acquisition component. This module contains
+no provider credentials or download implementation.
 
 Write-path discipline: every master.db write below goes through
 safety.mutate() + rb_write helpers (3.1: no escape hatch); previews and
@@ -37,11 +37,16 @@ EVENT_FOLDER_NAME = "Event Imports"
 SITUATION_CATEGORY = "Situation"
 XML_NAME = "masterPlaylists6.xml"
 # SPEC-UNIFIED 11.2: applied when none of these remain, else partially_applied.
-PENDING_STATUSES = frozenset({"matched", "ready", "missing", "ambiguous"})
+PENDING_STATUSES = frozenset(
+    {"matched", "ready", "missing", "ambiguous", "acquisition_failed"}
+)
 APPLIED_EVENT_STATUSES = frozenset({"applied", "partially_applied"})
 # Statuses re-run through the matcher; ready/applied/ignored are never
 # re-matched (a staged or already-applied track must not flip back).
-REMATCHED_STATUSES = frozenset({"missing", "ambiguous", "matched"})
+REMATCHED_STATUSES = frozenset(
+    {"missing", "ambiguous", "matched", "acquisition_failed"}
+)
+CLAIMABLE_STATUSES = frozenset({"missing", "acquisition_failed"})
 
 _SLUG_JUNK = re.compile(r"[^a-z0-9]+")
 
@@ -243,7 +248,7 @@ def claim_staged_files(conn, event) -> list[dict]:
     now = _now()
     claimed = []
     for track in tracks:
-        if track["status"] != "missing":
+        if track["status"] not in CLAIMABLE_STATUSES:
             continue
         want = {
             "title": track["title"],

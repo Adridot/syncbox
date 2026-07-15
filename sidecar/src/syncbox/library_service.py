@@ -22,8 +22,14 @@ from datetime import datetime
 
 from syncbox import repos
 from syncbox.rb import open_readonly
-from syncbox.rb_write import apply_tag_delta, open_rekordbox
+from syncbox.rb_write import (
+    add_content,
+    apply_tag_delta,
+    find_active_content_by_path,
+    open_rekordbox,
+)
 from syncbox.safety.mutate import mutate
+from syncbox.safety.paths import stored_form
 from syncbox.sync import sync_source
 
 IMPORTABLE_STATUSES = frozenset({"matched", "ready"})
@@ -40,8 +46,9 @@ def _now() -> str:
 def _spotify_track(item: dict) -> dict | None:
     """Map one playlist item to the matcher's track shape; None for
     unplayable items (removed tracks, episodes, local files without id)."""
-    track = (item or {}).get("track") or {}
-    if not track.get("id"):
+    item = item or {}
+    track = item.get("item") or item.get("track") or {}
+    if not track.get("id") or track.get("type") not in (None, "track"):
         return None
     return {
         "spotify_track_id": track["id"],
@@ -56,11 +63,21 @@ def _spotify_track(item: dict) -> dict | None:
 
 
 def _collect_tracks(spotify_client, first_payload: dict) -> list[dict]:
-    """Flatten the playlist's track pages, following 'next' to the end."""
+    """Flatten modern ``items/item`` or legacy ``tracks/track`` pages."""
     tracks: list[dict] = []
-    page = first_payload.get("tracks") or {}
+    page = first_payload.get("items")
+    if not isinstance(page, dict):
+        page = first_payload.get("tracks")
+    if not isinstance(page, dict):
+        raise ConflictError(
+            "Spotify did not return playlist items; use a playlist owned by "
+            "the connected account or one it collaborates on"
+        )
     while True:
-        for item in page.get("items", ()):
+        items = page.get("items")
+        if not isinstance(items, list):
+            raise ConflictError("Spotify returned an invalid playlist items page")
+        for item in items:
             mapped = _spotify_track(item)
             if mapped is not None:
                 tracks.append(mapped)
@@ -208,10 +225,15 @@ def apply_to_rekordbox(
             "only matched/ready rows can be imported (5.6); refused: "
             + ", ".join(f"{t['id']}={t['status']}" for t in wrong_status)
         )
-    unlinked = [t for t in tracks if not t["content_id"]]
+    unlinked = [
+        t
+        for t in tracks
+        if not t["content_id"]
+        and not (t["status"] == "ready" and t["staging_file_path"])
+    ]
     if unlinked:
         raise ConflictError(
-            "rows without a Rekordbox link cannot be imported: "
+            "rows without a Rekordbox link or staged file cannot be imported: "
             + ", ".join(str(t["id"]) for t in unlinked)
         )
 
@@ -220,6 +242,7 @@ def apply_to_rekordbox(
     # Refresh the snapshot so mutate's freshness guard covers exactly what
     # this apply is based on (the cache invalidates itself on commit).
     cache.get(storage_root)
+    imported: list[tuple[int, str]] = []
     with mutate(
         db_path,
         backups_root,
@@ -229,10 +252,40 @@ def apply_to_rekordbox(
         invalidate_cache=cache.invalidate,
     ) as db:
         for track in tracks:
+            content_id = track["content_id"]
+            if not content_id:
+                stored = stored_form(track["staging_file_path"], storage_root)
+                existing = find_active_content_by_path(db, stored)
+                if existing is not None:
+                    content_id = str(existing.ID)
+                else:
+                    content = add_content(
+                        db,
+                        track["staging_file_path"],
+                        {
+                            "title": track["title"],
+                            "artist": track["artist"],
+                            "duration_ms": track["duration_ms"],
+                            "isrc": track["isrc"],
+                        },
+                        storage_root=storage_root,
+                    )
+                    content_id = str(content.ID)
             # D16: tag edits are add/remove deltas, never a union overwrite.
-            apply_tag_delta(db, track["content_id"], add_tag_ids=tag_ids)
+            apply_tag_delta(db, content_id, add_tag_ids=tag_ids)
+            imported.append((track["id"], str(content_id)))
 
-    # Only after the durable master.db commit; idempotent to re-run.
-    for track in tracks:
-        repos.set_track_status(conn, track["id"], "imported")
+    # Only after the durable master.db commit; a retry reuses the content row.
+    conn.execute("BEGIN")
+    try:
+        for track_id, content_id in imported:
+            conn.execute(
+                "UPDATE library_tracks SET status = 'imported', content_id = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (content_id, track_id),
+            )
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
     return {"imported": len(tracks), "tags_per_track": len(tag_ids)}

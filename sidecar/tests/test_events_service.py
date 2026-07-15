@@ -233,6 +233,30 @@ def test_match_event_tracks_never_touches_ready_or_applied(conn, tmp_path):
     assert row["status"] == "ready"  # a staged track never flips back
 
 
+def test_match_event_tracks_retries_acquisition_failure(conn, tmp_path):
+    event = create_event(conn, tmp_path / "storage", "Retry")
+    failed = add_track(conn, event, title="Recovered Song", artist="Artist")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'acquisition_failed' WHERE id = ?",
+        (failed["id"],),
+    )
+    cache = FakeCache(
+        [
+            {
+                "content_id": "C1",
+                "title": "Recovered Song",
+                "artist": "Artist",
+                "duration_ms": None,
+                "isrc": None,
+            }
+        ]
+    )
+
+    match_event_tracks(conn, event, cache, tmp_path / "storage")
+
+    assert list_event_tracks(conn, event["id"])[0]["status"] == "matched"
+
+
 # --- staging claims (5.7 claim rule) -----------------------------------------------
 
 
@@ -283,13 +307,28 @@ def test_claim_rule_shares_only_on_same_nonempty_isrc(conn, tmp_path):
     assert claim_staged_files(conn, event) == []
 
 
+def test_claim_staged_file_recovers_acquisition_failure(conn, tmp_path):
+    event = create_event(conn, tmp_path / "storage", "Recovery")
+    track = add_track(conn, event, title="Recovered Song", artist="Artist")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'acquisition_failed' WHERE id = ?",
+        (track["id"],),
+    )
+    (Path(event["staging_dir"]) / "Artist - Recovered Song.mp3").write_bytes(b"audio")
+
+    claimed = claim_staged_files(conn, event)
+
+    assert len(claimed) == 1
+    assert list_event_tracks(conn, event["id"])[0]["status"] == "ready"
+
+
 # --- status recompute + strict no-op (11.2) ----------------------------------------
 
 
 def test_recompute_event_status():
     assert recompute_event_status([]) == "applied"
     assert recompute_event_status(["applied", "ignored"]) == "applied"
-    for pending in ("matched", "ready", "missing", "ambiguous"):
+    for pending in ("matched", "ready", "missing", "ambiguous", "acquisition_failed"):
         assert recompute_event_status(["applied", pending]) == "partially_applied"
 
 
@@ -696,7 +735,9 @@ def test_retained_track_migration_on_real_db(tmp_path, monkeypatch):
     analysis_before = {path: analysis_payload(path) for path in declared_anlz}
     audio_source = fixture_root / manifest["staging_audio"]
     audio_digest = _sha256(audio_source)
-    storage = tmp_path / "storage"
+    storage = Path(
+        os.environ.get("SYNCBOX_EVENT_MIGRATION_STORAGE_ROOT", tmp_path / "storage")
+    )
     conn = appdb.open_app_db(tmp_path / "app.db")
     event = create_event(conn, storage, "Syncbox POC Retained Migration")
     staged = Path(event["staging_dir"]) / audio_source.name
@@ -748,6 +789,7 @@ def test_retained_track_migration_on_real_db(tmp_path, monkeypatch):
     assert destination.is_file() and _sha256(destination) == audio_digest
 
     stored_destination = stored_form(destination, storage)
+    assert stored_destination == str(destination.resolve())
     content_after = rows(
         "SELECT FolderPath, OrgFolderPath, FileNameL, AnalysisDataPath, "
         "rb_local_deleted FROM djmdContent WHERE ID = ?",

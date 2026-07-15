@@ -77,7 +77,7 @@ test('RB banner re-polls /api/status on "J\'ai fermé Rekordbox"', async () => {
   await wrapper.get('button').trigger('click')
   await flushPromises()
   expect(fetchMock).toHaveBeenCalledWith(
-    'http://127.0.0.1:8765/api/status',
+    'http://127.0.0.1:8766/api/status',
     expect.anything(),
   )
   expect(status.rbOpen).toBe(false)

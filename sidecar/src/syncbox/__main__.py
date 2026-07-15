@@ -2,10 +2,11 @@
 
 Wires, exactly once, what the tests assemble by hand: app data dir ->
 migrated app DB -> encrypted secrets store -> Spotify PKCE auth + client ->
-api.Deps -> Starlette app -> uvicorn on 127.0.0.1:8765 (server.serve, main
-asyncio loop, SPEC-UNIFIED 6.3). Logging goes to a rotating file in the app
-data dir (feeds GET /api/doctor/logs) and to stderr for the shell
-supervisor, which always consumes child output (6.6).
+api.Deps -> Starlette app -> permanent uvicorn API/SSE on 127.0.0.1:8766.
+Spotify authorization temporarily opens its exact 127.0.0.1:8765 callback.
+Logging goes to a rotating file in the app data dir (feeds GET
+/api/doctor/logs) and to stderr for the shell supervisor, which always
+consumes child output (6.6).
 """
 
 import asyncio
@@ -34,7 +35,7 @@ def _drop_playlist_xml_noise(record) -> bool:
     return "not found in masterPlaylists6.xml" not in record.getMessage()
 
 
-def compose(data_dir=None):
+def compose(data_dir=None, *, oauth_listener=None):
     """Build the fully wired Starlette app; ``data_dir`` overrides the OS
     app-data location (tests), as does SYNCBOX_DATA_DIR (regression harness)."""
     if data_dir is None:
@@ -63,6 +64,7 @@ def compose(data_dir=None):
         app_db_path=db_file,
         data_dir=data_dir,
         secrets=secrets,
+        oauth_listener=oauth_listener or server.OAuthCallbackListener(),
     )
     # The auth reads the client id THROUGH deps.settings, never a captured
     # Settings: the all-data import (5.10) swaps deps.conn/settings live.
@@ -92,6 +94,7 @@ def _quality_analyze(path: str) -> int:
 
 def _packaging_check() -> int:
     """Exercise packaged native/runtime dependencies without app data."""
+    import importlib.metadata
     import importlib.util
 
     import certifi
@@ -106,19 +109,27 @@ def _packaging_check() -> int:
         conn.execute("PRAGMA key = \"x'" + "00" * 32 + "'\"")
         conn.execute("CREATE TABLE packaging_check (value TEXT)")
         cipher_version = conn.execute("PRAGMA cipher_version").fetchone()[0]
+        cipher_provider = conn.execute("PRAGMA cipher_provider").fetchone()[0]
+        cipher_provider_version = conn.execute(
+            "PRAGMA cipher_provider_version"
+        ).fetchone()[0]
+        cipher_status = conn.execute("PRAGMA cipher_status").fetchone()[0]
     finally:
         conn.close()
     ca_file = Path(certifi.where())
     if not ca_file.is_file():
         raise RuntimeError("certifi CA bundle is missing")
-    packages = (
-        "certifi",
-        "miniaudio",
-        "numpy",
-        "pyrekordbox",
-        "send2trash",
-        "sqlcipher3-wheels",
-    )
+    packages = {
+        name: importlib.metadata.version(name)
+        for name in (
+            "certifi",
+            "miniaudio",
+            "numpy",
+            "pyrekordbox",
+            "send2trash",
+            "sqlcipher3-wheels",
+        )
+    }
     # Keep imports live: PyInstaller must collect each dependency above.
     assert miniaudio and numpy and pyrekordbox and send2trash
     print(
@@ -128,6 +139,11 @@ def _packaging_check() -> int:
                 "architecture": os.uname().machine,
                 "packages": packages,
                 "sqlcipher": cipher_version,
+                "sqlcipher_provider": cipher_provider,
+                "sqlcipher_provider_version": cipher_provider_version,
+                "sqlcipher_status": cipher_status,
+                "api_port": server.PORT,
+                "oauth_callback_port": server.OAUTH_CALLBACK_PORT,
                 "streamrip_importable": importlib.util.find_spec("streamrip") is not None,
             },
             sort_keys=True,
@@ -157,6 +173,8 @@ def main(argv=None) -> int:
         log.error("%s", exc)
         return 1
     finally:
+        app.state.deps.oauth_listener.stop()
+        app.state.deps.oauth_listener.wait_closed()
         # 6.6 handshake tail: SQLCipher secrets store and app DB closed
         # before the process exits, so a clean stop never needs the shell's
         # kill of last resort to reclaim them.
