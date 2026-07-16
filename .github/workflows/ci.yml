@@ -56,4 +56,5 @@ jobs:
           (cd sidecar && uv run --locked --exact --managed-python pytest -q)
           pnpm --dir ui typecheck
           pnpm --dir ui test
+          mkdir -p sidecar/dist/syncbox-sidecar
           cargo check --locked --manifest-path shell/src-tauri/Cargo.toml
