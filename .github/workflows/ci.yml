@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ci
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Read toolchain pins
+        id: pins
+        run: |
+          {
+            echo "node=$(jq -r .toolchain.node release-build.json | sed 's/^v//')"
+            echo "pnpm=$(jq -r .toolchain.pnpm release-build.json)"
+            echo "uv=$(jq -r .toolchain.uv release-build.json | awk '{print $2}')"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: ${{ steps.pins.outputs.pnpm }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ steps.pins.outputs.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Install locked dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          (cd sidecar && uv lock --check && uv sync --locked --managed-python)
+          (cd optional-component && uv lock --check)
+          rm -rf sidecar/vendor/sqlcipher3-commoncrypto/build \
+                 sidecar/vendor/sqlcipher3-commoncrypto/sqlcipher3_wheels.egg-info
+
+      - name: Test
+        run: |
+          (cd sidecar && uv run --locked --exact --managed-python pytest -q)
+          pnpm --dir ui typecheck
+          pnpm --dir ui test
+          cargo check --locked --manifest-path shell/src-tauri/Cargo.toml
