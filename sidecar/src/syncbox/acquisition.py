@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -38,6 +39,8 @@ COMPONENT_ARCHIVE_ENV = "SYNCBOX_DEEZER_COMPONENT_ARCHIVE"
 MAX_COMPONENT_BYTES = 512 * 1024 * 1024
 MAX_UNPACKED_BYTES = 1024 * 1024 * 1024
 ISRC_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
+
+log = logging.getLogger(__name__)
 ARL_PATTERN = re.compile(r"^[0-9a-fA-F]{64,512}$")
 
 
@@ -53,6 +56,50 @@ def normalize_isrc(value: str | None) -> str:
     if not ISRC_PATTERN.fullmatch(isrc):
         raise ValueError("track needs a valid ISRC for Deezer acquisition")
     return isrc
+
+
+DEEZER_API_URL = "https://api.deezer.com"
+
+
+def _deezer_api_get(path: str, params: dict | None = None) -> dict:
+    """GET on the public Deezer catalogue API (no credentials involved)."""
+    url = DEEZER_API_URL + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    request = urllib.request.Request(url, headers={"User-Agent": "Syncbox"})
+    context = ssl.create_default_context(cafile=certifi.where())
+    with urllib.request.urlopen(request, timeout=15, context=context) as source:
+        payload = json.loads(source.read().decode("utf-8"))
+    if isinstance(payload, dict) and payload.get("error"):
+        message = (payload.get("error") or {}).get("message") or "Deezer API error"
+        raise RuntimeError(f"Deezer API: {message}")
+    return payload if isinstance(payload, dict) else {}
+
+
+def deezer_search(query: str, limit: int = 15) -> list[dict]:
+    """Catalogue search for the manual-search panel: title/artist/cover plus
+    the 30 s `preview` URL the UI plays before the user picks a result."""
+    payload = _deezer_api_get(
+        "/search", {"q": query.strip(), "limit": max(1, min(int(limit), 25))}
+    )
+    results = []
+    for item in payload.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        album = item.get("album") or {}
+        artist = item.get("artist") or {}
+        results.append(
+            {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "artist": artist.get("name"),
+                "album": album.get("title"),
+                "duration": item.get("duration"),
+                "preview_url": item.get("preview") or None,
+                "cover_url": album.get("cover_medium") or album.get("cover") or None,
+            }
+        )
+    return results
 
 
 def component_root(data_dir) -> Path:
@@ -349,10 +396,26 @@ def acquisition_output_dir(storage_root, job_id: int) -> Path:
     return Path(storage_root) / SYNC_DIR_NAME / "acquisition" / f"job-{job_id}"
 
 
-def run_deezer_download(data_dir, arl: str, isrc: str, output_dir, *, runner=subprocess.run) -> dict:
+def run_deezer_download(
+    data_dir,
+    arl: str,
+    isrc: str | None,
+    output_dir,
+    *,
+    track_id: int | None = None,
+    runner=subprocess.run,
+) -> dict:
     status = component_status(data_dir)
     if not status.get("installed"):
         raise ValueError("optional Deezer component is not installed")
+    # manual pick: download the exact chosen track id (bypasses ISRC
+    # resolution, which can land on an unstreamable canonical entry)
+    if track_id is not None:
+        selector = ["--track-id", str(int(track_id))]
+        identity = f"track_id={int(track_id)}"
+    else:
+        selector = ["--isrc", normalize_isrc(isrc)]
+        identity = f"isrc={normalize_isrc(isrc)}"
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="syncbox-arl-") as raw_temp:
@@ -371,14 +434,13 @@ def run_deezer_download(data_dir, arl: str, isrc: str, output_dir, *, runner=sub
             completed = runner(
                 [
                     str(component_executable(data_dir)),
-                    "--isrc",
-                    normalize_isrc(isrc),
+                    *selector,
                     "--credential-file",
                     str(credential),
                     "--output-dir",
                     str(output_dir),
                 ],
-                check=True,
+                check=False,
                 text=True,
                 capture_output=True,
             )
@@ -386,9 +448,31 @@ def run_deezer_download(data_dir, arl: str, isrc: str, output_dir, *, runner=sub
             if fd >= 0:
                 os.close(fd)
             credential.unlink(missing_ok=True)
-    payload = json.loads(completed.stdout.splitlines()[-1])
-    if payload.get("result") != "FULL_TRACK_DOWNLOADED":
-        raise RuntimeError(payload.get("reason") or "Deezer acquisition failed")
+    # check=False: on failure the component still prints its reason JSON and
+    # exits non-zero — parse it instead of losing it to CalledProcessError.
+    returncode = getattr(completed, "returncode", 0) or 0
+    lines = (getattr(completed, "stdout", "") or "").splitlines()
+    try:
+        payload = json.loads(lines[-1]) if lines else {}
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    if returncode != 0 or payload.get("result") != "FULL_TRACK_DOWNLOADED":
+        reason = (
+            payload.get("reason")
+            or payload.get("result")
+            or f"component exited with code {returncode} and no result payload"
+        )
+        stderr_tail = (getattr(completed, "stderr", "") or "").strip()[-2000:]
+        log.warning(
+            "Deezer acquisition failed: %s exit=%s reason=%s%s",
+            identity,
+            returncode,
+            reason,
+            f" stderr_tail={stderr_tail!r}" if stderr_tail else "",
+        )
+        raise RuntimeError(str(reason))
     filename = payload.get("output_filename")
     if (
         not isinstance(filename, str)

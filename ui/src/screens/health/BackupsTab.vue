@@ -2,12 +2,13 @@
 // Backups & logs (§5.10/F9): list / restore (RB-guarded server-side; the
 // restore snapshots the CURRENT db first — reversible), rotation control,
 // log tail + "Ouvrir le dossier de logs" through the opener plugin.
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, api } from '../../api/client'
 import type { BackupInfo } from '../../api/types'
 import LoadingState from '../../components/LoadingState.vue'
+import { useRefreshOnReturn } from '../../lib/refresh'
 import { revealInFolder } from '../../shell'
 import { useJobsStore } from '../../stores/jobs'
 import { useSettingsStore } from '../../stores/settings'
@@ -46,7 +47,8 @@ async function load() {
   if (!settings.loaded) await settings.load().catch(() => {})
   retention.value = settings.values?.backup_retention ?? 15
 }
-onMounted(() => void load())
+// skeleton on first load only; keep-alive re-entries refresh silently
+useRefreshOnReturn(() => void load())
 
 async function restore(name: string) {
   banner.value = null

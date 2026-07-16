@@ -4,7 +4,7 @@
 // Every user-triggered action surfaces its backend error (B1) — no silent
 // no-op click anywhere. The apply CTA is owner-arbitrated (2026-07-07):
 // selection-scoped, RB-guarded, exact-count label (B10 spirit).
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, NetworkError, api } from '../api/client'
@@ -28,6 +28,7 @@ import {
   isRematchable,
   isReview,
 } from '../lib/library'
+import { sameData, useRefreshOnReturn } from '../lib/refresh'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
 import { useHealthStore } from '../stores/health'
 import { useJobsStore } from '../stores/jobs'
@@ -81,10 +82,19 @@ async function load() {
         api.get<{ tracks: LibraryTrack[] }>(`/api/sources/${source.id}/tracks`),
       ),
     )
-    sources.value = list
+    const nextTracks: Record<number, LibraryTrack[]> = {}
     list.forEach((source, index) => {
-      tracksBySource[source.id] = results[index].tracks
+      nextTracks[source.id] = results[index].tracks
     })
+    // unchanged payload → no ref swap: a silent refresh must not re-render
+    // the whole (large) table just to show identical rows (owner 16/07:
+    // visible lag when reopening the screen)
+    if (!sameData([list, nextTracks], [sources.value, tracksBySource])) {
+      sources.value = list
+      for (const key of Object.keys(tracksBySource))
+        if (!(key in nextTracks)) delete tracksBySource[key as unknown as number]
+      Object.assign(tracksBySource, nextTracks)
+    }
     health.setLibraryReviewCount(allTracks.value.filter(isReview).length)
     if (firstLoad) {
       firstLoad = false
@@ -97,7 +107,8 @@ async function load() {
   }
 }
 let firstLoad = true
-onMounted(() => {
+// skeleton on first load only; keep-alive re-entries refresh silently
+useRefreshOnReturn(() => {
   if (!settings.loaded) void settings.load().catch(() => {})
   void load()
 })
@@ -329,7 +340,7 @@ async function onSourceAdded(source: Source) {
               <span>{{ t('library.sourcesTitle') }}</span>
               <span class="count mono">{{ sources.length }}</span>
             </div>
-            <button class="add-btn" :title="t('library.addSource')" @click="modal = 'add'">+</button>
+            <button class="add-btn" :data-tip="t('library.addSource')" :aria-label="t('library.addSource')" @click="modal = 'add'">+</button>
           </div>
           <div class="search-row">
             <span class="glyph">⌕</span>
@@ -505,7 +516,8 @@ async function onSourceAdded(source: Source) {
                   v-if="['missing', 'acquisition_failed'].includes(track.status)"
                   class="action"
                   to="/missing/library"
-                  :title="t('library.actions.resolve')"
+                  :data-tip="t('library.actions.resolve')"
+                  :aria-label="t('library.actions.resolve')"
                 >
                   <!-- inline SVG (not a glyph): renders pixel-identical to the
                        other action buttons, immune to font fallback -->
@@ -527,7 +539,8 @@ async function onSourceAdded(source: Source) {
                 <button
                   v-if="track.status === 'ignored'"
                   class="action"
-                  :title="t('library.actions.restore')"
+                  :data-tip="t('library.actions.restore')"
+                  :aria-label="t('library.actions.restore')"
                   @click="restoreTrack(track)"
                 >
                   ↺
@@ -535,7 +548,8 @@ async function onSourceAdded(source: Source) {
                 <button
                   v-if="isRematchable(track)"
                   class="action"
-                  :title="t('library.actions.rematch')"
+                  :data-tip="t('library.actions.rematch')"
+                  :aria-label="t('library.actions.rematch')"
                   @click="rematchTrack = track"
                 >
                   ↻
@@ -543,7 +557,8 @@ async function onSourceAdded(source: Source) {
                 <button
                   v-if="isRematchable(track)"
                   class="action"
-                  :title="t('library.actions.ignore')"
+                  :data-tip="t('library.actions.ignore')"
+                  :aria-label="t('library.actions.ignore')"
                   @click="ignoreTrack(track)"
                 >
                   ✕

@@ -50,7 +50,7 @@ test('bi-phase rail: exactly 10 clickable steps — 4 Configuration + 6 Prise en
 
   // the rail is clickable: jump straight to the last step
   await rows[9].trigger('click')
-  expect(wrapper.text()).toContain('Applique un event en smart playlist')
+  expect(wrapper.text()).toContain('Applique un événement en smart playlist')
 })
 
 test('the scan step performs a REAL read and reports the collection size', async () => {

@@ -2,7 +2,7 @@
 // Fichiers manquants (health hub) = the COLLECTION scope of the missing
 // center: snapshot rows whose file is gone on disk. Purchase / relink /
 // remove (G3) via the shared list. The other scopes live in the center.
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, api } from '../../api/client'
@@ -10,6 +10,7 @@ import type { MissingEntry } from '../../api/types'
 import ErrorState from '../../components/ErrorState.vue'
 import LoadingState from '../../components/LoadingState.vue'
 import MissingEntryList from '../../components/MissingEntryList.vue'
+import { useRefreshOnReturn } from '../../lib/refresh'
 import { useHealthStore } from '../../stores/health'
 
 const { t } = useI18n()
@@ -30,7 +31,8 @@ async function load() {
     loadError.value = cause instanceof ApiError ? cause.message : t('common.networkError')
   }
 }
-onMounted(() => void load())
+// skeleton on first load only; keep-alive re-entries refresh silently
+useRefreshOnReturn(() => void load())
 </script>
 
 <template>

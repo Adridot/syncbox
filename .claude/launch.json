@@ -2,6 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "sidecar-dev",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd '/Users/adriendidot/Documents/Dev/syncbox/.claude/worktrees/syncbox-perf-ux-feedback-46a443/sidecar' && SYNCBOX_DATA_DIR=\"$HOME/Library/Application Support/Syncbox-dev\" SYNCBOX_DEEZER_COMPONENT_ARCHIVE='/Users/adriendidot/Documents/Dev/syncbox/.claude/worktrees/syncbox-perf-ux-feedback-46a443/optional-component/dist/syncbox-deezer-component-0.2.4-macos-arm64.zip' PYTHONPATH=src exec uv run python -m syncbox"
+      ],
+      "port": 8766
+    },
+    {
       "name": "ui",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "ui", "dev"],

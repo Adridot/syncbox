@@ -4,12 +4,13 @@
 // bar, add-by-link (Spotify-only §11.1) or manual entry, match/claim, and
 // the apply / re-apply / delete modals (all RB-guarded). Every click
 // surfaces its backend outcome (B1).
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, NetworkError, api } from '../api/client'
-import type { EventSummary, EventTrack } from '../api/types'
+import type { DeezerSearchResult, EventSummary, EventTrack } from '../api/types'
 import ApplyEventModal from '../components/ApplyEventModal.vue'
+import DeezerSearchPanel from '../components/DeezerSearchPanel.vue'
 import DeleteEventModal from '../components/DeleteEventModal.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
@@ -25,6 +26,12 @@ import {
   filterEventTracks,
   isBaseApplied,
 } from '../lib/events'
+import {
+  acquisitionLabelKey,
+  humanizeAcquisitionError,
+  useAcquisitionQueue,
+} from '../lib/acquisition'
+import { useRefreshOnReturn } from '../lib/refresh'
 import { extractTrackId } from '../lib/spotify'
 import { revealInFolder } from '../shell'
 import { useHealthStore } from '../stores/health'
@@ -82,7 +89,14 @@ async function load(keepSelection = true) {
     loading.value = false
   }
 }
-onMounted(() => void load())
+// skeleton on first load only: keep-alive re-entries refresh silently and
+// re-run the silent auto-match (on first mount the selectedId watch does it)
+useRefreshOnReturn(async () => {
+  void refreshAcqReady()
+  const hadSelection = selectedId.value != null
+  await load()
+  if (hadSelection && selectedId.value != null) void autoMatch(selectedId.value)
+})
 
 const selected = computed(
   () => (events.value ?? []).find((event) => event.id === selectedId.value) ?? null,
@@ -147,6 +161,99 @@ watch(
     if (!open && selectedId.value != null) void autoMatch(selectedId.value)
   },
 )
+
+// --- Deezer acquisition (owner decision 16/07): the whole flow lives HERE —
+// batch button + live per-track badge + x/N counter; the Missing center
+// keeps the cross-scope view ---------------------------------------------
+const {
+  states: acqStates,
+  batch: acqBatch,
+  running: acqRunning,
+  run: runAcq,
+  prune: pruneAcq,
+} = useAcquisitionQueue()
+
+const acqReady = ref(false)
+async function refreshAcqReady() {
+  try {
+    const s = await api.get<{
+      enabled: boolean
+      has_arl: boolean
+      component: { installed?: boolean }
+    }>('/api/acquisition/deezer')
+    acqReady.value = s.enabled && s.has_arl && Boolean(s.component?.installed)
+  } catch {
+    acqReady.value = false
+  }
+}
+
+const MISSING_TRACK_STATUSES = ['missing', 'acquisition_failed']
+// auto path needs the row's ISRC; ISRC-less rows go through manual search
+const downloadable = computed(() =>
+  selectedTracks.value.filter(
+    (track) => MISSING_TRACK_STATUSES.includes(track.status) && track.isrc,
+  ),
+)
+
+function pruneAcqBadges() {
+  // downloaded rows now show status 'ready' — keep only the failures' badges
+  pruneAcq(
+    new Set(
+      selectedTracks.value
+        .filter((track) => MISSING_TRACK_STATUSES.includes(track.status))
+        .map((track) => String(track.id)),
+    ),
+  )
+}
+
+async function downloadMissing() {
+  banner.value = null
+  const { ok, failed } = await runAcq(
+    downloadable.value.map((track) => ({
+      key: String(track.id),
+      body: { scope: 'event', row_id: track.id },
+    })),
+    describe,
+  )
+  await load()
+  pruneAcqBadges()
+  banner.value = {
+    tone: failed ? 'error' : 'success',
+    text: t('missing.bulkAcquireDone', { ok, failed }),
+  }
+}
+
+// manual Deezer search with 30 s preview; a pick downloads the chosen
+// recording even when the row has no ISRC
+const searchTrack = ref<EventTrack | null>(null)
+const searchQuery = computed(() =>
+  searchTrack.value
+    ? [searchTrack.value.artist, searchTrack.value.title].filter(Boolean).join(' ')
+    : '',
+)
+
+async function onDeezerPick(result: DeezerSearchResult) {
+  const track = searchTrack.value
+  searchTrack.value = null
+  if (!track) return
+  banner.value = null
+  const key = String(track.id)
+  const { ok } = await runAcq(
+    [{ key, body: { scope: 'event', row_id: track.id, deezer_track_id: result.id } }],
+    describe,
+  )
+  const reason = humanizeAcquisitionError(t, acqStates.value[key]?.error)
+  await load()
+  pruneAcqBadges()
+  banner.value = ok
+    ? { tone: 'success', text: t('missing.acquired', { title: track.title ?? '' }) }
+    : {
+        tone: 'error',
+        text:
+          t('missing.acquisitionFailed', { title: track.title ?? '' }) +
+          (reason ? ` (${reason})` : ''),
+      }
+}
 
 async function runClaim() {
   if (!selected.value) return
@@ -451,6 +558,14 @@ async function onWriteDone() {
           </button>
           <span class="spacer" />
           <button
+            v-if="acqReady && downloadable.length"
+            class="btn-secondary tool"
+            :disabled="jobs.jobRunning || acqRunning"
+            @click="downloadMissing"
+          >
+            {{ t('events.downloadMissing', { n: downloadable.length }) }}
+          </button>
+          <button
             v-if="selected?.staging_dir"
             class="btn-secondary tool"
             :title="t('events.openStagingHelp')"
@@ -461,6 +576,11 @@ async function onWriteDone() {
           <button class="btn-secondary tool" :disabled="jobs.jobRunning" @click="runClaim">
             {{ t('events.claim') }}
           </button>
+        </div>
+
+        <div v-if="acqBatch" class="acq-progress" role="status">
+          <span class="acq-spinner" aria-hidden="true" />
+          {{ t('missing.acqProgress', { done: acqBatch.done, total: acqBatch.total }) }}
         </div>
 
         <div class="table">
@@ -489,12 +609,47 @@ async function onWriteDone() {
                 }}</span>
               </div>
               <div class="row-artist">{{ track.artist }}</div>
+              <div v-if="acqStates[String(track.id)]?.error" class="row-error">
+                {{ humanizeAcquisitionError(t, acqStates[String(track.id)]?.error) }}
+              </div>
             </div>
-            <span class="cell-status"><StatusBadge :status="track.status" /></span>
+            <span class="cell-status">
+              <span
+                v-if="acqStates[String(track.id)]"
+                class="acq-badge"
+                :data-phase="acqStates[String(track.id)]?.phase"
+              >
+                {{ t(acquisitionLabelKey(acqStates[String(track.id)])) }}
+              </span>
+              <StatusBadge v-else :status="track.status" />
+            </span>
             <span class="cell-conf mono" :data-good="(track.confidence ?? 0) >= 95">{{
               track.confidence ?? '—'
             }}</span>
             <span class="cell-actions">
+              <!-- compact icon: the text button overflowed into the conf
+                   column (owner feedback 16/07) -->
+              <button
+                v-if="acqReady && MISSING_TRACK_STATUSES.includes(track.status)"
+                class="row-search"
+                :disabled="jobs.jobRunning || acqRunning"
+                :data-tip="t('missing.searchDeezer')"
+                :aria-label="t('missing.searchDeezer')"
+                @click="searchTrack = track"
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="21" y1="21" x2="16.2" y2="16.2" />
+                </svg>
+              </button>
               <router-link
                 v-if="['missing', 'acquisition_failed'].includes(track.status)"
                 class="action-link"
@@ -504,7 +659,8 @@ async function onWriteDone() {
               <button
                 v-if="track.status !== 'applied'"
                 class="row-remove"
-                :title="t('events.removeTrack')"
+                :data-tip="t('events.removeTrack')"
+                :aria-label="t('events.removeTrack')"
                 @click="removeTrack(track)"
               >
                 ✕
@@ -538,6 +694,13 @@ async function onWriteDone() {
       :event="selected"
       @close="modal = null"
       @deleted="onWriteDone"
+    />
+    <DeezerSearchPanel
+      v-if="searchTrack"
+      :initial-query="searchQuery"
+      :context-label="searchTrack.title ?? ''"
+      @close="searchTrack = null"
+      @pick="onDeezerPick"
     />
   </main>
 </template>
@@ -1018,8 +1181,9 @@ h1 {
   color: var(--success);
 }
 .cell-actions {
-  width: 150px;
+  width: 170px;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 7px;
   flex: none;
@@ -1032,6 +1196,77 @@ h1 {
   font-size: 12px;
   text-decoration: none;
   white-space: nowrap;
+}
+.row-search {
+  background: transparent;
+  border: 1px solid #2a3140;
+  color: var(--accent-hover);
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  padding: 0;
+  cursor: pointer;
+  flex: none;
+}
+.row-search:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-tint);
+}
+.row-search:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.row-error {
+  font-size: 11.5px;
+  color: var(--danger-text);
+  margin-top: 2px;
+}
+.acq-badge {
+  font-size: var(--size-meta);
+  border-radius: 6px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  border: 1px solid var(--border-2);
+  color: var(--text-secondary);
+}
+.acq-badge[data-phase='running'] {
+  color: var(--accent-hover);
+  border-color: var(--accent-border);
+  background: var(--accent-tint);
+}
+.acq-badge[data-phase='downloaded'] {
+  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-tint);
+}
+.acq-badge[data-phase='failed'] {
+  color: var(--danger-text);
+  border-color: var(--danger-border);
+  background: var(--danger-tint);
+}
+.acq-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.acq-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-border);
+  border-top-color: var(--accent);
+  animation: acq-spin 0.8s linear infinite;
+}
+@keyframes acq-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .row-remove {
   background: transparent;

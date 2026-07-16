@@ -170,6 +170,16 @@ export interface MissingEntry {
   acquisition?: { provider: 'deezer'; available: boolean; reason?: string | null }
 }
 
+export interface DeezerSearchResult {
+  id: number
+  title: string | null
+  artist: string | null
+  album: string | null
+  duration: number | null
+  preview_url: string | null
+  cover_url: string | null
+}
+
 export interface UntaggedTrack {
   content_id: string
   title: string | null

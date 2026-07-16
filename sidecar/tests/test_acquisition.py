@@ -483,7 +483,7 @@ def test_collection_relink_block_keeps_downloaded_file(tmp_path, monkeypatch):
 
     response = env.client.post(
         "/api/acquisition/jobs",
-        json={"scope": "collection", "content_id": "42", "relink": True},
+        json={"scope": "collection", "content_id": "42", "relink": True, "anlz_consent": True},
     )
 
     assert response.status_code == 200
@@ -506,7 +506,7 @@ def test_acquisition_failure_is_a_job_not_500(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
-    assert response.json()["error"] == "RuntimeError"
+    assert response.json()["error"] == "boom"
     assert repos.get_track(env.conn, track["id"])["status"] == "acquisition_failed"
 
 
@@ -530,3 +530,150 @@ def test_event_acquisition_failure_remains_visible_for_recovery(tmp_path):
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
     assert row["status"] == "acquisition_failed"
+
+
+def test_download_failure_surfaces_component_reason(tmp_path):
+    _install_marker(tmp_path)
+
+    def runner(command, **kwargs):
+        return SimpleNamespace(
+            returncode=1,
+            stdout=json.dumps(
+                {"result": "FAILED", "reason": "streamrip_NonStreamableError"}
+            ),
+            stderr="",
+        )
+
+    with pytest.raises(RuntimeError, match="streamrip_NonStreamableError"):
+        acquisition.run_deezer_download(
+            tmp_path, SECRET_SENTINEL, ISRC, tmp_path / "downloads", runner=runner
+        )
+
+
+def test_deezer_search_endpoint_maps_public_api_fields(tmp_path, monkeypatch):
+    env = make_env(tmp_path)
+    env.deps.settings.update({"deezer_acquisition_enabled": True})
+    monkeypatch.setattr(
+        acquisition,
+        "_deezer_api_get",
+        lambda path, params=None: {
+            "data": [
+                {
+                    "id": 3129569,
+                    "title": "Kingston Town",
+                    "duration": 226,
+                    "preview": "https://cdn-preview.example/kt.mp3",
+                    "artist": {"name": "UB40"},
+                    "album": {
+                        "title": "Labour of Love II",
+                        "cover_medium": "https://img.example/kt.jpg",
+                    },
+                }
+            ]
+        },
+    )
+
+    response = env.client.get(
+        "/api/acquisition/deezer/search", params={"q": "ub40 kingston"}
+    )
+
+    assert response.status_code == 200
+    [result] = response.json()["results"]
+    assert result == {
+        "id": 3129569,
+        "title": "Kingston Town",
+        "artist": "UB40",
+        "album": "Labour of Love II",
+        "duration": 226,
+        "preview_url": "https://cdn-preview.example/kt.mp3",
+        "cover_url": "https://img.example/kt.jpg",
+    }
+
+
+def test_deezer_search_requires_enablement_and_query(tmp_path):
+    env = make_env(tmp_path)
+    assert (
+        env.client.get("/api/acquisition/deezer/search", params={"q": "x"}).status_code
+        == 400
+    )
+    env.deps.settings.update({"deezer_acquisition_enabled": True})
+    assert env.client.get("/api/acquisition/deezer/search").status_code == 400
+
+
+def test_manual_deezer_pick_downloads_the_chosen_recording(tmp_path):
+    seen = {}
+
+    def runner(data_dir, arl, isrc, output_dir, track_id=None):
+        seen["isrc"] = isrc
+        seen["track_id"] = track_id
+        output = Path(output_dir) / "manual.mp3"
+        output.write_bytes(b"audio")
+        return {"result": "FULL_TRACK_DOWNLOADED", "output_path": str(output)}
+
+    env = make_env(tmp_path, runner=runner)
+    _install_marker(tmp_path)
+    env.deps.settings.update({"deezer_acquisition_enabled": True})
+    env.secrets.set(acquisition.DEEZER_ARL_SECRET, SECRET_SENTINEL)
+
+    # the row has NO usable ISRC: only the manual pick makes it downloadable
+    source = repos.add_source(env.conn, PLAYLIST_ID, name="PL")
+    repos.replace_source_tracks(
+        env.conn,
+        source["id"],
+        [
+            {
+                "spotify_track_id": "t9",
+                "title": "Final Song",
+                "artist": "MO",
+                "isrc": None,
+                "status": "missing",
+            }
+        ],
+    )
+    track = repos.list_source_tracks(env.conn, source["id"])[0]
+
+    response = env.client.post(
+        "/api/acquisition/jobs",
+        json={"scope": "library", "row_id": track["id"], "deezer_track_id": 124604316},
+    )
+
+    assert response.status_code == 200
+    job = response.json()
+    assert job["status"] == "downloaded"
+    assert seen["track_id"] == 124604316
+    assert seen["isrc"] is None
+    assert repos.get_track(env.conn, track["id"])["status"] == "ready"
+
+
+def test_collection_relink_asks_consent_before_downloading(tmp_path):
+    downloads = []
+
+    def runner(data_dir, arl, isrc, output_dir):
+        downloads.append(isrc)
+        raise AssertionError("no download may happen before ANLZ consent")
+
+    env = make_env(
+        tmp_path,
+        rows=[
+            {
+                "content_id": "42",
+                "title": "Instant Crush",
+                "artist": "Daft Punk",
+                "isrc": ISRC,
+                "file_missing": True,
+                "file_path": "/missing.mp3",
+            }
+        ],
+        runner=runner,
+    )
+    _install_marker(tmp_path)
+    env.deps.settings.update({"deezer_acquisition_enabled": True})
+    env.secrets.set(acquisition.DEEZER_ARL_SECRET, SECRET_SENTINEL)
+
+    response = env.client.post(
+        "/api/acquisition/jobs",
+        json={"scope": "collection", "content_id": "42", "relink": True},
+    )
+
+    assert response.status_code == 428
+    assert downloads == []

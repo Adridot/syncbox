@@ -4,7 +4,7 @@
 // calls out), D15 delete with the REAL skip report, and the minimal D7
 // junk-pattern editor (list / add / delete a regex). Removal is always a
 // reversible Rekordbox row soft-delete and never touches audio.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, api } from '../../api/client'
@@ -12,6 +12,7 @@ import type { UntaggedTrack } from '../../api/types'
 import ErrorState from '../../components/ErrorState.vue'
 import LoadingState from '../../components/LoadingState.vue'
 import SelectionBar from '../../components/SelectionBar.vue'
+import { useRefreshOnReturn } from '../../lib/refresh'
 import { useHealthStore } from '../../stores/health'
 import { useJobsStore } from '../../stores/jobs'
 import { useStatusStore } from '../../stores/status'
@@ -52,7 +53,8 @@ async function load() {
     loadError.value = describe(cause)
   }
 }
-onMounted(() => void load())
+// skeleton on first load only; keep-alive re-entries refresh silently
+useRefreshOnReturn(() => void load())
 
 const visible = computed(() =>
   filter.value === 'all'

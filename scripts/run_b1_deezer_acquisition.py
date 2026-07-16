@@ -261,7 +261,38 @@ def _resolve_isrc(isrc: str, certifi) -> tuple[int, int]:
     return track_id, duration
 
 
-async def _download(component: dict, arl: str, isrc: str, output_dir: Path) -> dict:
+def _resolve_track(track_id: int, certifi) -> int:
+    """Duration of an exact, manually picked track id (bypasses ISRC
+    resolution — needed when a readable re-release shares its ISRC with an
+    unstreamable canonical entry, e.g. Martin Solveig "Hello")."""
+    request = urllib.request.Request(
+        f"https://api.deezer.com/track/{int(track_id)}",
+        headers={"User-Agent": "Syncbox-B1-POC/1"},
+    )
+    context = ssl.create_default_context(cafile=certifi.where())
+    try:
+        with urllib.request.urlopen(request, timeout=20, context=context) as response:
+            payload = json.load(response)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise PocFailed("track_lookup_failed") from error
+    if not isinstance(payload, dict) or "error" in payload:
+        raise PocFailed("track_not_resolved")
+    try:
+        duration = int(payload["duration"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise PocFailed("track_response_invalid") from error
+    if duration < 90:
+        raise PocFailed("track_response_not_full_track")
+    return duration
+
+
+async def _download(
+    component: dict,
+    arl: str,
+    isrc: str | None,
+    output_dir: Path,
+    track_id: int | None = None,
+) -> dict:
     Config = component["Config"]
     streamrip_db = component["streamrip_db"]
     DeezerClient = component["DeezerClient"]
@@ -270,7 +301,11 @@ async def _download(component: dict, arl: str, isrc: str, output_dir: Path) -> d
     config = Config.defaults()
     config.session.deezer.arl = arl
     config.session.deezer.quality = 1
-    config.session.deezer.lower_quality_if_not_available = False
+    # owner decision 16/07: prefer MP3 320 but fall back to the best
+    # available quality instead of failing — the actual quality downloaded
+    # is reported in the result payload ("quality": 0 = 128, 1 = 320) and
+    # surfaced by the UI as "reduced quality"
+    config.session.deezer.lower_quality_if_not_available = True
     config.session.deezer.use_deezloader = False
     config.session.deezer.deezloader_warnings = False
     config.session.downloads.folder = str(output_dir)
@@ -297,7 +332,10 @@ async def _download(component: dict, arl: str, isrc: str, output_dir: Path) -> d
     config.session.cli.progress_bars = False
     config.session.misc.check_for_updates = False
 
-    track_id, api_duration = _resolve_isrc(isrc, component["certifi"])
+    if track_id is None:
+        track_id, api_duration = _resolve_isrc(isrc, component["certifi"])
+    else:
+        api_duration = _resolve_track(track_id, component["certifi"])
     database = streamrip_db.Database(streamrip_db.Dummy(), streamrip_db.Dummy())
     client = DeezerClient(config)
     try:
@@ -306,10 +344,15 @@ async def _download(component: dict, arl: str, isrc: str, output_dir: Path) -> d
         track = await pending.resolve()
         if track is None:
             raise PocFailed("streamrip_resolution_returned_none")
-        if _normalize_isrc(track.meta.isrc or "") != isrc:
-            raise PocFailed("streamrip_resolved_wrong_isrc")
-        if str(track.downloadable.id) != str(track_id):
-            raise PocFailed("streamrip_resolved_fallback_track")
+        if isrc is not None and _normalize_isrc(track.meta.isrc or "") != isrc:
+            raise PocFailed(
+                f"streamrip_resolved_wrong_isrc (got={track.meta.isrc!r})"
+            )
+        # Deezer FALLBACK substitution (downloadable.id != requested id) is
+        # accepted: Deezer curates it as the same recording on another
+        # release, and it is the only way some tracks are streamable at all
+        # (owner decision 16/07 — Blondie "Maria" case; deemix followed it
+        # transparently). The ISRC gate above still guards resolution.
         await track.rip()
     except PocFailed:
         raise
@@ -329,12 +372,17 @@ async def _download(component: dict, arl: str, isrc: str, output_dir: Path) -> d
     if audio is None or getattr(audio, "info", None) is None:
         raise PocFailed("downloaded_file_scan_failed")
     measured_duration = float(getattr(audio.info, "length", 0.0))
-    duration_tolerance = max(2.0, api_duration * 0.01)
-    if (
-        measured_duration <= 30
-        or abs(measured_duration - api_duration) > duration_tolerance
-    ):
-        raise PocFailed("downloaded_file_is_not_full_track")
+    # "full track" means NOT the 30 s preview — nothing more. Deezer's
+    # catalogue duration routinely disagrees with the delivered audio
+    # (Paloma Blanca: api=233 s, real file=204 s), so a ±1% equality check
+    # rejected valid full tracks (owner incident 16/07: 11 tracks failing
+    # deterministically, files complete on disk).
+    if measured_duration <= 35 or measured_duration < api_duration * 0.5:
+        raise PocFailed(
+            "downloaded_file_is_not_full_track"
+            f" (measured={measured_duration:.1f}s api={api_duration}s"
+            f" size={output_path.stat().st_size})"
+        )
 
     artwork = _embedded_artwork(component["Image"], audio, output_path.suffix.lower())
     artwork_dir = resolved_output_dir / "__artwork"
@@ -496,6 +544,10 @@ def main(argv=None) -> int:
     parser.add_argument("--check", action="store_true", help="run non-network checks")
     parser.add_argument("--isrc", help="representative track ISRC")
     parser.add_argument(
+        "--track-id",
+        help="exact Deezer track id (manual pick); bypasses ISRC resolution",
+    )
+    parser.add_argument(
         "--credential-file",
         help="required one-shot credential file; consumed and deleted on success",
     )
@@ -508,7 +560,9 @@ def main(argv=None) -> int:
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         _emit(result="BLOCKED", reason="requires_macos_arm64")
         return 2
-    if not args.check and not (args.isrc and args.credential_file and args.output_dir):
+    if not args.check and not (
+        (args.isrc or args.track_id) and args.credential_file and args.output_dir
+    ):
         _emit(result="BLOCKED", reason="isrc_credential_and_output_required")
         return 2
 
@@ -520,7 +574,8 @@ def main(argv=None) -> int:
             if args.check:
                 result = _check(component, temp_root)
             else:
-                isrc = _normalize_isrc(args.isrc)
+                isrc = _normalize_isrc(args.isrc) if args.isrc else None
+                picked_track_id = int(args.track_id) if args.track_id else None
                 arl = _read_one_shot_credential(Path(args.credential_file))
                 try:
                     output_dir = Path(args.output_dir)
@@ -531,7 +586,13 @@ def main(argv=None) -> int:
                             captured
                         ), contextlib.redirect_stderr(captured):
                             result = asyncio.run(
-                                _download(component, arl, isrc, output_dir)
+                                _download(
+                                    component,
+                                    arl,
+                                    isrc,
+                                    output_dir,
+                                    track_id=picked_track_id,
+                                )
                             )
                     except BaseException as error:
                         if arl in captured.getvalue():

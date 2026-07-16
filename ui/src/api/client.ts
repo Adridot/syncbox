@@ -62,6 +62,14 @@ export function setConsentBroker(broker: ConsentBroker | null): void {
   consentBroker = broker
 }
 
+/** Ask the user for consent UP-FRONT through the same broker/modal as the
+    428 loop — e.g. ONE ANLZ consent covering a whole selected batch instead
+    of one modal per file. Resolves false when no broker is mounted. */
+export async function requestConsent(kind: 'anlz' | 'permanent_delete'): Promise<boolean> {
+  if (!consentBroker) return false
+  return consentBroker({ error: 'consent_required', message: '', consent: kind } as ApiErrorBody)
+}
+
 const CONSENT_FLAG: Record<'anlz' | 'permanent_delete', string> = {
   anlz: 'anlz_consent',
   permanent_delete: 'consent_to_permanent_delete',

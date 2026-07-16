@@ -62,7 +62,11 @@ const badges = computed<Record<HealthTab, number | null>>(() => ({
       </button>
     </div>
 
-    <component :is="TAB_COMPONENTS[active]" />
+    <!-- keep-alive: analyses survive tab switches; tabs refresh silently
+         via onActivated instead of re-running from a blank state -->
+    <keep-alive>
+      <component :is="TAB_COMPONENTS[active]" />
+    </keep-alive>
   </main>
 </template>
 
