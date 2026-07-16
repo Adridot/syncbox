@@ -204,7 +204,7 @@ def component_status(data_dir) -> dict:
         }
     try:
         payload = json.loads(marker.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {"installed": False, "reason": "component marker is invalid"}
     installed = all(
         payload.get(key) == manifest[key]
@@ -285,12 +285,16 @@ def _safe_extract(archive_path: Path, destination: Path, manifest: dict) -> None
                 raise RuntimeError("optional component archive contains a special file")
             unpacked += 0 if item.is_dir() else item.file_size
             if unpacked > MAX_UNPACKED_BYTES:
-                raise RuntimeError("optional component archive expands beyond its limit")
+                raise RuntimeError(
+                    "optional component archive expands beyond its limit"
+                )
             entries.append((item, relative, mode, kind))
 
         for _, relative, _, _ in entries:
             if any(parent in symlinks for parent in relative.parents):
-                raise RuntimeError("optional component archive nests content under a symlink")
+                raise RuntimeError(
+                    "optional component archive nests content under a symlink"
+                )
 
         for item, relative, mode, kind in sorted(
             entries, key=lambda entry: entry[3] == "symlink"
@@ -311,7 +315,9 @@ def _safe_extract(archive_path: Path, destination: Path, manifest: dict) -> None
                 if link_path.is_absolute() or not (
                     target.parent / Path(*link_path.parts)
                 ).resolve().is_relative_to(resolved_destination):
-                    raise RuntimeError("optional component archive symlink escapes its root")
+                    raise RuntimeError(
+                        "optional component archive symlink escapes its root"
+                    )
                 target.symlink_to(link)
 
 
@@ -319,7 +325,9 @@ def _checked_component_payload(completed, manifest: dict) -> dict:
     try:
         payload = json.loads(completed.stdout.splitlines()[-1])
     except (IndexError, json.JSONDecodeError) as error:
-        raise RuntimeError("optional Deezer component check returned invalid output") from error
+        raise RuntimeError(
+            "optional Deezer component check returned invalid output"
+        ) from error
     expected = {
         "result": "CHECK_PASSED",
         "streamrip_version": STREAMRIP_VERSION,
@@ -359,7 +367,9 @@ def install_component(data_dir, *, runner=subprocess.run) -> dict:
         ) as archive:
             archive_path = Path(archive.name)
             _copy_component_archive(manifest, archive)
-        with tempfile.TemporaryDirectory(prefix="component-install-", dir=parent) as raw_stage:
+        with tempfile.TemporaryDirectory(
+            prefix="component-install-", dir=parent
+        ) as raw_stage:
             staged = Path(raw_stage) / "component"
             _safe_extract(archive_path, staged, manifest)
             executable = staged / manifest["executable"]
@@ -392,8 +402,154 @@ def install_component(data_dir, *, runner=subprocess.run) -> dict:
     return component_status(data_dir)
 
 
+def acquisition_root(storage_root) -> Path:
+    """Canonical acquisition workspace root, refusing symlinked ancestors.
+
+    ``<storage>/_syncbox/acquisition`` must resolve to itself: with any of
+    its managed path segments symlinked (e.g. ``acquisition -> /victim``),
+    every workspace cleanup or migration source under it would actually
+    traverse the link target.
+    """
+    root = Path(storage_root).expanduser().resolve(strict=False)
+    raw = root / SYNC_DIR_NAME / "acquisition"
+    if raw.resolve(strict=False) != raw:
+        raise ValueError(
+            f"acquisition storage must not use symbolic links: {raw}"
+        )
+    return raw
+
+
 def acquisition_output_dir(storage_root, job_id: int) -> Path:
     return Path(storage_root) / SYNC_DIR_NAME / "acquisition" / f"job-{job_id}"
+
+
+def validated_job_workspace(storage_root, job_id: int) -> Path:
+    """Validate ``job-N`` as a direct canonical child of the acquisition root.
+
+    Called immediately before EVERY workspace creation or deletion — never
+    trust a path validated earlier in the job's lifetime.
+    """
+    work_dir = acquisition_root(storage_root) / f"job-{int(job_id)}"
+    if work_dir.is_symlink() or work_dir.resolve(strict=False) != work_dir:
+        raise ValueError(
+            f"acquisition workspace must not use symbolic links: {work_dir}"
+        )
+    return work_dir
+
+
+def reset_job_workspace(storage_root, job_id: int) -> Path:
+    """Create a fresh, validated workspace for one download attempt."""
+    work_dir = validated_job_workspace(storage_root, job_id)
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+    work_dir.mkdir(parents=True)
+    return work_dir
+
+
+def cleanup_job_workspace(storage_root, job_id: int) -> None:
+    """Remove a job workspace, refusing (not crashing) on unsafe paths."""
+    try:
+        work_dir = validated_job_workspace(storage_root, job_id)
+    except ValueError:
+        log.warning(
+            "refusing to clean an unsafe acquisition workspace for job %s", job_id
+        )
+        return
+    if work_dir.exists():
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def event_audio_destination(storage_root, staging_dir, *, event_slug) -> Path:
+    """Resolve an event-owned audio directory without following managed symlinks.
+
+    The staging directory must be EXACTLY ``<storage>/_syncbox/events/<slug>``
+    for the owning event: merely being somewhere below the events root would
+    let a corrupted ``staging_dir`` publish one event's audio into another
+    event's folder, which that event's deletion would then destroy.
+    """
+    root = Path(storage_root).expanduser().resolve(strict=False)
+    raw_events_root = root / SYNC_DIR_NAME / "events"
+    events_root = raw_events_root.resolve(strict=False)
+    if events_root != raw_events_root:
+        raise ValueError(
+            f"event storage must not use symbolic links: {raw_events_root}"
+        )
+    if not event_slug or Path(event_slug).name != str(event_slug):
+        raise ValueError(f"invalid event slug: {event_slug!r}")
+    raw_staging = Path(staging_dir).expanduser()
+    if raw_staging.is_symlink():
+        raise ValueError(f"event staging directory is a symbolic link: {raw_staging}")
+    staging = raw_staging.resolve(strict=False)
+    if staging != events_root / str(event_slug):
+        raise ValueError(
+            f"event staging directory does not match event {event_slug!r}: {staging}"
+        )
+    raw_destination = staging / "audio"
+    if raw_destination.is_symlink():
+        raise ValueError(
+            f"event audio destination is a symbolic link: {raw_destination}"
+        )
+    return raw_destination.resolve(strict=False)
+
+
+def collection_destination(storage_root) -> Path:
+    """Resolve the permanent Collection directory without following symlinks."""
+    root = Path(storage_root).expanduser().resolve(strict=False)
+    raw_destination = root / "rekordbox" / "Collection"
+    destination = raw_destination.resolve(strict=False)
+    if destination != raw_destination:
+        raise ValueError(
+            f"Rekordbox Collection must not use symbolic links: {raw_destination}"
+        )
+    return destination
+
+
+def plan_publish_destination(source, destination_dir) -> Path:
+    """Pick the collision-free destination WITHOUT moving anything.
+
+    Persisting this plan before the move makes publication deterministic:
+    a crashed job resumes on the exact same target instead of drifting to
+    a fresh `` - N`` duplicate.
+    """
+    source = Path(source)
+    destination_dir = Path(destination_dir).resolve(strict=False)
+    destination = destination_dir / source.name
+    suffix = 1
+    while destination.exists():
+        suffix += 1
+        destination = destination_dir / f"{source.stem} - {suffix}{source.suffix}"
+    return destination
+
+
+def publish_download(source, destination_dir, *, destination=None) -> Path:
+    """Move a completed download into its semantic owner without overwriting."""
+    raw_source = Path(source)
+    if raw_source.is_symlink():
+        raise ValueError(f"download output is a symbolic link: {raw_source}")
+    source = raw_source.resolve(strict=True)
+    if not source.is_file():
+        raise ValueError(f"download output is not a safe regular file: {source}")
+    raw_destination_dir = Path(destination_dir)
+    if raw_destination_dir.is_symlink():
+        raise ValueError(
+            f"download destination is a symbolic link: {raw_destination_dir}"
+        )
+    destination_dir = raw_destination_dir.resolve(strict=False)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+
+    if destination is None:
+        destination = plan_publish_destination(source, destination_dir)
+    else:
+        destination = Path(destination)
+        if destination.parent != destination_dir:
+            raise ValueError(
+                f"planned destination escapes its directory: {destination}"
+            )
+        if destination.exists():
+            raise ValueError(
+                f"planned destination is already taken: {destination}"
+            )
+    return Path(shutil.move(str(source), str(destination))).resolve(strict=True)
 
 
 def run_deezer_download(

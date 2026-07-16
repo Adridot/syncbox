@@ -206,7 +206,9 @@ def _anlz_paths(db_path: Path, analysis_data_path) -> list[Path]:
             raise EventMigrationError(f"ANLZ path is not a regular file: {candidate}")
         resolved = candidate.resolve(strict=True)
         if resolved.parent != directory.resolve(strict=True):
-            raise EventMigrationError(f"ANLZ path escapes its analysis directory: {candidate}")
+            raise EventMigrationError(
+                f"ANLZ path escapes its analysis directory: {candidate}"
+            )
         paths.append(resolved)
     return paths
 
@@ -252,11 +254,10 @@ def _migration_destination(
                     source_digest = _sha256(source)
                     source_state["sha256"] = source_digest
                 state["sha256"] = _sha256(candidate)
-                if (
-                    state["sha256"] == source_digest
-                    and not _referenced_by_other_content(
-                        candidate, content_id, active_paths, storage_root
-                    )
+                if state[
+                    "sha256"
+                ] == source_digest and not _referenced_by_other_content(
+                    candidate, content_id, active_paths, storage_root
                 ):
                     inspected.append(state)
                     return candidate, True, inspected, source_state
@@ -286,7 +287,9 @@ def build_plan(query, event, storage_root, db_path, db_fingerprint) -> dict:
                 f"event staging directory escapes app-managed storage: {staging}"
             ) from exc
         if staging == expected_parent:
-            raise EventMigrationError("event staging directory cannot be the events root")
+            raise EventMigrationError(
+                "event staging directory cannot be the events root"
+            )
     collection_raw = root / "rekordbox" / "Collection"
     collection = collection_raw.resolve(strict=False)
     if collection != collection_raw:
@@ -329,10 +332,8 @@ def build_plan(query, event, storage_root, db_path, db_fingerprint) -> dict:
                 action = "migrate_to_collection"
             elif in_event_staging:
                 action = "delete_with_event"
-            elif retaining_ids:
-                action = "already_permanent"
             else:
-                action = "soft_delete_only"
+                action = "keep_in_place"
 
             destination = None
             destination_reused = False
@@ -466,8 +467,7 @@ def _fingerprint_tuple(value) -> tuple[tuple[str, ...], ...]:
 
 def _state_by_content(plan, key: str) -> dict[str, dict]:
     return {
-        str(state["content_id"]): state
-        for state in plan["validation"].get(key, [])
+        str(state["content_id"]): state for state in plan["validation"].get(key, [])
     }
 
 
@@ -527,7 +527,7 @@ def _copy_migration(
     if expected_source.get("kind") != "file":
         raise EventMigrationError(
             f"retained track source is missing or not a regular file: {source}"
-    )
+        )
     source_digest = _sha256(source)
     if resume_existing:
         destination_state = _file_state(destination, with_hash=True)
@@ -569,9 +569,13 @@ def _copy_migration(
             output_stream.flush()
             os.fsync(output_stream.fileno())
         if temp.stat().st_size != source.stat().st_size:
-            raise EventMigrationError(f"migration copy size verification failed: {source}")
+            raise EventMigrationError(
+                f"migration copy size verification failed: {source}"
+            )
         if copied_digest.hexdigest() != source_digest or _sha256(temp) != source_digest:
-            raise EventMigrationError(f"migration copy checksum verification failed: {source}")
+            raise EventMigrationError(
+                f"migration copy checksum verification failed: {source}"
+            )
         _assert_state(expected_source)
         _rename_exclusive(temp, destination)
         published = True
@@ -641,11 +645,7 @@ def _verify_migration_destinations(plan: dict) -> None:
         digest = source.get("sha256")
         destination = Path(track["destination_path"])
         state = _file_state(destination, with_hash=True)
-        if (
-            not digest
-            or state.get("kind") != "file"
-            or state.get("sha256") != digest
-        ):
+        if not digest or state.get("kind") != "file" or state.get("sha256") != digest:
             raise EventCleanupError(
                 "retained-track destination is missing or changed; staging was "
                 f"kept for recovery: {destination}"
@@ -659,9 +659,7 @@ def _verify_live_plan(db, plan: dict, storage_root) -> None:
     expected_tags = _state_by_content(plan, "active_mytags")
     for track in plan["tracks"]:
         row = db.session.execute(
-            text(
-                "SELECT FolderPath, rb_local_deleted FROM djmdContent WHERE ID = :id"
-            ),
+            text("SELECT FolderPath, rb_local_deleted FROM djmdContent WHERE ID = :id"),
             {"id": track["content_id"]},
         ).one_or_none()
         if row is None or int(row[1] or 0):
@@ -720,7 +718,7 @@ def _execute_rekordbox_plan(db, plan: dict, storage_root) -> None:
                     anlz_paths=anlz_paths.get(track["content_id"], ()),
                 )
             untag_content(db, track["content_id"], tag_id)
-            if track["action"] in ("delete_with_event", "soft_delete_only"):
+            if track["action"] == "delete_with_event":
                 soft_delete_content(db, track["content_id"])
         soft_delete_mytag(db, tag_id)
     for playlist in plan["playlists"]:
@@ -751,7 +749,7 @@ def _db_plan_committed(db_path, plan: dict, storage_root) -> bool:
             ).fetchone()
             if row is None:
                 return False
-            if track["action"] in ("delete_with_event", "soft_delete_only"):
+            if track["action"] == "delete_with_event":
                 if not int(row[1] or 0):
                     return False
             else:
@@ -762,7 +760,9 @@ def _db_plan_committed(db_path, plan: dict, storage_root) -> bool:
                     if track["action"] == "migrate_to_collection"
                     else track["source_path"]
                 )
-                if expected_path and not paths_equal(row[0], expected_path, storage_root):
+                if expected_path and not paths_equal(
+                    row[0], expected_path, storage_root
+                ):
                     return False
         return True
     finally:
@@ -822,13 +822,19 @@ def _restore_playlist_xml(plan: dict, db_path: Path, backup_path) -> None:
     if {key: current.get(key) for key in expected} == expected:
         return
     if not backup_path:
-        raise EventCleanupError("playlist XML needs restoration but no backup is recorded")
+        raise EventCleanupError(
+            "playlist XML needs restoration but no backup is recorded"
+        )
     try:
-        relative = Path(state["path"]).resolve(strict=False).relative_to(
-            db_path.parent.resolve(strict=False)
+        relative = (
+            Path(state["path"])
+            .resolve(strict=False)
+            .relative_to(db_path.parent.resolve(strict=False))
         )
     except ValueError as exc:
-        raise EventCleanupError("playlist XML path escapes the database directory") from exc
+        raise EventCleanupError(
+            "playlist XML path escapes the database directory"
+        ) from exc
     source = Path(backup_path) / "extra" / relative
     if source.is_symlink() or not source.is_file():
         raise EventCleanupError(f"playlist XML backup is missing: {source}")
@@ -842,14 +848,15 @@ def _cleanup_planned_files(event, plan: dict, *, consent: bool) -> list[str]:
         else None
     )
     cleanup_states = {
-        state["path"]: state
-        for state in plan["validation"].get("cleanup_files", [])
+        state["path"]: state for state in plan["validation"].get("cleanup_files", [])
     }
     ready = []
     for value in plan["expected_file_deletions"]:
         path = Path(value)
         if staging is None or not _inside_staging(path, staging):
-            raise EventCleanupError(f"planned cleanup path escapes event staging: {path}")
+            raise EventCleanupError(
+                f"planned cleanup path escapes event staging: {path}"
+            )
         expected = cleanup_states.get(str(path))
         if expected is None:
             raise EventCleanupError(f"planned cleanup has no file state: {path}")
@@ -994,7 +1001,8 @@ def delete_event(
     dry_run: bool = True,
     plan=None,
     consent_to_permanent_delete: bool = False,
-    retention: int = 15,
+    retention: int = 20,
+    app_db_path=None,
 ) -> dict:
     """Preview or execute one exact, recoverable event deletion plan."""
     event = _get_event(conn, event["id"])
@@ -1008,7 +1016,9 @@ def delete_event(
         if stored:
             return stored
         _assert_event_tag_exclusive(conn, event)
-        return read_plan(db_path, event, storage_root)
+        preview = read_plan(db_path, event, storage_root)
+        preview["unresolved"] = _unresolved_issues(conn, event, preview)
+        return preview
 
     if not isinstance(plan, dict):
         raise ValueError("event deletion execution requires the exact preview plan")
@@ -1016,6 +1026,8 @@ def delete_event(
         raise ValueError("unsupported event deletion plan version")
     if int(plan.get("event_id", -1)) != int(event["id"]):
         raise ValueError("event deletion plan targets a different event")
+    if plan.get("unresolved"):
+        raise ValueError("event deletion has unresolved cases")
 
     stored = json.loads(event["delete_plan"]) if event.get("delete_plan") else None
     if stored is not None and stored != plan:
@@ -1072,6 +1084,7 @@ def delete_event(
     if not resuming:
         _assert_event_tag_exclusive(conn, event)
         fresh = read_plan(db_path, event, storage_root)
+        fresh["unresolved"] = _unresolved_issues(conn, event, fresh)
         if fresh != plan:
             _clear_delete_state(conn, event["id"])
             raise StaleSnapshotError(
@@ -1086,7 +1099,9 @@ def delete_event(
     sources = _state_by_content(plan, "sources")
     created_destinations = []
     backup_paths = []
-    previous_backup = Path(event["delete_backup"]) if event.get("delete_backup") else None
+    previous_backup = (
+        Path(event["delete_backup"]) if event.get("delete_backup") else None
+    )
     mutation_attempted = False
     try:
         for track in plan["tracks"]:
@@ -1132,6 +1147,8 @@ def delete_event(
                 open_db=open_rekordbox,
                 backup_files=backup_files,
                 backup_observer=remember_backup,
+                app_db_path=app_db_path,
+                backup_reason="event_delete",
             ) as db:
                 conn.execute(
                     "UPDATE events SET delete_phase = 'mutating' WHERE id = ?",
@@ -1209,9 +1226,7 @@ def delete_event(
     _assert_guarded_cleanup(db_path, plan)
     _verify_migration_destinations(plan)
     _restore_playlist_xml(plan, db_path, backup_path)
-    removed = _cleanup_planned_files(
-        event, plan, consent=consent_to_permanent_delete
-    )
+    removed = _cleanup_planned_files(event, plan, consent=consent_to_permanent_delete)
     conn.execute("DELETE FROM events WHERE id = ?", (event["id"],))
     _release_backup(backup_path)
     return {
@@ -1226,3 +1241,59 @@ def delete_event(
 def _get_event(conn, event_id):
     row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
     return dict(row) if row is not None else None
+
+
+def _unresolved_issues(conn, event, plan: dict) -> list[dict]:
+    """Every blocker the preview can already prove, not only active jobs.
+
+    A retained track whose source is missing or not a regular file would
+    only fail later inside ``_copy_migration``; surfacing it here blocks
+    the destructive action from the preview on, with resolution options
+    the user can act on.
+    """
+    issues = _active_acquisition_issues(conn, event["id"])
+    sources = {
+        state.get("content_id"): state
+        for state in plan.get("validation", {}).get("sources", [])
+    }
+    for track in plan.get("tracks", []):
+        if track["action"] != "migrate_to_collection":
+            continue
+        state = sources.get(track["content_id"]) or {}
+        if not state.get("exists"):
+            kind = "missing_retained_source"
+        elif state.get("kind") != "file":
+            kind = "unsafe_retained_source"
+        else:
+            continue
+        issues.append(
+            {
+                "id": f"{kind}-{track['content_id']}",
+                "kind": kind,
+                "title": track["title"],
+                "artist": track["artist"],
+                "content_id": track["content_id"],
+                "source_path": track["source_path"],
+                "resolution_options": ["relink_in_rekordbox", "remove_from_rekordbox"],
+            }
+        )
+    return issues
+
+
+def _active_acquisition_issues(conn, event_id) -> list[dict]:
+    return [
+        {
+            "id": f"acquisition-job-{row['id']}",
+            "kind": "active_acquisition",
+            "title": row["title"],
+            "artist": row["artist"],
+            "job_id": row["id"],
+            "status": row["status"],
+            "resolution_options": [],
+        }
+        for row in conn.execute(
+            "SELECT id, title, artist, status FROM acquisition_jobs "
+            "WHERE event_id = ? AND status IN ('queued', 'running') ORDER BY id",
+            (event_id,),
+        )
+    ]

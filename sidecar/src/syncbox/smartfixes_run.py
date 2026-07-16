@@ -35,8 +35,9 @@ def execute(
     storage_root,
     dry: dict,
     *,
-    retention: int = 15,
+    retention: int = 20,
     open_db=open_rekordbox,
+    app_db_path=None,
 ) -> dict:
     """Apply the complete confirmed plan after exact server-side revalidation."""
     if dry.get("fingerprint") is None:
@@ -67,6 +68,8 @@ def execute(
         expected_fingerprint=dry["fingerprint"],
         open_db=open_db,
         invalidate_cache=cache.invalidate,
+        app_db_path=app_db_path,
+        backup_reason="smart_fixes",
     ) as db:
         for content_id, changes in grouped.items():
             set_content_fields(db, content_id, changes)

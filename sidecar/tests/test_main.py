@@ -1,5 +1,6 @@
 """Composition root and read-only frozen-runtime diagnostic seam."""
 
+import hashlib
 import json
 import logging
 
@@ -155,3 +156,79 @@ def test_packaging_check_exercises_runtime_dependencies_without_app_data(
 def test_packaging_check_rejects_extra_arguments(capsys):
     assert main(["--packaging-check", "extra"]) == 2
     assert "--packaging-check" in capsys.readouterr().err
+
+
+def test_second_sidecar_fails_before_touching_the_first_instances_queue(
+    tmp_path, monkeypatch
+):
+    """Review P1: single-instance ownership (the exclusive port bind) comes
+    BEFORE any queue reset or worker start — a second sidecar exits without
+    requeueing or claiming the live instance's running job."""
+    from syncbox import appdb, server
+
+    conn = appdb.open_app_db(tmp_path / "syncbox.db")
+    conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, status, claimed_by) "
+        "VALUES ('library', '1', 'Live', 'running', 'first-instance')"
+    )
+    conn.close()
+    monkeypatch.setenv("SYNCBOX_DATA_DIR", str(tmp_path))
+
+    constructed = []
+    monkeypatch.setattr(
+        "syncbox.__main__.api.AcquisitionWorker",
+        lambda deps: constructed.append(deps),
+    )
+
+    def refuse_bind(*args, **kwargs):
+        raise server.PortInUseError(server.HOST, server.PORT)
+
+    monkeypatch.setattr("syncbox.__main__.server.bind_api_socket", refuse_bind)
+
+    assert main([]) == 1
+
+    assert constructed == []  # the worker was never even created
+    conn = appdb.open_app_db(tmp_path / "syncbox.db")
+    try:
+        job = conn.execute(
+            "SELECT status, claimed_by FROM acquisition_jobs"
+        ).fetchone()
+        assert (job["status"], job["claimed_by"]) == ("running", "first-instance")
+    finally:
+        conn.close()
+
+
+def test_compose_recovers_an_interrupted_restore_before_opening_the_app_db(
+    tmp_path,
+):
+    """Review P1: a durable restore journal left by a crash is resolved at
+    startup, before anything opens the half-restored pair."""
+    from syncbox.safety import backup as safety_backup
+
+    target = tmp_path / "master.db"
+    target.write_bytes(b"old epoch")
+    staged = target.with_name(target.name + ".restore-tmp")
+    staged.write_bytes(b"backup epoch")
+    digest = hashlib.sha256(b"backup epoch").hexdigest()
+    safety_backup._write_restore_journal(
+        tmp_path,
+        {
+            "schema": 1,
+            "created_at": "2026-07-16T00:00:00",
+            "source": str(tmp_path),
+            "snapshot": None,
+            "db_path": str(target),
+            "app_db_path": None,
+            "replacements": [
+                {"staged": str(staged), "target": str(target), "sha256": digest}
+            ],
+            "removals": [],
+        },
+    )
+
+    app = compose(tmp_path, oauth_listener=FakeOAuthListener())
+
+    assert target.read_bytes() == b"backup epoch"
+    assert not (tmp_path / safety_backup._RESTORE_JOURNAL).exists()
+    app.state.secrets.close()
+    app.state.deps.conn.close()

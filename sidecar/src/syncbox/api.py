@@ -26,9 +26,10 @@ rb.open_readonly. File deletion happens strictly AFTER the durable commit
 (5.4 order) via platform_os.delete_file.
 """
 
+import hashlib
 import json
+import logging
 import re
-import sqlite3
 import threading
 import uuid as uuidlib
 from collections import deque
@@ -42,6 +43,7 @@ from starlette.routing import Route
 
 from syncbox import (
     acquisition,
+    acquisition_migration,
     appdb,
     dedup,
     events_service,
@@ -89,6 +91,7 @@ _REMATCH_REFUSED = frozenset({"ignored", "imported", "ready", "removed_from_sour
 _LIBRARY_STATUS = {"matched": "matched", "ambiguous": "conflict", "missing": "missing"}
 
 _SOURCE_PATCHABLE = ("name", "tags", "enabled")
+log = logging.getLogger(__name__)
 
 
 # --- wiring bag -------------------------------------------------------------------
@@ -130,10 +133,15 @@ class Deps:
         self.spotify_client = spotify_client
         self.oauth_listener = oauth_listener
         self.log_path = log_path
-        self.data_dir = Path(data_dir or (Path(app_db_path).parent if app_db_path else "."))
+        self.data_dir = Path(
+            data_dir or (Path(app_db_path).parent if app_db_path else ".")
+        )
         self.secrets = secrets
-        self.acquisition_installer = acquisition_installer or acquisition.install_component
+        self.acquisition_installer = (
+            acquisition_installer or acquisition.install_component
+        )
         self.acquisition_runner = acquisition_runner or acquisition.run_deezer_download
+        self.acquisition_worker = None
         self.lock = threading.RLock()
         self._injected_cache = cache  # tests inject a fake snapshot cache
         self._cache = None
@@ -163,6 +171,91 @@ class Deps:
             self._cache = SnapshotCache(db)
             self._cache_db = db
         return self._cache
+
+
+class AcquisitionWorker:
+    """Single persistent FIFO worker for queued acquisition jobs.
+
+    Must be started only AFTER single-instance ownership is established
+    (the exclusive API port bind in ``__main__.main``): requeueing every
+    'running' job on startup is safe exactly because holding the port
+    proves the claimant of those jobs is dead — that transfer is what
+    expires its claim. The worker runs on its own app-DB connection so a
+    download never holds ``deps.lock``; claims are single atomic
+    ``BEGIN IMMEDIATE`` + ``UPDATE ... RETURNING`` transactions, FIFO by
+    job id.
+    """
+
+    def __init__(self, deps: Deps, *, connect=None):
+        self.deps = deps
+        self.instance_id = uuidlib.uuid4().hex
+        self._connect = connect or (lambda: appdb.connect(deps.app_db_path))
+        self._conn = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="syncbox-acquisition",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._conn = self._connect()
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute(
+                "UPDATE acquisition_jobs SET status = 'queued', "
+                "claimed_by = NULL, claimed_at = NULL, "
+                "error = 'resumed after sidecar restart', "
+                "updated_at = datetime('now') WHERE status = 'running'"
+            )
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        self._thread.start()
+
+    def stop(self, timeout: float = 3) -> bool:
+        self._stop.set()
+        if (
+            self._thread.ident is not None
+            and self._thread is not threading.current_thread()
+        ):
+            self._thread.join(timeout)
+        stopped = not self._thread.is_alive()
+        if stopped and self._conn is not None:
+            self._conn.close()
+            self._conn = None
+        return stopped
+
+    def _claim(self):
+        """Atomically claim the oldest queued job; None when the queue is empty."""
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._conn.execute(
+                "UPDATE acquisition_jobs SET status = 'running', error = NULL, "
+                "claimed_by = ?, claimed_at = datetime('now'), "
+                "updated_at = datetime('now') "
+                "WHERE id = (SELECT id FROM acquisition_jobs "
+                "            WHERE status = 'queued' ORDER BY id LIMIT 1) "
+                "RETURNING id",
+                (self.instance_id,),
+            ).fetchone()
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        return row["id"] if row is not None else None
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                job_id = self._claim()
+                if job_id is not None:
+                    _run_acquisition_job(self.deps, job_id, conn=self._conn)
+                    continue
+            except Exception:
+                log.exception("acquisition worker iteration failed")
+            self._stop.wait(0.5)
 
 
 def build_app(deps: Deps):
@@ -242,7 +335,9 @@ def _error_response(exc) -> JSONResponse | None:
         message = str(exc.args[0]) if exc.args else "not found"
         return JSONResponse({"error": "not_found", "message": message}, status_code=404)
     if isinstance(exc, FileNotFoundError):
-        return JSONResponse({"error": "not_found", "message": str(exc)}, status_code=404)
+        return JSONResponse(
+            {"error": "not_found", "message": str(exc)}, status_code=404
+        )
     if isinstance(exc, (ValueError, TypeError, re.error)):
         return JSONResponse(
             {"error": "invalid_request", "message": str(exc)}, status_code=400
@@ -460,7 +555,11 @@ def sources_sync_one(deps, request, body):
     progress = _Progress(deps.bus, "sources.sync")
     progress.publish(0, 1)
     result = library_service.sync_one_source(
-        deps.conn, client, deps.cache(), deps.storage_root, source,
+        deps.conn,
+        client,
+        deps.cache(),
+        deps.storage_root,
+        source,
         **_matching_thresholds(deps),
     )
     progress.publish(1, 1)
@@ -478,7 +577,11 @@ def sources_sync_all(deps, request, body):
     for done, source in enumerate(sources, start=1):
         try:
             result = library_service.sync_one_source(
-                deps.conn, client, deps.cache(), deps.storage_root, source,
+                deps.conn,
+                client,
+                deps.cache(),
+                deps.storage_root,
+                source,
                 **thresholds,
             )
             results.append({"source_id": source["id"], **result})
@@ -508,7 +611,8 @@ def source_tracks(deps, request, body):
         tracks = [
             t
             for t in tracks
-            if query in (t["title"] or "").lower() or query in (t["artist"] or "").lower()
+            if query in (t["title"] or "").lower()
+            or query in (t["artist"] or "").lower()
         ]
     # Bit-rate chip data (SPEC-DESIGN TrackReviewTable): the matched RB row's
     # declared bitrate, joined from the read-only snapshot. Decoration only -
@@ -545,6 +649,7 @@ def source_apply(deps, request, body):
         source["id"],
         track_ids,
         retention=deps.retention,
+        app_db_path=deps.app_db_path,
     )
     progress.publish(1, 1)
     progress.done(source_id=source["id"], **result)
@@ -753,7 +858,9 @@ def events_list(deps, request, body):
             {
                 **event,
                 "n_tracks": row["n_tracks"] if row else 0,
-                "pending_delta": (row["pending_delta"] or 0) if (row and applied) else 0,
+                "pending_delta": (row["pending_delta"] or 0)
+                if (row and applied)
+                else 0,
             }
         )
     return {"events": out}
@@ -860,7 +967,10 @@ def events_match(deps, request, body):
     event = _get_event(deps, request.path_params["event_id"])
     _require_rekordbox(deps)
     tracks = events_service.match_event_tracks(
-        deps.conn, event, deps.cache(), deps.storage_root,
+        deps.conn,
+        event,
+        deps.cache(),
+        deps.storage_root,
         **_matching_thresholds(deps),
     )
     return {"tracks": tracks}
@@ -876,7 +986,10 @@ def _try_match_event(deps, event):
     error) leaves rows 'missing', re-attempted on the next trigger."""
     try:
         return events_service.match_event_tracks(
-            deps.conn, event, deps.cache(), deps.storage_root,
+            deps.conn,
+            event,
+            deps.cache(),
+            deps.storage_root,
             **_matching_thresholds(deps),
         )
     except Exception:
@@ -893,9 +1006,7 @@ def events_claim(deps, request, body):
 def _events_apply(deps, request, *, only_delta: bool):
     event = _get_event(deps, request.path_params["event_id"])
     _require_rekordbox(deps)
-    progress = _Progress(
-        deps.bus, "events.reapply" if only_delta else "events.apply"
-    )
+    progress = _Progress(deps.bus, "events.reapply" if only_delta else "events.apply")
     progress.publish(0, 1)
     result = events_service.apply_event(
         deps.conn,
@@ -906,6 +1017,7 @@ def _events_apply(deps, request, *, only_delta: bool):
         event,
         only_delta=only_delta,
         retention=deps.retention,
+        app_db_path=deps.app_db_path,
     )
     progress.publish(1, 1)
     progress.done(event_id=event["id"], **{k: result[k] for k in ("noop", "applied")})
@@ -936,6 +1048,7 @@ def events_delete(deps, request, body):
         plan=body.get("plan"),
         consent_to_permanent_delete=bool(body.get("consent_to_permanent_delete")),
         retention=deps.retention,
+        app_db_path=deps.app_db_path,
     )
 
 
@@ -997,6 +1110,8 @@ def missing_remove(deps, request, body):
         expected_fingerprint=cache.current_fingerprint,
         open_db=open_rekordbox,
         invalidate_cache=cache.invalidate,
+        app_db_path=deps.app_db_path,
+        backup_reason="missing_remove",
     ) as db:
         soft_delete_content(db, content_id)
     return {"soft_deleted": content_id}
@@ -1013,6 +1128,7 @@ def missing_relink(deps, request, body):
         _require(body, "path"),
         anlz_consent=bool(body.get("anlz_consent")),
         retention=deps.retention,
+        app_db_path=deps.app_db_path,
     )
     return {"content_id": request.path_params["content_id"], "stored_path": stored}
 
@@ -1066,7 +1182,9 @@ def acquisition_status(deps, request, body):
 def acquisition_arl_set(deps, request, body):
     if deps.secrets is None:
         raise ValueError("secrets store is not configured")
-    deps.secrets.set(acquisition.DEEZER_ARL_SECRET, acquisition.validate_arl(_require(body, "arl")))
+    deps.secrets.set(
+        acquisition.DEEZER_ARL_SECRET, acquisition.validate_arl(_require(body, "arl"))
+    )
     return acquisition_status(deps, request, body)
 
 
@@ -1096,46 +1214,100 @@ def acquisition_component_install(deps, request, body):
     return {"component": component}
 
 
-def _acquisition_entry(deps, scope: str, ref: str, *, require_isrc: bool = True) -> dict:
+def _acquisition_entry(
+    deps, scope: str, ref: str, *, require_isrc: bool = True, conn=None
+) -> dict:
     # require_isrc=False: a manually chosen Deezer track supplies its own
     # ISRC, so the row does not need one
+    conn = deps.conn if conn is None else conn
+
     def isrc_of(value) -> str | None:
         return acquisition.normalize_isrc(value) if require_isrc else None
 
     if scope in ("library", "event"):
-        table = {"library": "library_tracks", "event": "event_tracks"}[scope]
-        row = deps.conn.execute(f"SELECT * FROM {table} WHERE id = ?", (ref,)).fetchone()
+        if scope == "event":
+            row = conn.execute(
+                "SELECT event_tracks.*, events.staging_dir, events.slug AS event_slug, "
+                "events.delete_phase AS event_delete_phase "
+                "FROM event_tracks JOIN events ON events.id = event_tracks.event_id "
+                "WHERE event_tracks.id = ?",
+                (ref,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM library_tracks WHERE id = ?", (ref,)
+            ).fetchone()
         if row is None:
             raise KeyError(f"{scope} track {ref} not found")
         if row["status"] not in missing_service.MISSING_STATUSES:
             raise ConflictError(f"{scope} track {ref} is not missing")
-        return {
+        if scope == "event" and row["event_delete_phase"]:
+            raise ConflictError(
+                "the event is being deleted and cannot accept downloads"
+            )
+        entry = {
             "scope": scope,
-            "ref": str(ref),
+            # Canonical ref: always the id SQLite actually resolved, so
+            # spellings such as '01' can never coexist with '1' as two
+            # distinct active keys.
+            "ref": str(row["id"]),
             "title": row["title"],
             "artist": row["artist"],
             "isrc": isrc_of(row["isrc"]),
+            "event_id": row["event_id"] if scope == "event" else None,
+            "event_track_id": row["id"] if scope == "event" else None,
+            "library_track_id": row["id"] if scope == "library" else None,
         }
+        if scope == "event":
+            staging_dir = row["staging_dir"] or str(
+                Path(deps.storage_root) / SYNC_DIR_NAME / "events" / row["event_slug"]
+            )
+            destination_dir = acquisition.event_audio_destination(
+                deps.storage_root, staging_dir, event_slug=row["event_slug"]
+            )
+            if not row["staging_dir"]:
+                conn.execute(
+                    "UPDATE events SET staging_dir = ? WHERE id = ?",
+                    (str(destination_dir.parent), row["event_id"]),
+                )
+            entry["destination_dir"] = str(destination_dir)
+        else:
+            entry["destination_dir"] = str(
+                acquisition.collection_destination(deps.storage_root)
+            )
+        return entry
     if scope == "collection":
         _require_rekordbox(deps)
         row = next(
-            (r for r in deps.cache().get(deps.storage_root) if str(r["content_id"]) == str(ref)),
+            (
+                r
+                for r in deps.cache().get(deps.storage_root)
+                if str(r["content_id"]) == str(ref)
+            ),
             None,
         )
         if row is None or not row["file_missing"]:
             raise KeyError(f"missing collection content {ref} not found")
         return {
             "scope": scope,
-            "ref": str(ref),
+            "ref": str(row["content_id"]),
             "title": row["title"],
             "artist": row["artist"],
             "isrc": isrc_of(row["isrc"]),
+            "event_id": None,
+            "event_track_id": None,
+            "library_track_id": None,
+            "destination_dir": str(
+                acquisition.collection_destination(deps.storage_root)
+            ),
         }
     raise ValueError(f"unknown acquisition scope {scope!r}")
 
 
 def _job_row(conn, job_id: int) -> dict:
-    row = conn.execute("SELECT * FROM acquisition_jobs WHERE id = ?", (job_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM acquisition_jobs WHERE id = ?", (job_id,)
+    ).fetchone()
     if row is None:
         raise KeyError(f"acquisition job {job_id} not found")
     return dict(row)
@@ -1176,18 +1348,222 @@ def _acquisition_error_text(exc: Exception) -> str:
     return (str(exc).strip() or type(exc).__name__)[:300]
 
 
-def acquisition_job_start(deps, request, body):
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _published_output(job: dict) -> str | None:
+    """Validated resume point: this job's durably published output, or None.
+
+    A job that crossed the ``publishing``/``published`` phase persisted its
+    deterministic destination and content hash BEFORE moving the file, so a
+    restart can finish the owner update or relink from the existing output
+    instead of downloading again (and drifting to a `` - 2`` duplicate).
+    """
+    if job.get("phase") not in ("publishing", "published"):
+        return None
+    path = job.get("published_path")
+    digest = job.get("published_sha256")
+    if not path or not digest:
+        return None
+    candidate = Path(path)
+    if candidate.is_symlink() or not candidate.is_file():
+        return None
+    if _file_sha256(candidate) != digest:
+        return None
+    return str(candidate)
+
+
+def _run_acquisition_job(deps, job_id: int, progress=None, *, conn=None) -> dict:
+    """Execute one claimed job.
+
+    ``conn`` is the executing thread's own app-DB connection (the persistent
+    worker passes its dedicated one; the synchronous HTTP path keeps
+    ``deps.conn``). ``deps.lock`` is held only around the validation and
+    publish/finalize phases — never across the external download — so the
+    API stays responsive while the worker downloads. The lock is an RLock:
+    the synchronous path, already inside it, is unaffected.
+    """
+    conn = deps.conn if conn is None else conn
+    job = _job_row(conn, job_id)
+    scope = job["scope"]
+    ref = job["ref"]
+    work_dir = acquisition.acquisition_output_dir(deps.storage_root, job_id)
+    try:
+        # Resume point: a previous attempt already published this job's
+        # output durably (phase + deterministic destination + hash persisted
+        # BEFORE the move). Finish the owner update / relink from that file —
+        # never download again, never validate 'is missing' against an owner
+        # the crashed attempt already flipped to 'ready'.
+        resumed_output = _published_output(job)
+        if resumed_output is None:
+            with deps.lock:
+                entry = _acquisition_entry(
+                    deps,
+                    scope,
+                    ref,
+                    require_isrc=job["deezer_track_id"] is None,
+                    conn=conn,
+                )
+                if deps.secrets is None:
+                    raise ValueError("secrets store is not configured")
+                arl = deps.secrets.get(acquisition.DEEZER_ARL_SECRET)
+                if not arl:
+                    raise ValueError("Deezer ARL is not configured")
+                if not acquisition.component_status(deps.data_dir).get("installed"):
+                    raise ValueError("optional Deezer component is not installed")
+
+            acquisition.reset_job_workspace(deps.storage_root, job_id)
+            if progress is not None:
+                progress.publish(1, 3)
+            result = (
+                deps.acquisition_runner(
+                    deps.data_dir,
+                    arl,
+                    None,
+                    work_dir,
+                    track_id=int(job["deezer_track_id"]),
+                )
+                if job["deezer_track_id"] is not None
+                else deps.acquisition_runner(
+                    deps.data_dir, arl, entry["isrc"], work_dir
+                )
+            )
+        with deps.lock:
+            if resumed_output is None:
+                downloaded = Path(result["output_path"])
+                destination = None
+                if job["published_path"]:
+                    # A slot reserved by an interrupted attempt whose move
+                    # never landed: reuse it as long as it is still free.
+                    candidate = Path(job["published_path"])
+                    if (
+                        candidate.parent
+                        == Path(entry["destination_dir"]).resolve(strict=False)
+                        and not candidate.exists()
+                    ):
+                        destination = candidate
+                if destination is None:
+                    destination = acquisition.plan_publish_destination(
+                        downloaded, entry["destination_dir"]
+                    )
+                job = _update_job(
+                    conn,
+                    job_id,
+                    phase="publishing",
+                    published_path=str(destination),
+                    published_sha256=_file_sha256(downloaded),
+                )
+                output_path = str(
+                    acquisition.publish_download(
+                        downloaded,
+                        entry["destination_dir"],
+                        destination=destination,
+                    )
+                )
+                quality = (
+                    result.get("quality")
+                    if isinstance(result.get("quality"), int)
+                    else None
+                )
+            else:
+                output_path = resumed_output
+                quality = job["quality"]
+            if progress is not None:
+                progress.publish(2, 3)
+
+            stored_path = None
+            status = "downloaded"
+            error = None
+            # Persist ownership as soon as publication succeeds. If a later
+            # DB update fails, the completed file remains discoverable and
+            # repairable.
+            _update_job(
+                conn,
+                job_id,
+                phase="published",
+                output_path=output_path,
+                quality=quality,
+            )
+            if scope in ("library", "event"):
+                table = {"library": "library_tracks", "event": "event_tracks"}[scope]
+                conn.execute(
+                    f"UPDATE {table} SET status = 'ready', staging_file_path = ?, "
+                    "updated_at = datetime('now') WHERE id = ?",
+                    (output_path, ref),
+                )
+            elif job["relink"]:
+                try:
+                    stored_path = missing_service.relink_collection_file(
+                        deps.db_path,
+                        deps.backups_root,
+                        deps.cache(),
+                        deps.storage_root,
+                        ref,
+                        output_path,
+                        anlz_consent=bool(job["anlz_consent"]),
+                        retention=deps.retention,
+                        app_db_path=deps.app_db_path,
+                    )
+                    status = "relinked"
+                except MutationBlockedError:
+                    status = "relink_blocked"
+                    error = "rekordbox_open"
+                except Exception as exc:
+                    status = "relink_failed"
+                    error = _acquisition_error_text(exc)
+            job = _update_job(
+                conn,
+                job_id,
+                status=status,
+                output_path=output_path,
+                stored_path=stored_path,
+                error=error,
+                quality=quality,
+            )
+        if progress is not None:
+            progress.publish(3, 3)
+            progress.done(id=job_id, status=status, output_path=output_path)
+        return job
+    except Exception as exc:
+        with deps.lock:
+            if scope in ("library", "event"):
+                table = {"library": "library_tracks", "event": "event_tracks"}[scope]
+                conn.execute(
+                    f"UPDATE {table} SET status = 'acquisition_failed', "
+                    "updated_at = datetime('now') WHERE id = ?",
+                    (ref,),
+                )
+            error = _acquisition_error_text(exc)
+            job = _update_job(conn, job_id, status="failed", error=error)
+        if progress is not None:
+            progress.done(id=job_id, status="failed", error=error)
+        return job
+    finally:
+        acquisition.cleanup_job_workspace(deps.storage_root, job_id)
+
+
+def _require_acquisition_ready(deps) -> None:
     if not deps.settings.get("deezer_acquisition_enabled"):
         raise ValueError("Deezer acquisition is disabled")
     if deps.secrets is None:
         raise ValueError("secrets store is not configured")
-    arl = deps.secrets.get(acquisition.DEEZER_ARL_SECRET)
-    if not arl:
+    if not deps.secrets.get(acquisition.DEEZER_ARL_SECRET):
         raise ValueError("Deezer ARL is not configured")
     if not acquisition.component_status(deps.data_dir).get("installed"):
         raise ValueError("optional Deezer component is not installed")
     _require_storage(deps)
 
+
+def _queue_acquisition_job(deps, body: dict) -> dict:
+    """Resolve one owner and make its queued job durable; returns the row.
+
+    Shared by the single-job endpoint and the transactional batch endpoint.
+    """
     scope = _require(body, "scope")
     ref = str(body.get("row_id") or body.get("content_id") or body.get("id") or "")
     if not ref:
@@ -1206,86 +1582,129 @@ def acquisition_job_start(deps, request, body):
             "waveform stored in ANLZ files may desynchronize and are NOT "
             "covered by the master.db backup. Explicit consent is required."
         )
+    active = deps.conn.execute(
+        "SELECT * FROM acquisition_jobs WHERE scope = ? AND ref = ? "
+        "AND status IN ('queued', 'running') ORDER BY id LIMIT 1",
+        (entry["scope"], entry["ref"]),
+    ).fetchone()
+    if active is not None:
+        return dict(active)
+    # Retry with an intact published output (terminal relink_blocked /
+    # relink_failed, or a failure after publication): requeue THAT job so it
+    # resumes from its file instead of downloading a duplicate.
+    previous = deps.conn.execute(
+        "SELECT * FROM acquisition_jobs WHERE scope = ? AND ref = ? "
+        "AND status IN ('relink_blocked', 'relink_failed', 'failed') "
+        "ORDER BY id DESC LIMIT 1",
+        (entry["scope"], entry["ref"]),
+    ).fetchone()
+    if previous is not None and _published_output(dict(previous)) is not None:
+        deps.conn.execute(
+            "UPDATE acquisition_jobs SET status = 'queued', error = NULL, "
+            "claimed_by = NULL, claimed_at = NULL, anlz_consent = ?, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (int(bool(body.get("anlz_consent"))), previous["id"]),
+        )
+        return _job_row(deps.conn, previous["id"])
     cursor = deps.conn.execute(
-        "INSERT INTO acquisition_jobs (scope, ref, title, artist, isrc, status) "
-        "VALUES (?, ?, ?, ?, ?, 'queued')",
-        (entry["scope"], entry["ref"], entry["title"], entry["artist"], entry["isrc"]),
+        "INSERT INTO acquisition_jobs "
+        "(scope, ref, title, artist, isrc, status, event_id, event_track_id, "
+        "library_track_id, deezer_track_id, relink, anlz_consent) "
+        "VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)",
+        (
+            entry["scope"],
+            entry["ref"],
+            entry["title"],
+            entry["artist"],
+            entry["isrc"],
+            entry["event_id"],
+            entry["event_track_id"],
+            entry["library_track_id"],
+            int(deezer_track_id) if deezer_track_id is not None else None,
+            int(bool(body.get("relink"))),
+            int(bool(body.get("anlz_consent"))),
+        ),
     )
-    job_id = cursor.lastrowid
-    progress = _Progress(deps.bus, "deezer.acquisition")
-    try:
-        _update_job(deps.conn, job_id, status="running")
-        progress.publish(1, 3)
-        output_dir = acquisition.acquisition_output_dir(deps.storage_root, job_id)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        result = (
-            deps.acquisition_runner(
-                deps.data_dir, arl, None, output_dir, track_id=int(deezer_track_id)
-            )
-            if deezer_track_id is not None
-            else deps.acquisition_runner(deps.data_dir, arl, entry["isrc"], output_dir)
-        )
-        arl = ""
-        output_path = result["output_path"]
-        progress.publish(2, 3)
+    return _job_row(deps.conn, cursor.lastrowid)
 
-        stored_path = None
-        status = "downloaded"
-        error = None
-        # actual quality downloaded (streamrip scale, 0 = MP3 128, 1 = MP3 320);
-        # only reported by components built with the quality fallback
-        quality = result.get("quality") if isinstance(result.get("quality"), int) else None
-        if scope in ("library", "event"):
-            table = {"library": "library_tracks", "event": "event_tracks"}[scope]
-            deps.conn.execute(
-                f"UPDATE {table} SET status = 'ready', staging_file_path = ?, "
-                "updated_at = datetime('now') WHERE id = ?",
-                (output_path, ref),
-            )
-        elif body.get("relink"):
-            try:
-                stored_path = missing_service.relink_collection_file(
-                    deps.db_path,
-                    deps.backups_root,
-                    deps.cache(),
-                    deps.storage_root,
-                    ref,
-                    output_path,
-                    anlz_consent=bool(body.get("anlz_consent")),
-                    retention=deps.retention,
-                )
-                status = "relinked"
-            except MutationBlockedError:
-                status = "relink_blocked"
-                error = "rekordbox_open"
-            except Exception as exc:
-                status = "relink_failed"
-                error = _acquisition_error_text(exc)
-        job = _update_job(
-            deps.conn,
-            job_id,
-            status=status,
-            output_path=output_path,
-            stored_path=stored_path,
-            error=error,
-            quality=quality,
+
+def acquisition_job_start(deps, request, body):
+    _require_acquisition_ready(deps)
+    job = _queue_acquisition_job(deps, body)
+    if body.get("enqueue"):
+        return 202, job
+    if job["status"] != "queued":
+        return job
+    _update_job(deps.conn, job["id"], status="running")
+    return _run_acquisition_job(
+        deps, job["id"], _Progress(deps.bus, "deezer.acquisition")
+    )
+
+
+def acquisition_jobs_batch(deps, request, body):
+    """Persist a whole batch in ONE transaction before any execution.
+
+    The persistent worker claims jobs on its own connection, so without the
+    transaction it could start the first item while later items were still
+    unpersisted — closing the UI mid-batch then silently truncated the
+    intended queue.
+    """
+    _require_acquisition_ready(deps)
+    items = _require_list(body, "items")
+    if not all(isinstance(item, dict) for item in items):
+        raise ValueError("field 'items' must contain JSON objects")
+    deps.conn.execute("BEGIN IMMEDIATE")
+    try:
+        jobs = [_queue_acquisition_job(deps, item) for item in items]
+        deps.conn.execute("COMMIT")
+    except BaseException:
+        deps.conn.execute("ROLLBACK")
+        raise
+    return 202, {"jobs": jobs}
+
+
+def acquisition_jobs_list(deps, request, body):
+    """Active queue plus recent terminal jobs, for UI rehydration on reopen."""
+    try:
+        limit = max(1, min(int(request.query_params.get("recent", 50)), 200))
+    except ValueError:
+        raise ValueError("recent must be an integer")
+    active = [
+        dict(row)
+        for row in deps.conn.execute(
+            "SELECT * FROM acquisition_jobs "
+            "WHERE status IN ('queued', 'running') ORDER BY id"
         )
-        progress.publish(3, 3)
-        progress.done(id=job_id, status=status, output_path=output_path)
-        return job
-    except Exception as exc:
-        arl = ""
-        if scope in ("library", "event"):
-            table = {"library": "library_tracks", "event": "event_tracks"}[scope]
-            deps.conn.execute(
-                f"UPDATE {table} SET status = 'acquisition_failed', "
-                "updated_at = datetime('now') WHERE id = ?",
-                (ref,),
-            )
-        error = _acquisition_error_text(exc)
-        job = _update_job(deps.conn, job_id, status="failed", error=error)
-        progress.done(id=job_id, status="failed", error=error)
-        return job
+    ]
+    recent = [
+        dict(row)
+        for row in deps.conn.execute(
+            "SELECT * FROM acquisition_jobs "
+            "WHERE status NOT IN ('queued', 'running') ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+    ]
+    return {"active": active, "recent": recent}
+
+
+def acquisition_storage_migration(deps, request, body):
+    _require_rekordbox(deps)
+    _require_storage(deps)
+    if request.method == "GET" or bool(body.get("dry_run", True)):
+        return acquisition_migration.build_plan(
+            deps.conn, deps.storage_root, deps.db_path
+        )
+    return acquisition_migration.execute(
+        deps.conn,
+        deps.db_path,
+        deps.backups_root,
+        deps.cache(),
+        deps.storage_root,
+        body.get("plan"),
+        app_db_path=deps.app_db_path,
+        retention=deps.retention,
+        consent_to_permanent_delete=bool(body.get("consent_to_permanent_delete")),
+    )
 
 
 # --- duplicates (5.4, A3 per 5.12) ---------------------------------------------------
@@ -1394,6 +1813,8 @@ def duplicates_resolve(deps, request, body):
             expected_fingerprint=expected or cache.current_fingerprint,
             open_db=open_rekordbox,
             invalidate_cache=cache.invalidate,
+            app_db_path=deps.app_db_path,
+            backup_reason="duplicate_resolve",
         ) as db:
             for loser in active:
                 reassign_memberships(db, loser, keeper)  # playlists + MyTags
@@ -1412,7 +1833,11 @@ def duplicates_resolve(deps, request, body):
             # onto the same copy - dedup groups on metadata, never on path),
             # in either the volume-relative or absolute spelling (3.2).
             files.append(
-                {"content_id": loser, "path": str(resolved), "result": "kept_keeper_file"}
+                {
+                    "content_id": loser,
+                    "path": str(resolved),
+                    "result": "kept_keeper_file",
+                }
             )
             continue
         if tcc_exists(resolved):
@@ -1486,6 +1911,8 @@ def untagged_delete(deps, request, body):
             expected_fingerprint=cache.current_fingerprint,
             open_db=open_rekordbox,
             invalidate_cache=cache.invalidate,
+            app_db_path=deps.app_db_path,
+            backup_reason="untagged_remove",
         ) as db:
             for content_id in deletable:
                 soft_delete_content(db, content_id)
@@ -1518,6 +1945,7 @@ def smartfixes_execute(deps, request, body):
         deps.storage_root,
         dry,
         retention=deps.retention,
+        app_db_path=deps.app_db_path,
     )
 
 
@@ -1586,9 +2014,7 @@ def settings_export(deps, request, body):
         "version": 1,
         "settings": deps.settings.all(),
     }
-    dest.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    dest.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return {"path": str(dest)}
 
 
@@ -1682,8 +2108,29 @@ def doctor_backups(deps, request, body):
 def doctor_restore(deps, request, body):
     _require_rekordbox(deps)
     name = request.path_params["name"]
-    snapshot = restore_backup(name, deps.backups_root, deps.db_path)
-    deps.cache().invalidate()  # the restored DB is a different snapshot
+    backups_root = deps.backups_root
+    db_path = deps.db_path
+    cache = deps.cache()
+    if deps.app_db_path is None:
+        snapshot = restore_backup(
+            name, backups_root, db_path, journal_dir=deps.data_dir
+        )
+    else:
+        deps.conn.close()
+        try:
+            snapshot = restore_backup(
+                name,
+                backups_root,
+                db_path,
+                app_db_path=deps.app_db_path,
+                journal_dir=deps.data_dir,
+            )
+        finally:
+            deps.conn = appdb.open_app_db(deps.app_db_path)
+            deps.settings = Settings(deps.conn)
+    cache.invalidate()
+    deps._cache = None
+    deps._cache_db = None
     return {
         "restored": name,
         # SPEC-01 1.3: restore snapshots the current DB first, so it is
@@ -1921,9 +2368,20 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/acquisition/deezer/search", acquisition_deezer_search, ["GET"]),
         r("/api/acquisition/deezer/arl", acquisition_arl_set, ["PUT"]),
         r("/api/acquisition/deezer/arl", acquisition_arl_delete, ["DELETE"]),
-        r("/api/acquisition/component/install", acquisition_component_install, ["POST"]),
+        r(
+            "/api/acquisition/component/install",
+            acquisition_component_install,
+            ["POST"],
+        ),
         r("/api/acquisition/jobs", acquisition_job_start, ["POST"]),
+        r("/api/acquisition/jobs", acquisition_jobs_list, ["GET"]),
+        r("/api/acquisition/jobs/batch", acquisition_jobs_batch, ["POST"]),
         r("/api/acquisition/jobs/{job_id:int}", acquisition_job_get, ["GET"]),
+        r(
+            "/api/acquisition/storage-migration",
+            acquisition_storage_migration,
+            ["GET", "POST"],
+        ),
         r("/api/duplicates/scan", duplicates_scan, ["POST"]),
         r("/api/duplicates/resolve", duplicates_resolve, ["POST"]),
         r("/api/duplicates/dismiss", duplicates_dismiss, ["POST"]),

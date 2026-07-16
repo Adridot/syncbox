@@ -158,7 +158,8 @@ export const en = {
     },
   },
   events: {
-    tagline: 'Temporary imports — wedding, party. Applied as a smart playlist under “Event Imports”.',
+    tagline:
+      'Temporary imports — wedding, party. Applied as a smart playlist under “Event Imports”.',
     loadErrorTitle: 'Events unavailable',
     emptyTitle: 'No event',
     emptyBody: 'Create an event from a Spotify playlist or from scratch.',
@@ -183,7 +184,8 @@ export const en = {
     resolveMissing: 'Resolve →',
     removeTrack: 'Remove this title',
     filterEmpty: 'No title in this filter.',
-    modifiedBanner: 'Modified since the last apply — {n}. Re-apply to update the Rekordbox smart playlist.',
+    modifiedBanner:
+      'Modified since the last apply — {n}. Re-apply to update the Rekordbox smart playlist.',
     changesPending: '{n} change pending | {n} changes pending',
     claim: 'Claim staged files',
     openStaging: 'Open the drop folder',
@@ -249,7 +251,7 @@ export const en = {
     },
     del: {
       title: 'Delete “{name}”',
-      lead: 'Exact track-by-track plan that will be executed:',
+      lead: 'Summary of what will happen when this event is deleted:',
       tagLine: 'Event MyTag removed',
       playlistLine: 'Rekordbox playlists removed',
       filesCount: '{n} file | {n} files',
@@ -270,8 +272,26 @@ export const en = {
         already_permanent: 'Keep in place',
         migrate_to_collection: 'Migrate to Collection',
         delete_with_event: 'Delete with event',
-        soft_delete_only: 'Soft-delete row only',
+        keep_in_place: 'Keep in place',
       },
+      actionHelp: {
+        already_permanent: 'Permanent Collection files stay unchanged.',
+        migrate_to_collection: 'Event-owned files with other tags move to Collection.',
+        delete_with_event: 'Event-owned files with no other tag are removed with the event.',
+        keep_in_place: 'Pre-existing files only lose their event membership.',
+      },
+      unresolved: '{n} unresolved case | {n} unresolved cases',
+      issue: {
+        active_acquisition:
+          'A download is still queued or running. Wait for it to finish, then refresh this preview.',
+        missing_retained_source:
+          'This retained track has no file on disk. Relink it or remove it in Rekordbox, then refresh this preview.',
+        unsafe_retained_source:
+          'This retained track does not point at a regular file. Relink it or remove it in Rekordbox, then refresh this preview.',
+      },
+      technicalDetails: 'Technical details',
+      resolveFirst: 'Resolve the remaining cases',
+      confirmCount: 'Delete event · {n} file | Delete event · {n} files',
       note: 'Required migrations complete before event cleanup. Rekordbox identity and retained metadata stay unchanged. Requires Rekordbox closed.',
       confirm: 'Delete the event',
     },
@@ -327,7 +347,8 @@ export const en = {
     fileMissing: 'missing',
     filePresent: 'present',
     qualityReason: {
-      sharp_cutoff_in_lossless_container: 'sharp spectral cutoff in a lossless container (fake-FLAC probable)',
+      sharp_cutoff_in_lossless_container:
+        'sharp spectral cutoff in a lossless container (fake-FLAC probable)',
       cutoff_indicates_le192_source: 'spectral cutoff indicates a ≤192 kbps source',
       cutoff_in_256_class_zone: 'cutoff in the 256 kbps zone — uncertain',
       lossless_container_cutoff_in_320_v0_zone: 'cutoff at the 320/V0 border — uncertain',
@@ -371,8 +392,7 @@ export const en = {
     acqProgress: 'Downloads: {done}/{total}',
     searchDeezer: 'Search on Deezer',
     errors: {
-      notStreamable:
-        'Not streamable on Deezer — try the manual search, another edition often is.',
+      notStreamable: 'Not streamable on Deezer — try the manual search, another edition often is.',
       notFullTrack: 'The downloaded file is not the full track — try the manual search.',
       isrcNotFound: 'Not found on Deezer by ISRC — use the manual search.',
       rekordboxOpen: 'Rekordbox is open — close it, then retry.',
@@ -410,7 +430,8 @@ export const en = {
     confirm: 'Relink this file',
   },
   untagged: {
-    intro: 'Priority order: {junk} < {dup} < {alt} < {review}. Removal is a reversible Rekordbox soft-delete; audio is never touched. Ownership is informational.',
+    intro:
+      'Priority order: {junk} < {dup} < {alt} < {review}. Removal is a reversible Rekordbox soft-delete; audio is never touched. Ownership is informational.',
     cat: {
       all: 'All',
       junk: 'junk',
@@ -440,12 +461,16 @@ export const en = {
     lead: 'Conservative structural fixes from a fixed catalog. The cycle is always {cycle}: nothing is written without your confirmation.',
     cycle: 'preview → confirm → write',
     families: {
-      cleanup: 'Clean trailing site URLs, orphan separators and Unicode whitespace; normalize Unicode to NFC',
-      encoding: 'Repair selected common reversible UTF-8 / Latin-1 / Windows-1252 mojibake signatures and the exact named XML entities &amp; &quot; &apos; &lt; &gt;',
+      cleanup:
+        'Clean trailing site URLs, orphan separators and Unicode whitespace; normalize Unicode to NFC',
+      encoding:
+        'Repair selected common reversible UTF-8 / Latin-1 / Windows-1252 mojibake signatures and the exact named XML entities &amp; &quot; &apos; &lt; &gt;',
       credits: 'Extract only unambiguous terminal featured-artist and remixer credits',
     },
-    limitsNote: 'Credits stay conservative: a terminal featured artist is added to the existing artist credit; an empty remixer is filled only from a terminal “(Name Remix)”, while the remix title is preserved. Stylized uppercase and mixed-case names stay unchanged; ambiguous patterns are skipped.',
-    backupNote: 'The read-only preview can run while Rekordbox is open. Writing requires it closed, changes collection metadata regardless of file ownership, touches no audio file, and first creates a timestamped database backup.',
+    limitsNote:
+      'Credits stay conservative: a terminal featured artist is added to the existing artist credit; an empty remixer is filled only from a terminal “(Name Remix)”, while the remix title is preserved. Stylized uppercase and mixed-case names stay unchanged; ambiguous patterns are skipped.',
+    backupNote:
+      'The read-only preview can run while Rekordbox is open. Writing requires it closed, changes collection metadata regardless of file ownership, touches no audio file, and first creates a timestamped database backup.',
     dryRunCta: 'Run the preview (dry-run)',
     executed: '{fields} fields written on {tracks} tracks. Timestamped backup created.',
     fields: {
@@ -461,22 +486,71 @@ export const en = {
       notSet: 'Not set',
       emptyValue: 'Empty value',
       trackId: 'Track ID {id}',
-      wsLegend: 'red dots mark invisible whitespace (leading/trailing, doubled, non-breaking) — the change is real even when both sides look identical',
-      stale: 'The collection changed since this preview — re-run the dry-run to see the exact effect before writing.',
+      wsLegend:
+        'red dots mark invisible whitespace (leading/trailing, doubled, non-breaking) — the change is real even when both sides look identical',
+      stale:
+        'The collection changed since this preview — re-run the dry-run to see the exact effect before writing.',
       rerun: 'Re-run the preview',
       summary: 'no field changes | {n} field change | {n} field changes',
       confirm: 'Write {n} change | Write {n} changes',
     },
   },
   backups: {
-    title: 'Rekordbox backups',
+    title: 'Syncbox restore points',
     rotation: 'rotation:',
+    recent: 'recent:',
     save: 'Save',
     restore: 'Restore',
     restored: 'Restored {name} — the previous DB was snapshotted first ({snapshot}).',
-    retentionSaved: 'Rotation set to {n} backups.',
+    retentionSaved: 'Recent tier set to {n} restore points.',
+    policy:
+      'Keeps the {n} most recent, then 48 hourly, 30 daily, 12 weekly and 12 monthly restore points.',
+    verified: 'verified',
+    legacy: 'legacy backup',
+    coherent: 'Rekordbox + Syncbox',
+    rekordboxOnly: 'Rekordbox only — coherent restore unavailable',
+    pinned: 'pinned',
+    reason: {
+      rekordbox_mutation: 'Rekordbox change',
+      event_apply: 'Event apply',
+      event_reapply: 'Event re-apply',
+      event_delete: 'Event deletion',
+      library_apply: 'Library apply',
+      collection_relink: 'Collection relink',
+      missing_remove: 'Missing entry removal',
+      duplicate_resolve: 'Duplicate resolution',
+      untagged_remove: 'Untagged cleanup',
+      smart_fixes: 'Smart fixes',
+      acquisition_storage_migration: 'Download storage migration',
+      pre_restore: 'Before restore',
+      legacy: 'Unknown operation',
+    },
+    migration: {
+      title: 'Legacy download storage',
+      lead: 'Moves verified files out of job folders and reconnects them to their event or permanent Collection owner.',
+      confirm: 'Migrate {n} file | Migrate {n} files',
+      done: '{n} legacy file migrated | {n} legacy files migrated',
+      event: '{n} event file | {n} event files',
+      collection: '{n} Collection file | {n} Collection files',
+      ignored: '{n} item left untouched | {n} items left untouched',
+      readyDetails: 'Files ready to migrate',
+      ignoredDetails: 'Special cases left untouched',
+      reason: {
+        missing_source: 'The recorded source file is missing.',
+        unsafe_source: 'The recorded source path is outside the managed acquisition area.',
+        missing_owner: 'The original event or library track no longer exists.',
+        unsafe_destination: 'The event or Collection destination is outside managed storage.',
+        destination_collision: 'No safe destination filename could be allocated.',
+        missing_destination: 'A previously copied destination is missing or no longer matches its source.',
+        missing_rekordbox_content: 'The linked Rekordbox content no longer exists.',
+        rekordbox_path_changed: 'The Rekordbox path changed after the download.',
+        unsafe_analysis: 'A linked Rekordbox analysis file is outside its managed directory.',
+        orphan_file: 'No acquisition job owns this file.',
+      },
+    },
     empty: 'No backup yet — one is created before every write.',
-    restoreNote: 'Restore snapshots the current DB first — the operation is itself reversible. Requires Rekordbox closed.',
+    restoreNote:
+      'Each new restore point contains Rekordbox and Syncbox state. Restore snapshots the current state first and requires Rekordbox closed.',
     logsTitle: 'Logs',
     logsUnconfigured: 'No log file configured on this engine.',
     logsEmpty: 'The log file is empty.',
@@ -507,7 +581,8 @@ export const en = {
       clientIdHelpTitle: 'Create my Spotify app, step by step',
       helpIntro:
         'Syncbox connects through your own Spotify Development Mode app, created once. The app owner must have an active Spotify Premium subscription. Development Mode supports at most 5 allowlisted users. Allow 5 minutes:',
-      helpStep1: 'Open the Spotify Developer Dashboard and sign in with your regular Spotify account.',
+      helpStep1:
+        'Open the Spotify Developer Dashboard and sign in with your regular Spotify account.',
       helpStep2: '“Create app” — pick any name (e.g. Syncbox) and description.',
       helpStep3:
         'In the “Redirect URIs” field, paste EXACTLY this address (Spotify checks it character for character), then “Add”:',
@@ -529,7 +604,8 @@ export const en = {
       arlLabel: 'Premium Deezer ARL',
       arlPlaceholder: 'Paste ARL',
       arlStored: 'ARL stored',
-      arlHelp: 'Stored only in the encrypted local secrets store; never exported in settings or data files.',
+      arlHelp:
+        'Stored only in the encrypted local secrets store; never exported in settings or data files.',
       saveArl: 'Save ARL',
       deleteArl: 'Delete ARL',
       arlSaved: 'Deezer ARL saved.',
@@ -545,12 +621,15 @@ export const en = {
       validate: 'Validate',
       browse: 'Browse…',
       dbLabel: 'Rekordbox database (master.db)',
-      dbHelp: 'The encrypted database where Rekordbox keeps your collection (tracks, playlists, cues, MyTags). Syncbox reads it and writes MyTags / smart playlists into it — with a timestamped backup before every write.',
+      dbHelp:
+        'The encrypted database where Rekordbox keeps your collection (tracks, playlists, cues, MyTags). Syncbox reads it and writes MyTags / smart playlists into it — with a timestamped backup before every write.',
       useMacDefault: 'Use the macOS default',
       dbFindTitle: 'How do I find it?',
-      dbFindBody: 'Rekordbox → Preferences → Advanced → Database shows the folder. On macOS it is almost always ~/Library/Pioneer/rekordbox/master.db.',
+      dbFindBody:
+        'Rekordbox → Preferences → Advanced → Database shows the folder. On macOS it is almost always ~/Library/Pioneer/rekordbox/master.db.',
       rootLabel: 'Storage root',
-      rootHelp: 'The folder holding your music and the Syncbox working area. Files under storage_root/rekordbox/ belong to the permanent library; Syncbox-managed working files live under storage_root/_syncbox/. Safety depends on the operation and ownership class.',
+      rootHelp:
+        'The folder holding your music and the Syncbox working area. Files under storage_root/rekordbox/ belong to the permanent library; Syncbox-managed working files live under storage_root/_syncbox/. Safety depends on the operation and ownership class.',
       derivedTitle: 'Derived layout (read-only)',
       derived: {
         permanent_library: 'Permanent library (your audio)',
@@ -564,14 +643,14 @@ export const en = {
           'Files prepared for each event, one subfolder per event, before they move into your collection.',
         backups: 'Database backups',
         backupsDesc:
-          'A timestamped copy of master.db before EVERY write, rotated per the retention below.',
+          'A verified Rekordbox + Syncbox restore point before EVERY write, thinned by the retention policy below.',
       },
       derivedNote:
         'The _syncbox folders are created automatically on first use; their names are fixed because paths already written into master.db point at them. Your audio folders under rekordbox/ are yours — Syncbox only reads them.',
     },
     retention: {
       title: 'Backup retention',
-      sub: 'Backups kept before rotation (0 = unlimited).',
+      sub: 'Recent points kept before progressive hourly, daily, weekly and monthly thinning (0 = unlimited).',
     },
     language: {
       title: 'Language',
@@ -582,20 +661,23 @@ export const en = {
       settingsLabel: 'Settings (JSON)',
       settingsDesc: 'Paths, Spotify Client ID, matching knobs — one small readable file.',
       dataLabel: 'All data (database)',
-      dataDesc: 'Settings plus sources, events and history in one database snapshot. Importing replaces the current data — a safety backup is made first.',
+      dataDesc:
+        'Settings plus sources, events and history in one database snapshot. Importing replaces the current data — a safety backup is made first.',
       export: 'Export…',
       import: 'Import…',
       exportedTo: 'Exported to {path}',
       imported: 'Settings imported.',
       importedPartial: 'Settings imported — skipped (not valid on this machine): {skipped}',
-      dataImportConfirm: 'Replace all Syncbox data with this file? The current data is snapshotted first (reversible).',
+      dataImportConfirm:
+        'Replace all Syncbox data with this file? The current data is snapshotted first (reversible).',
       dataImported: 'Data imported. The previous data was saved as {backup}.',
       dataImportedNoBackup: 'Data imported.',
       needShell: 'Available in the desktop app (native file dialogs).',
     },
     advanced: {
       title: 'Advanced · matching thresholds',
-      warning: 'The defaults are recommended and calibrated. Change them only if you know what you are doing — a per-track manual re-match is almost always better.',
+      warning:
+        'The defaults are recommended and calibrated. Change them only if you know what you are doing — a per-track manual re-match is almost always better.',
       threshold: 'Confidence threshold',
       margin: 'Ambiguity margin',
       weights: 'Weights (sum = 1.00)',
@@ -608,7 +690,8 @@ export const en = {
       isrc_trust: 'Always trust the ISRC',
       isrc_strict: 'Strict — reject on any collision signal',
       lockedTitle: 'Locked — algorithm invariants',
-      lockedBody: 'Exact ISRC takes priority over fuzzy · single normalization pipeline (matching + dedup) · duration buckets. Not editable.',
+      lockedBody:
+        'Exact ISRC takes priority over fuzzy · single normalization pipeline (matching + dedup) · duration buckets. Not editable.',
       reset: 'Reset to defaults',
       save: 'Save',
       saved: 'Matching thresholds saved.',
@@ -705,7 +788,8 @@ export const en = {
       lead: 'This file lives on a {volume} volume with no trash. {lost} — it cannot be restored.',
       volume: 'cloud / exFAT',
       lost: 'The audio will be permanently lost',
-      reversibleNote: 'The Rekordbox row stays reversible (soft-delete + backup). Only the audio is final.',
+      reversibleNote:
+        'The Rekordbox row stays reversible (soft-delete + backup). Only the audio is final.',
       checkbox: 'I understand the audio will be permanently lost on this volume.',
       confirm: 'Delete permanently',
     },
@@ -714,7 +798,8 @@ export const en = {
       lead: 'Relinking replaces the audio file associated with this Rekordbox track. Your {cues} are stored separately (ANLZ files) and {uncovered}: if the new file differs, they may shift and need a re-analysis.',
       cues: 'cue points, beatgrid and waveform',
       uncovered: 'are not covered by the backup',
-      reversibleNote: 'The Rekordbox database (tags, playlists, smart playlists) stays backed up and reversible. Only the replaced file’s cue points may need redoing.',
+      reversibleNote:
+        'The Rekordbox database (tags, playlists, smart playlists) stays backed up and reversible. Only the replaced file’s cue points may need redoing.',
       checkbox: 'Understood — this file’s cue points may need redoing.',
       confirm: 'Continue · relink the file',
     },
@@ -791,9 +876,9 @@ export const en = {
   activity: {
     job_sources_sync_all: 'Sources synchronized',
     job_sources_sync: 'Source synchronized',
-    'job_sources_apply': 'Tracks applied to Rekordbox',
-    'job_events_apply': 'Event applied',
-    'job_events_reapply': 'Event re-applied',
-    'job_duplicates_scan': 'Duplicates scan finished',
+    job_sources_apply: 'Tracks applied to Rekordbox',
+    job_events_apply: 'Event applied',
+    job_events_reapply: 'Event re-applied',
+    job_duplicates_scan: 'Duplicates scan finished',
   },
 }

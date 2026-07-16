@@ -10,6 +10,7 @@ consumes child output (6.6).
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from syncbox import api, appdb, platform_os, quality, server
+from syncbox.safety import backup as safety_backup
 from syncbox.secrets import SecretsStore
 from syncbox.spotify import SpotifyAuth, SpotifyClient
 
@@ -56,6 +58,12 @@ def compose(data_dir=None, *, oauth_listener=None):
     )
     logging.getLogger("pyrekordbox.db6.database").addFilter(_drop_playlist_xml_noise)
     db_file = data_dir / "syncbox.db"
+    # A restore interrupted by a crash left a durable journal: finish or roll
+    # back the whole Rekordbox + Syncbox pair BEFORE opening the app DB, so
+    # the API never runs on a half-restored state.
+    recovered = safety_backup.recover_restore(data_dir)
+    if recovered:
+        log.warning("interrupted backup restore was %s at startup", recovered)
     conn = appdb.open_app_db(db_file)
     secrets = SecretsStore(data_dir)
     deps = api.Deps(
@@ -144,7 +152,8 @@ def _packaging_check() -> int:
                 "sqlcipher_status": cipher_status,
                 "api_port": server.PORT,
                 "oauth_callback_port": server.OAUTH_CALLBACK_PORT,
-                "streamrip_importable": importlib.util.find_spec("streamrip") is not None,
+                "streamrip_importable": importlib.util.find_spec("streamrip")
+                is not None,
             },
             sort_keys=True,
         )
@@ -166,23 +175,42 @@ def main(argv=None) -> int:
         return _packaging_check()
 
     app = compose()
-    log.info("syncbox sidecar starting on http://%s:%s", server.HOST, server.PORT)
+    # Single-instance ownership FIRST: the exclusive port bind is the lock.
+    # Only after it is held may interrupted jobs be requeued and the worker
+    # started — a second sidecar must fail here without touching the first
+    # instance's live queue.
     try:
-        asyncio.run(server.serve(app))
+        api_socket = server.bind_api_socket()
     except server.PortInUseError as exc:
         log.error("%s", exc)
+        app.state.secrets.close()
+        app.state.deps.conn.close()
         return 1
+    app.state.deps.acquisition_worker = api.AcquisitionWorker(app.state.deps)
+    app.state.deps.acquisition_worker.start()
+    log.info("syncbox sidecar starting on http://%s:%s", server.HOST, server.PORT)
+    try:
+        asyncio.run(server.serve(app, sockets=[api_socket]))
     finally:
+        with contextlib.suppress(OSError):
+            api_socket.close()
+        worker_stopped = (
+            app.state.deps.acquisition_worker is None
+            or app.state.deps.acquisition_worker.stop()
+        )
         app.state.deps.oauth_listener.stop()
         app.state.deps.oauth_listener.wait_closed()
         # 6.6 handshake tail: SQLCipher secrets store and app DB closed
         # before the process exits, so a clean stop never needs the shell's
         # kill of last resort to reclaim them.
-        app.state.secrets.close()
-        app.state.deps.conn.close()
-    log.info(
-        "syncbox sidecar stopped (intentional=%s)", app.state.shutdown.intentional
-    )
+        if worker_stopped:
+            app.state.secrets.close()
+            app.state.deps.conn.close()
+        else:
+            log.warning(
+                "acquisition worker is still stopping; process exit will close its resources"
+            )
+    log.info("syncbox sidecar stopped (intentional=%s)", app.state.shutdown.intentional)
     return 0
 
 

@@ -902,3 +902,104 @@ def test_mutation_failure_restores_anlz_removes_destination_and_keeps_event(
     assert not destination.exists()
     row = conn.execute("SELECT * FROM events WHERE id = ?", (event["id"],)).fetchone()
     assert row is not None and row["delete_plan"] is None
+
+
+def test_missing_retained_source_blocks_deletion_from_the_preview(
+    conn, tmp_path, monkeypatch
+):
+    """Review P2 (PR #31): a retained track whose source is ALREADY missing at
+    preview time must surface as an unresolved blocker with resolution
+    options — not fail later inside _copy_migration."""
+    event = create_event(conn, tmp_path / "storage", "Blocked")
+    gone = Path(event["staging_dir"]) / "gone.mp3"
+    collection = tmp_path / "storage" / "rekordbox" / "Collection"
+    plan = _plan(event)
+    plan["tracks"] = [
+        {
+            "content_id": "42",
+            "title": "Gone",
+            "artist": "Artist",
+            "source_path": str(gone),
+            "ownership": "app_managed",
+            "retaining_mytags": ["Other"],
+            "action": "migrate_to_collection",
+            "destination_path": str(collection / "gone.mp3"),
+            "destination_reused": False,
+            "anlz_update_required": False,
+        }
+    ]
+    plan["validation"]["sources"] = [
+        {"content_id": "42", "path": str(gone), "exists": False}
+    ]
+    monkeypatch.setattr(event_delete, "read_plan", lambda *args: plan)
+
+    preview = event_delete.delete_event(
+        conn,
+        tmp_path / "master.db",
+        tmp_path / "backups",
+        FakeCache(),
+        tmp_path / "storage",
+        event,
+        dry_run=True,
+    )
+
+    kinds = [issue["kind"] for issue in preview["unresolved"]]
+    assert kinds == ["missing_retained_source"]
+    assert preview["unresolved"][0]["resolution_options"]
+
+    # Execution with that exact preview is refused while unresolved remain.
+    with pytest.raises(ValueError, match="unresolved"):
+        event_delete.delete_event(
+            conn,
+            tmp_path / "master.db",
+            tmp_path / "backups",
+            FakeCache(),
+            tmp_path / "storage",
+            event,
+            dry_run=False,
+            plan=preview,
+        )
+    assert conn.execute(
+        "SELECT 1 FROM events WHERE id = ?", (event["id"],)
+    ).fetchone()
+
+
+def test_unsafe_retained_source_blocks_deletion_from_the_preview(
+    conn, tmp_path, monkeypatch
+):
+    event = create_event(conn, tmp_path / "storage", "Unsafe")
+    weird = Path(event["staging_dir"]) / "weird.mp3"
+    plan = _plan(event)
+    plan["tracks"] = [
+        {
+            "content_id": "43",
+            "title": "Weird",
+            "artist": "Artist",
+            "source_path": str(weird),
+            "ownership": "app_managed",
+            "retaining_mytags": ["Other"],
+            "action": "migrate_to_collection",
+            "destination_path": str(
+                tmp_path / "storage" / "rekordbox" / "Collection" / "weird.mp3"
+            ),
+            "destination_reused": False,
+            "anlz_update_required": False,
+        }
+    ]
+    plan["validation"]["sources"] = [
+        {"content_id": "43", "path": str(weird), "exists": True, "kind": "unsafe"}
+    ]
+    monkeypatch.setattr(event_delete, "read_plan", lambda *args: plan)
+
+    preview = event_delete.delete_event(
+        conn,
+        tmp_path / "master.db",
+        tmp_path / "backups",
+        FakeCache(),
+        tmp_path / "storage",
+        event,
+        dry_run=True,
+    )
+    assert [issue["kind"] for issue in preview["unresolved"]] == [
+        "unsafe_retained_source"
+    ]

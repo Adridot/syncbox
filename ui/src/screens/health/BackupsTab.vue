@@ -20,8 +20,34 @@ const jobs = useJobsStore()
 const settings = useSettingsStore()
 
 const backups = ref<BackupInfo[] | null>(null)
-const logs = ref<{ configured: boolean; path?: string; lines: string[] } | null>(null)
-const retention = ref<number>(15)
+interface StorageMigrationPlan {
+  dry_run: boolean
+  plan_version: number
+  fingerprint: unknown
+  items: Array<{
+    job_id: number
+    scope: 'event' | 'library' | 'collection'
+    title: string | null
+    artist: string | null
+    source_path: string
+    destination_path: string
+  }>
+  ignored: Array<{
+    job_id: number | null
+    title: string | null
+    artist: string | null
+    source_path: string
+    reason: string
+  }>
+}
+const migration = ref<StorageMigrationPlan | null>(null)
+const migrationBusy = ref(false)
+const logs = ref<{
+  configured: boolean
+  path?: string
+  lines: string[]
+} | null>(null)
+const retention = ref<number>(20)
 const banner = ref<{ tone: 'error' | 'success'; text: string } | null>(null)
 const logsError = ref<string | null>(null)
 
@@ -37,15 +63,22 @@ async function load() {
     banner.value = { tone: 'error', text: describe(cause) }
   }
   try {
-    logs.value = await api.get<{ configured: boolean; path?: string; lines: string[] }>(
-      '/api/doctor/logs?lines=120',
-    )
+    migration.value = await api.get<StorageMigrationPlan>('/api/acquisition/storage-migration')
+  } catch {
+    migration.value = null
+  }
+  try {
+    logs.value = await api.get<{
+      configured: boolean
+      path?: string
+      lines: string[]
+    }>('/api/doctor/logs?lines=120')
     logsError.value = null
   } catch (cause) {
     logsError.value = describe(cause)
   }
   if (!settings.loaded) await settings.load().catch(() => {})
-  retention.value = settings.values?.backup_retention ?? 15
+  retention.value = settings.values?.backup_retention ?? 20
 }
 // skeleton on first load only; keep-alive re-entries refresh silently
 useRefreshOnReturn(() => void load())
@@ -53,9 +86,10 @@ useRefreshOnReturn(() => void load())
 async function restore(name: string) {
   banner.value = null
   try {
-    const result = await api.post<{ restored: string; pre_restore_snapshot: string | null }>(
-      `/api/doctor/backups/${name}/restore`,
-    )
+    const result = await api.post<{
+      restored: string
+      pre_restore_snapshot: string | null
+    }>(`/api/doctor/backups/${name}/restore`)
     banner.value = {
       tone: 'success',
       text: t('backups.restored', {
@@ -72,10 +106,36 @@ async function restore(name: string) {
 async function saveRetention() {
   banner.value = null
   try {
-    await api.post('/api/doctor/retention', { backup_retention: Number(retention.value) })
-    banner.value = { tone: 'success', text: t('backups.retentionSaved', { n: retention.value }) }
+    await api.post('/api/doctor/retention', {
+      backup_retention: Number(retention.value),
+    })
+    banner.value = {
+      tone: 'success',
+      text: t('backups.retentionSaved', { n: retention.value }),
+    }
   } catch (cause) {
     banner.value = { tone: 'error', text: describe(cause) }
+  }
+}
+
+async function migrateStorage() {
+  if (!migration.value?.items.length) return
+  migrationBusy.value = true
+  banner.value = null
+  try {
+    const result = await api.post<{ migrated: number }>('/api/acquisition/storage-migration', {
+      dry_run: false,
+      plan: migration.value,
+    })
+    banner.value = {
+      tone: 'success',
+      text: t('backups.migration.done', { n: result.migrated }),
+    }
+    await load()
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    migrationBusy.value = false
   }
 }
 
@@ -91,6 +151,24 @@ function tsLabel(name: string): string {
   const [, day, time] = match
   return `${day.slice(6, 8)}/${day.slice(4, 6)}/${day.slice(0, 4)} ${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`
 }
+
+function reasonLabel(reason?: string | null): string {
+  const known = new Set([
+    'rekordbox_mutation',
+    'event_apply',
+    'event_reapply',
+    'event_delete',
+    'library_apply',
+    'collection_relink',
+    'missing_remove',
+    'duplicate_resolve',
+    'untagged_remove',
+    'smart_fixes',
+    'acquisition_storage_migration',
+    'pre_restore',
+  ])
+  return t(`backups.reason.${reason && known.has(reason) ? reason : 'legacy'}`)
+}
 </script>
 
 <template>
@@ -102,26 +180,91 @@ function tsLabel(name: string): string {
 
     <LoadingState v-if="backups === null" :rows="4" />
     <div v-else class="grid">
+      <div
+        v-if="migration && (migration.items.length || migration.ignored.length)"
+        class="card full"
+      >
+        <div class="card-head">
+          <div>
+            <h3>{{ t('backups.migration.title') }}</h3>
+            <p class="migration-lead">{{ t('backups.migration.lead') }}</p>
+          </div>
+          <button
+            class="restore"
+            :disabled="status.rbOpen || jobs.jobRunning || migrationBusy || !migration.items.length"
+            @click="migrateStorage"
+          >
+            {{ t('backups.migration.confirm', migration.items.length) }}
+          </button>
+        </div>
+        <div class="migration-counts">
+          <span>{{
+            t(
+              'backups.migration.event',
+              migration.items.filter((item) => item.scope === 'event').length,
+            )
+          }}</span>
+          <span>{{
+            t(
+              'backups.migration.collection',
+              migration.items.filter((item) => item.scope !== 'event').length,
+            )
+          }}</span>
+          <span v-if="migration.ignored.length" class="warning">
+            {{ t('backups.migration.ignored', migration.ignored.length) }}
+          </span>
+        </div>
+        <details v-if="migration.items.length">
+          <summary>{{ t('backups.migration.readyDetails') }}</summary>
+          <div v-for="item in migration.items" :key="item.job_id" class="migration-item">
+            <b>{{ item.title || t('missing.untitled') }}</b> —
+            {{ item.artist || '—' }}
+            <div class="mono path">{{ item.source_path }} → {{ item.destination_path }}</div>
+          </div>
+        </details>
+        <details v-if="migration.ignored.length" open>
+          <summary>{{ t('backups.migration.ignoredDetails') }}</summary>
+          <div
+            v-for="item in migration.ignored"
+            :key="`${item.job_id}-${item.source_path}`"
+            class="migration-item warning"
+          >
+            <b>{{ item.title || t('missing.untitled') }}</b> —
+            {{ t(`backups.migration.reason.${item.reason}`) }}
+            <div class="mono path">{{ item.source_path }}</div>
+          </div>
+        </details>
+      </div>
       <div class="card">
         <div class="card-head">
           <h3>{{ t('backups.title') }}</h3>
           <div class="retention">
-            <label class="retention-label" for="retention">{{ t('backups.rotation') }}</label>
+            <label class="retention-label" for="retention">{{ t('backups.recent') }}</label>
             <input id="retention" v-model.number="retention" type="number" min="0" max="99" />
             <button class="btn-secondary small" @click="saveRetention">
               {{ t('backups.save') }}
             </button>
           </div>
         </div>
+        <div class="policy-note">
+          {{ t('backups.policy', { n: retention }) }}
+        </div>
         <div v-for="backup in backups" :key="backup.name" class="backup-row">
           <div class="backup-text">
             <div class="backup-ts mono">{{ tsLabel(backup.name) }}</div>
             <div class="backup-name">{{ backup.name }}</div>
+            <div class="backup-meta">
+              {{ reasonLabel(backup.reason) }} ·
+              {{ backup.verified ? t('backups.verified') : t('backups.legacy') }}
+              ·
+              {{ backup.coherent ? t('backups.coherent') : t('backups.rekordboxOnly') }}
+              <span v-if="backup.pinned"> · {{ t('backups.pinned') }}</span>
+            </div>
           </div>
           <span class="backup-size mono">{{ sizeLabel(backup.size_bytes) }}</span>
           <button
             class="restore"
-            :disabled="status.rbOpen || jobs.jobRunning"
+            :disabled="status.rbOpen || jobs.jobRunning || !backup.coherent"
             @click="restore(backup.name)"
           >
             {{ status.rbOpen ? t('rbGuard.blocked') : t('backups.restore') }}
@@ -134,15 +277,21 @@ function tsLabel(name: string): string {
       <div class="card">
         <div class="card-head">
           <h3>{{ t('backups.logsTitle') }}</h3>
-          <button class="btn-secondary small" @click="load">{{ t('common.retry') }}</button>
+          <button class="btn-secondary small" @click="load">
+            {{ t('common.retry') }}
+          </button>
         </div>
         <div v-if="logsError" class="empty">{{ logsError }}</div>
         <div v-else-if="logs && !logs.configured" class="empty">
           {{ t('backups.logsUnconfigured') }}
         </div>
         <div v-else-if="logs" class="log-tail mono">
-          <div v-for="(line, index) in logs.lines" :key="index" class="log-line">{{ line }}</div>
-          <div v-if="!logs.lines.length" class="empty">{{ t('backups.logsEmpty') }}</div>
+          <div v-for="(line, index) in logs.lines" :key="index" class="log-line">
+            {{ line }}
+          </div>
+          <div v-if="!logs.lines.length" class="empty">
+            {{ t('backups.logsEmpty') }}
+          </div>
         </div>
         <button
           v-if="logs?.configured && logs.path"
@@ -178,6 +327,39 @@ function tsLabel(name: string): string {
 }
 .banner-text {
   flex: 1;
+}
+.full {
+  grid-column: 1 / -1;
+}
+.migration-lead {
+  color: var(--text-muted-bright);
+  font-size: 12px;
+  margin: 5px 0 0;
+}
+.migration-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin: 12px 0;
+}
+.migration-counts span {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 8px;
+}
+.warning {
+  color: var(--warning);
+}
+.migration-item {
+  padding: 8px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.path {
+  overflow-wrap: anywhere;
+  margin-top: 3px;
 }
 .banner-close {
   background: transparent;
@@ -218,6 +400,16 @@ h3 {
   font-size: 11.5px;
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+.policy-note {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  margin: 8px 0 12px;
+}
+.backup-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 2px;
 }
 .retention input {
   width: 52px;

@@ -46,7 +46,7 @@ const PREVIEW = {
       source_path: '/Volumes/Archive/already-safe.aiff',
       ownership: 'external',
       retaining_mytags: ['Favorites'],
-      action: 'already_permanent',
+      action: 'keep_in_place',
       destination_path: null,
       anlz_update_required: false,
     },
@@ -86,14 +86,14 @@ test('event deletion renders the exact migration plan and executes that same pay
 
   expect(wrapper.text()).toContain('Migrer vers Collection')
   expect(wrapper.text()).toContain('Conserver sur place')
-  expect(wrapper.text()).toContain('Géré par Syncbox')
-  expect(wrapper.text()).toContain('Externe')
   expect(wrapper.text()).toContain('House, Favorites')
   expect(wrapper.text()).toContain('content-1')
   expect(wrapper.text()).toContain('content-2')
   expect(wrapper.text()).toContain('/Music/rekordbox/Collection/keep.flac')
   expect(wrapper.text()).toContain('Mise à jour du chemin requise')
   expect(wrapper.text()).toContain('/Music/_syncbox/events/summer-set/keep.flac')
+  expect(wrapper.findAll('.category')).toHaveLength(2)
+  expect(wrapper.findAll('.compact-track')).toHaveLength(2)
 
   await wrapper.get('.confirm').trigger('click')
   await flushPromises()
@@ -104,5 +104,42 @@ test('event deletion renders the exact migration plan and executes that same pay
     plan: PREVIEW,
   })
   expect(wrapper.emitted('deleted')).toHaveLength(1)
+  wrapper.unmount()
+})
+
+test('event deletion groups an unresolved job and blocks the destructive action', async () => {
+  const unresolved = {
+    ...PREVIEW,
+    unresolved: [
+      {
+        id: 'acquisition-job-9',
+        kind: 'active_acquisition',
+        title: 'Still Downloading',
+        artist: 'Example Artist',
+        job_id: 9,
+        status: 'running',
+        resolution_options: [],
+      },
+    ],
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(unresolved),
+    }),
+  )
+
+  const wrapper = mount(DeleteEventModal, {
+    props: { event: EVENT },
+    global: { plugins: [i18n], stubs: { teleport: true } },
+  })
+  await flushPromises()
+
+  expect(wrapper.text()).toContain('1 cas non résolu')
+  expect(wrapper.text()).toContain('Still Downloading')
+  expect(wrapper.get('.confirm').attributes('disabled')).toBeDefined()
+  expect(wrapper.get('.confirm').text()).toBe('Résoudre les cas restants')
   wrapper.unmount()
 })

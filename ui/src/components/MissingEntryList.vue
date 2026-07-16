@@ -84,7 +84,12 @@ const {
   running: acqRunning,
   run: runAcq,
   prune: pruneAcq,
+  hydrate: hydrateAcq,
 } = useAcquisitionQueue()
+
+// The queue is persistent in the sidecar: reopening the UI mid-batch must
+// restore badges/errors and resume polling the still-active jobs.
+onMounted(() => hydrateAcq((job) => `${job.scope}:${job.ref}`, describe))
 
 // manual search (panel with 30 s preview); a pick downloads the chosen
 // recording even when the row itself has no ISRC

@@ -156,9 +156,7 @@ def test_add_track_resolver_manual_and_validation(conn, tmp_path):
 def test_add_track_after_apply_is_flagged_delta_never_blocked(conn, tmp_path):
     event = create_event(conn, tmp_path / "storage", "Applied Party")
     for status in ("applied", "partially_applied"):
-        conn.execute(
-            "UPDATE events SET status = ? WHERE id = ?", (status, event["id"])
-        )
+        conn.execute("UPDATE events SET status = ? WHERE id = ?", (status, event["id"]))
         track = add_track(conn, event, title=f"Delta {status}")
         assert track["added_after_apply"] == 1  # 11.2 delta, never blocked
 
@@ -272,13 +270,22 @@ def test_claim_rule_shares_only_on_same_nonempty_isrc(conn, tmp_path):
         return lambda _tid: {"title": title, "artist": "A", "isrc": isrc}
 
     same_a = add_track(
-        conn, event, spotify_track_id="sp:1", resolver=spotify("Shared Song", "USAAA0000001")
+        conn,
+        event,
+        spotify_track_id="sp:1",
+        resolver=spotify("Shared Song", "USAAA0000001"),
     )
     same_b = add_track(
-        conn, event, spotify_track_id="sp:2", resolver=spotify("Shared Song", "USAAA0000001")
+        conn,
+        event,
+        spotify_track_id="sp:2",
+        resolver=spotify("Shared Song", "USAAA0000001"),
     )
     diff_isrc = add_track(
-        conn, event, spotify_track_id="sp:3", resolver=spotify("Shared Song", "GBZZZ0000009")
+        conn,
+        event,
+        spotify_track_id="sp:3",
+        resolver=spotify("Shared Song", "GBZZZ0000009"),
     )
     no_isrc_1 = add_track(conn, event, title="Other Tune")
     no_isrc_2 = add_track(conn, event, title="Other Tune")
@@ -375,7 +382,16 @@ def test_reapply_picks_up_rows_matched_after_the_apply(conn, tmp_path, monkeypat
     conn.execute("UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],))
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention=15, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention=20,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         yield "db"
 
     _fake_apply_helpers(monkeypatch, fake_mutate)
@@ -422,7 +438,9 @@ def test_reapply_with_nothing_applicable_is_a_noop_before_mutate(conn, tmp_path)
 def _fake_apply_helpers(monkeypatch, fake_mutate):
     monkeypatch.setattr(events_service, "mutate", fake_mutate)
     monkeypatch.setattr(
-        events_service, "find_or_create_mytag", lambda db, n, c: SimpleNamespace(ID="T1")
+        events_service,
+        "find_or_create_mytag",
+        lambda db, n, c: SimpleNamespace(ID="T1"),
     )
     monkeypatch.setattr(
         events_service, "ensure_playlist_folder", lambda db, n: SimpleNamespace(ID="F1")
@@ -457,7 +475,16 @@ def test_apply_retry_after_post_commit_crash_reuses_content_row(
     added = []
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention=15, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention=20,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         yield "db"
         if invalidate_cache:
             invalidate_cache()
@@ -533,7 +560,16 @@ def test_apply_restores_xml_byte_identical_after_commit(conn, tmp_path, monkeypa
     xml_path.write_bytes(original)
 
     @contextmanager
-    def fake_mutate(db_path_, backups_root, *, retention=15, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path_,
+        backups_root,
+        *,
+        retention=20,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         yield "db"
         # pyrekordbox rewrites the xml as part of its commit
         xml_path.write_bytes(b"<pyrekordbox rewrote this/>")
@@ -612,8 +648,20 @@ def test_delete_preview_ownership_and_retained_track_rules(tmp_path):
                 ("101", "Solo", "Artist", str(solo), None),
                 ("102", "Retained", "Artist", str(retained), None),
                 ("103", "In Collection", "Artist", permanent_path, None),
-                ("104", "External Solo", "Artist", "/Users/dj/Music/external.mp3", None),
-                ("105", "External Tagged", "Artist", "/Users/dj/Music/tagged.mp3", None),
+                (
+                    "104",
+                    "External Solo",
+                    "Artist",
+                    "/Users/dj/Music/external.mp3",
+                    None,
+                ),
+                (
+                    "105",
+                    "External Tagged",
+                    "Artist",
+                    "/Users/dj/Music/tagged.mp3",
+                    None,
+                ),
             ]
         if sql == event_delete._OTHER_TAGS_SQL:
             return tagged.get(params["content_id"], [])
@@ -636,8 +684,8 @@ def test_delete_preview_ownership_and_retained_track_rules(tmp_path):
     )
     assert by_id["103"]["action"] == "already_permanent"
     assert by_id["103"]["ownership"] == "permanent_library"
-    assert by_id["104"]["action"] == "soft_delete_only"
-    assert by_id["105"]["action"] == "already_permanent"
+    assert by_id["104"]["action"] == "keep_in_place"
+    assert by_id["105"]["action"] == "keep_in_place"
     assert by_id["105"]["ownership"] == "external"
     assert {p["name"] for p in preview["playlists"]} == {
         "Gala Night",
@@ -715,7 +763,9 @@ def test_retained_track_migration_on_real_db(tmp_path, monkeypatch):
     assert not int(content_before[4] or 0)
     actual_anlz = event_delete._anlz_paths(db_path, content_before[3])
     assert set(actual_anlz) == set(declared_anlz)
-    cue_rows = rows("SELECT * FROM djmdCue WHERE ContentID = ? ORDER BY ID", (content_id,))
+    cue_rows = rows(
+        "SELECT * FROM djmdCue WHERE ContentID = ? ORDER BY ID", (content_id,)
+    )
     playlist_rows = rows(
         "SELECT PlaylistID, TrackNo FROM djmdSongPlaylist "
         "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY PlaylistID",
@@ -749,16 +799,12 @@ def test_retained_track_migration_on_real_db(tmp_path, monkeypatch):
             db, event["default_tag"], events_service.SITUATION_CATEGORY
         )
         tag_content(db, content_id, str(event_tag.ID))
-        migrate_content_path(
-            db, content_id, str(staged), update_anlz=False
-        )
+        migrate_content_path(db, content_id, str(staged), update_anlz=False)
         db.get_content(ID=content_id).OrgFolderPath = str(staged)
         db.flush()
 
     cache = rb.SnapshotCache(db_path)
-    plan = delete_event(
-        conn, db_path, backups, cache, storage, event, dry_run=True
-    )
+    plan = delete_event(conn, db_path, backups, cache, storage, event, dry_run=True)
     track = next(item for item in plan["tracks"] if item["content_id"] == content_id)
     assert track["action"] == "migrate_to_collection"
     assert track["anlz_update_required"] is True
@@ -802,24 +848,36 @@ def test_retained_track_migration_on_real_db(tmp_path, monkeypatch):
         content_before[3],
         0,
     )
-    assert rows("SELECT * FROM djmdCue WHERE ContentID = ? ORDER BY ID", (content_id,)) == cue_rows
-    assert rows(
-        "SELECT PlaylistID, TrackNo FROM djmdSongPlaylist "
-        "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY PlaylistID",
-        (content_id,),
-    ) == playlist_rows
-    assert rows(
-        "SELECT MyTagID FROM djmdSongMyTag "
-        "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY MyTagID",
-        (content_id,),
-    ) == original_tags
+    assert (
+        rows("SELECT * FROM djmdCue WHERE ContentID = ? ORDER BY ID", (content_id,))
+        == cue_rows
+    )
+    assert (
+        rows(
+            "SELECT PlaylistID, TrackNo FROM djmdSongPlaylist "
+            "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY PlaylistID",
+            (content_id,),
+        )
+        == playlist_rows
+    )
+    assert (
+        rows(
+            "SELECT MyTagID FROM djmdSongMyTag "
+            "WHERE ContentID = ? AND rb_local_deleted = 0 ORDER BY MyTagID",
+            (content_id,),
+        )
+        == original_tags
+    )
 
     for path in declared_anlz:
         parsed = AnlzFile.parse_file(path)
         assert parsed.get("path") == stored_destination
         assert analysis_payload(path) == analysis_before[path]
     assert any(
-        all((backup / "extra" / path.relative_to(fixture_root)).is_file() for path in declared_anlz)
+        all(
+            (backup / "extra" / path.relative_to(fixture_root)).is_file()
+            for path in declared_anlz
+        )
         for backup in backups.glob("rekordbox-db-*")
     )
     assert get_event(conn, event["id"]) is None
@@ -1024,7 +1082,7 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
         if track["source_path"] == str(staged_c)
     )
     assert actions[row_x["content_id"]]["action"] == "already_permanent"
-    assert actions[row_a["content_id"]]["action"] == "soft_delete_only"
+    assert actions[row_a["content_id"]]["action"] == "keep_in_place"
     assert actions[content_b]["action"] == "migrate_to_collection"
     assert actions[content_b]["retaining_mytags"] == ["IT Retained"]
     assert actions[content_b]["anlz_update_required"] is False
@@ -1110,7 +1168,9 @@ def test_event_lifecycle_on_real_db(tmp_path, monkeypatch):
         "SELECT FolderPath, rb_local_deleted FROM djmdContent WHERE ID = ?",
         (content_b,),
     ).fetchone()
-    assert migrated[0] == stored_form(actions[content_b]["destination_path"], storage_root)
+    assert migrated[0] == stored_form(
+        actions[content_b]["destination_path"], storage_root
+    )
     assert int(migrated[1] or 0) == 0
     assert (
         ro.execute(

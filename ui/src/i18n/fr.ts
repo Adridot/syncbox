@@ -92,7 +92,8 @@ export const fr: typeof en = {
     unfollowConfirm: 'Confirmer l’arrêt du suivi ?',
     loadErrorTitle: 'Bibliothèque indisponible',
     emptyTitle: 'Aucune source suivie',
-    emptyBody: 'Ajoute une playlist Spotify pour la garder synchronisée avec ta collection Rekordbox.',
+    emptyBody:
+      'Ajoute une playlist Spotify pour la garder synchronisée avec ta collection Rekordbox.',
     addSource: '+ Ajouter une source Spotify',
     sourcesTitle: 'Sources suivies',
     searchPlaceholder: 'Filtrer les playlists…',
@@ -162,7 +163,8 @@ export const fr: typeof en = {
     },
   },
   events: {
-    tagline: 'Imports temporaires — mariage, soirée. Appliqués en smart playlist sous « Event Imports ».',
+    tagline:
+      'Imports temporaires — mariage, soirée. Appliqués en smart playlist sous « Event Imports ».',
     loadErrorTitle: 'Événements indisponibles',
     emptyTitle: 'Aucun événement',
     emptyBody: 'Crée un événement depuis une playlist Spotify, ou à vide.',
@@ -174,7 +176,8 @@ export const fr: typeof en = {
     missingUnit: 'manquants',
     pendingUnit: 'en attente',
     titlesUnit: 'titres',
-    claimDone: 'aucun fichier stagé récupéré | {n} fichier stagé récupéré | {n} fichiers stagés récupérés',
+    claimDone:
+      'aucun fichier stagé récupéré | {n} fichier stagé récupéré | {n} fichiers stagés récupérés',
     delete: 'Supprimer',
     rename: 'Renommer',
     renameSave: 'Enregistrer',
@@ -187,11 +190,13 @@ export const fr: typeof en = {
     resolveMissing: 'Résoudre →',
     removeTrack: 'Retirer ce titre',
     filterEmpty: 'Aucun titre dans ce filtre.',
-    modifiedBanner: 'Modifié depuis la dernière application — {n}. Ré-applique pour mettre à jour le smart playlist Rekordbox.',
+    modifiedBanner:
+      'Modifié depuis la dernière application — {n}. Ré-applique pour mettre à jour le smart playlist Rekordbox.',
     changesPending: '{n} changement en attente | {n} changements en attente',
     claim: 'Récupérer les fichiers stagés',
     openStaging: 'Ouvrir le dossier de dépôt',
-    openStagingHelp: 'Dépose ici les fichiers achetés ou récupérés à la main, puis « Récupérer les fichiers stagés ».',
+    openStagingHelp:
+      'Dépose ici les fichiers achetés ou récupérés à la main, puis « Récupérer les fichiers stagés ».',
     downloadMissing: 'Télécharger les manquants ({n})',
     filters: {
       all: 'Tous',
@@ -221,7 +226,8 @@ export const fr: typeof en = {
       modeEmpty: 'À vide',
       followedLabel: 'Playlist suivie',
       followedPick: 'Choisir une playlist…',
-      followedEmpty: 'Aucune playlist suivie pour l’instant — ajoute-en une dans Bibliothèque, ou colle un lien.',
+      followedEmpty:
+        'Aucune playlist suivie pour l’instant — ajoute-en une dans Bibliothèque, ou colle un lien.',
       nameLabel: 'Nom de l’événement',
       namePlaceholder: 'Soirée Nouvel An',
       nameHelp: 'Sert aussi de tag MyTag · catégorie {category}',
@@ -253,7 +259,7 @@ export const fr: typeof en = {
     },
     del: {
       title: 'Supprimer « {name} »',
-      lead: 'Plan exact, track par track, qui sera exécuté :',
+      lead: 'Résumé de ce qui se passera lors de la suppression de cet événement :',
       tagLine: 'MyTag de l’événement retiré',
       playlistLine: 'Playlists Rekordbox retirées',
       filesCount: '{n} fichier | {n} fichiers',
@@ -274,8 +280,29 @@ export const fr: typeof en = {
         already_permanent: 'Conserver sur place',
         migrate_to_collection: 'Migrer vers Collection',
         delete_with_event: 'Supprimer avec l’événement',
-        soft_delete_only: 'Soft-delete de la ligne uniquement',
+        keep_in_place: 'Conserver sur place',
       },
+      actionHelp: {
+        already_permanent: 'Les fichiers permanents de Collection restent inchangés.',
+        migrate_to_collection:
+          'Les fichiers de l’événement portant d’autres tags sont déplacés vers Collection.',
+        delete_with_event:
+          'Les fichiers propres à l’événement sans autre tag sont supprimés avec lui.',
+        keep_in_place:
+          'Les fichiers préexistants perdent uniquement leur appartenance à l’événement.',
+      },
+      unresolved: '{n} cas non résolu | {n} cas non résolus',
+      issue: {
+        active_acquisition:
+          'Un téléchargement est encore en attente ou en cours. Attends sa fin puis actualise cet aperçu.',
+        missing_retained_source:
+          'Ce titre conservé n’a plus de fichier sur le disque. Rélie-le ou retire-le dans Rekordbox, puis actualise cet aperçu.',
+        unsafe_retained_source:
+          'Ce titre conservé ne pointe pas vers un fichier régulier. Rélie-le ou retire-le dans Rekordbox, puis actualise cet aperçu.',
+      },
+      technicalDetails: 'Détails techniques',
+      resolveFirst: 'Résoudre les cas restants',
+      confirmCount: 'Supprimer l’événement · {n} fichier | Supprimer l’événement · {n} fichiers',
       note: 'Les migrations requises s’achèvent avant le nettoyage de l’événement. L’identité Rekordbox et les métadonnées conservées restent inchangées. Requiert Rekordbox fermé.',
       confirm: 'Supprimer l’événement',
     },
@@ -297,7 +324,8 @@ export const fr: typeof en = {
     scanCta: 'Scanner les doublons',
     scanning: 'Scan en cours…',
     scanJob: 'Scan des doublons',
-    scanDone: 'aucun groupe de doublons trouvé | {n} groupe de doublons trouvé | {n} groupes de doublons trouvés',
+    scanDone:
+      'aucun groupe de doublons trouvé | {n} groupe de doublons trouvé | {n} groupes de doublons trouvés',
     resolved: 'Groupe résolu — {n} ligne(s) soft-supprimée(s), {files} fichier(s) traité(s).',
     rescanHint: 'La collection a changé : relance le scan avant de résoudre un autre groupe.',
     stale: 'La collection a changé depuis ce scan — relance-le avant de résoudre.',
@@ -331,7 +359,8 @@ export const fr: typeof en = {
     fileMissing: 'manquant',
     filePresent: 'présent',
     qualityReason: {
-      sharp_cutoff_in_lossless_container: 'coupure spectrale nette dans un conteneur lossless (faux-FLAC probable)',
+      sharp_cutoff_in_lossless_container:
+        'coupure spectrale nette dans un conteneur lossless (faux-FLAC probable)',
       cutoff_indicates_le192_source: 'la coupure spectrale indique une source ≤192 kbps',
       cutoff_in_256_class_zone: 'coupure dans la zone 256 kbps — incertain',
       lossless_container_cutoff_in_320_v0_zone: 'coupure à la frontière 320/V0 — incertain',
@@ -348,7 +377,8 @@ export const fr: typeof en = {
     removed: '« {title} » retiré de la collection (soft-delete, réversible).',
     relinked: '« {title} » relié.',
     acquired: '« {title} » téléchargé dans le dossier d’acquisition Syncbox.',
-    acquisitionFailed: '« {title} » n’a pas pu être téléchargé. Les liens d’achat restent disponibles.',
+    acquisitionFailed:
+      '« {title} » n’a pas pu être téléchargé. Les liens d’achat restent disponibles.',
     purchaseOpenFailed: 'Le lien d’achat n’a pas pu être ouvert dans ton navigateur. Réessaie.',
     undo: 'Annuler',
     untitled: '(sans titre)',
@@ -366,7 +396,8 @@ export const fr: typeof en = {
     bulkRemove: 'Retirer · {n}',
     bulkIgnored: '{n} titre(s) ignoré(s).',
     bulkRemoved: '{n} ligne(s) retirée(s) de la collection (soft-delete, réversible).',
-    bulkAcquireDone: '{ok} téléchargé(s) · {failed} en échec. Les liens d’achat restent disponibles.',
+    bulkAcquireDone:
+      '{ok} téléchargé(s) · {failed} en échec. Les liens d’achat restent disponibles.',
     acq_queued: 'En file',
     acq_running: 'Téléchargement…',
     acq_downloaded: 'Téléchargé',
@@ -377,7 +408,8 @@ export const fr: typeof en = {
     errors: {
       notStreamable:
         'Indisponible en streaming sur Deezer — essaie la recherche manuelle, une autre édition l’est souvent.',
-      notFullTrack: 'Le fichier téléchargé n’est pas le titre complet — essaie la recherche manuelle.',
+      notFullTrack:
+        'Le fichier téléchargé n’est pas le titre complet — essaie la recherche manuelle.',
       isrcNotFound: 'Introuvable sur Deezer par ISRC — utilise la recherche manuelle.',
       rekordboxOpen: 'Rekordbox est ouvert — ferme-le puis réessaie.',
     },
@@ -396,7 +428,8 @@ export const fr: typeof en = {
     pause: 'Mettre l’aperçu en pause',
   },
   missingCenter: {
-    tagline: 'Récupérer les morceaux manquants — bibliothèque, événements et collection, au même endroit.',
+    tagline:
+      'Récupérer les morceaux manquants — bibliothèque, événements et collection, au même endroit.',
     recommended: 'RECOMMANDÉ',
     legalTitle: 'Acheter les morceaux manquants',
     legalBody:
@@ -414,7 +447,8 @@ export const fr: typeof en = {
     confirm: 'Relier ce fichier',
   },
   untagged: {
-    intro: 'Tri par priorité : {junk} < {dup} < {alt} < {review}. Le retrait est un soft-delete Rekordbox réversible ; l’audio n’est jamais touché. La propriété est seulement informative.',
+    intro:
+      'Tri par priorité : {junk} < {dup} < {alt} < {review}. Le retrait est un soft-delete Rekordbox réversible ; l’audio n’est jamais touché. La propriété est seulement informative.',
     cat: {
       all: 'Tous',
       junk: 'junk',
@@ -444,12 +478,16 @@ export const fr: typeof en = {
     lead: 'Correctifs structurels conservateurs issus d’un catalogue fixe. Le cycle est toujours {cycle} : rien n’est modifié sans ton accord.',
     cycle: 'aperçu → confirmation → écriture',
     families: {
-      cleanup: 'Nettoyer les URL de site finales, séparateurs orphelins et espaces Unicode ; normaliser Unicode en NFC',
-      encoding: 'Réparer certaines signatures courantes et réversibles de mojibake UTF-8 / latin-1 / Windows-1252 et les entités XML nommées exactes &amp; &quot; &apos; &lt; &gt;',
+      cleanup:
+        'Nettoyer les URL de site finales, séparateurs orphelins et espaces Unicode ; normaliser Unicode en NFC',
+      encoding:
+        'Réparer certaines signatures courantes et réversibles de mojibake UTF-8 / latin-1 / Windows-1252 et les entités XML nommées exactes &amp; &quot; &apos; &lt; &gt;',
       credits: 'Extraire uniquement les crédits finaux artiste invité et remixeur non ambigus',
     },
-    limitsNote: 'Les crédits restent conservateurs : un artiste invité final est ajouté au crédit artiste existant ; un remixeur vide n’est renseigné que depuis un « (Nom Remix) » final, tandis que le titre du remix est conservé. Les noms stylisés en majuscules ou en casse mixte restent inchangés ; les motifs ambigus sont ignorés.',
-    backupNote: 'L’aperçu en lecture seule peut être lancé pendant que Rekordbox est ouvert. L’écriture exige qu’il soit fermé, modifie les métadonnées sans filtrer selon la propriété du fichier, ne touche aucun fichier audio et crée d’abord un backup horodaté de la base.',
+    limitsNote:
+      'Les crédits restent conservateurs : un artiste invité final est ajouté au crédit artiste existant ; un remixeur vide n’est renseigné que depuis un « (Nom Remix) » final, tandis que le titre du remix est conservé. Les noms stylisés en majuscules ou en casse mixte restent inchangés ; les motifs ambigus sont ignorés.',
+    backupNote:
+      'L’aperçu en lecture seule peut être lancé pendant que Rekordbox est ouvert. L’écriture exige qu’il soit fermé, modifie les métadonnées sans filtrer selon la propriété du fichier, ne touche aucun fichier audio et crée d’abord un backup horodaté de la base.',
     dryRunCta: 'Lancer l’aperçu (dry-run)',
     executed: '{fields} champs écrits sur {tracks} tracks. Backup horodaté créé.',
     fields: {
@@ -465,22 +503,71 @@ export const fr: typeof en = {
       notSet: 'Non renseigné',
       emptyValue: 'Valeur vide',
       trackId: 'ID du track {id}',
-      wsLegend: 'les points rouges marquent les espaces invisibles (début/fin, doublés, insécables) — le changement est réel même quand les deux côtés semblent identiques',
-      stale: 'La collection a changé depuis cet aperçu — relance le dry-run pour voir l’effet exact avant d’écrire.',
+      wsLegend:
+        'les points rouges marquent les espaces invisibles (début/fin, doublés, insécables) — le changement est réel même quand les deux côtés semblent identiques',
+      stale:
+        'La collection a changé depuis cet aperçu — relance le dry-run pour voir l’effet exact avant d’écrire.',
       rerun: 'Relancer l’aperçu',
       summary: 'aucun changement de champ | {n} changement de champ | {n} changements de champ',
       confirm: 'Écrire {n} changement | Écrire {n} changements',
     },
   },
   backups: {
-    title: 'Backups Rekordbox',
+    title: 'Points de restauration Syncbox',
     rotation: 'rotation :',
+    recent: 'récents :',
     save: 'Enregistrer',
     restore: 'Restaurer',
     restored: '{name} restauré — la DB précédente a d’abord été snapshotée ({snapshot}).',
-    retentionSaved: 'Rotation réglée à {n} backups.',
+    retentionSaved: 'Palier récent réglé à {n} points de restauration.',
+    policy:
+      'Conserve les {n} plus récents, puis 48 horaires, 30 quotidiens, 12 hebdomadaires et 12 mensuels.',
+    verified: 'vérifié',
+    legacy: 'ancien backup',
+    coherent: 'Rekordbox + Syncbox',
+    rekordboxOnly: 'Rekordbox seul — restauration cohérente indisponible',
+    pinned: 'épinglé',
+    reason: {
+      rekordbox_mutation: 'Modification Rekordbox',
+      event_apply: 'Application d’événement',
+      event_reapply: 'Ré-application d’événement',
+      event_delete: 'Suppression d’événement',
+      library_apply: 'Application de bibliothèque',
+      collection_relink: 'Reconnexion Collection',
+      missing_remove: 'Suppression d’une entrée manquante',
+      duplicate_resolve: 'Résolution de doublons',
+      untagged_remove: 'Nettoyage des sans-tag',
+      smart_fixes: 'Smart fixes',
+      acquisition_storage_migration: 'Migration du stockage des téléchargements',
+      pre_restore: 'Avant restauration',
+      legacy: 'Opération inconnue',
+    },
+    migration: {
+      title: 'Ancien stockage des téléchargements',
+      lead: 'Déplace les fichiers vérifiés hors des dossiers de jobs et les reconnecte à leur événement ou à la Collection permanente.',
+      confirm: 'Migrer {n} fichier | Migrer {n} fichiers',
+      done: '{n} ancien fichier migré | {n} anciens fichiers migrés',
+      event: '{n} fichier d’événement | {n} fichiers d’événement',
+      collection: '{n} fichier de Collection | {n} fichiers de Collection',
+      ignored: '{n} élément laissé intact | {n} éléments laissés intacts',
+      readyDetails: 'Fichiers prêts à migrer',
+      ignoredDetails: 'Cas particuliers laissés intacts',
+      reason: {
+        missing_source: 'Le fichier source enregistré est introuvable.',
+        unsafe_source: 'Le chemin source enregistré est hors de la zone de téléchargement gérée.',
+        missing_owner: 'L’événement ou le titre de bibliothèque d’origine n’existe plus.',
+        unsafe_destination: 'La destination de l’événement ou de la Collection est hors du stockage géré.',
+        destination_collision: 'Aucun nom de destination sûr n’a pu être attribué.',
+        missing_destination: 'Une destination déjà copiée est absente ou ne correspond plus à sa source.',
+        missing_rekordbox_content: 'Le contenu Rekordbox associé n’existe plus.',
+        rekordbox_path_changed: 'Le chemin Rekordbox a changé depuis le téléchargement.',
+        unsafe_analysis: 'Un fichier d’analyse Rekordbox associé est hors de son dossier géré.',
+        orphan_file: 'Aucun job de téléchargement ne possède ce fichier.',
+      },
+    },
     empty: 'Aucun backup pour l’instant — un backup est créé avant chaque écriture.',
-    restoreNote: 'Restaurer snapshote d’abord la DB courante — l’opération est elle-même réversible. Requiert Rekordbox fermé.',
+    restoreNote:
+      'Chaque nouveau point contient l’état Rekordbox et Syncbox. Restaurer sauvegarde d’abord l’état courant et requiert Rekordbox fermé.',
     logsTitle: 'Logs',
     logsUnconfigured: 'Aucun fichier de log configuré sur ce moteur.',
     logsEmpty: 'Le fichier de log est vide.',
@@ -499,10 +586,12 @@ export const fr: typeof en = {
         'Déconnecter Spotify ? Syncbox supprimera les playlists suivies et leur historique local de synchronisation, détachera les identifiants Spotify des événements et conservera les données Rekordbox locales, les fichiers audio et ton Client ID.',
       disconnected: 'Spotify déconnecté et relations locales avec les playlists supprimées.',
       privacy: 'Données Spotify et confidentialité',
-      timeout: 'L’autorisation Spotify a expiré. Réessaie et termine la validation dans le navigateur.',
-      authorizationFailed: 'L’autorisation Spotify a été refusée ou a échoué. Réessaie dans le navigateur.',
+      timeout:
+        'L’autorisation Spotify a expiré. Réessaie et termine la validation dans le navigateur.',
+      authorizationFailed:
+        'L’autorisation Spotify a été refusée ou a échoué. Réessaie dans le navigateur.',
       callbackPortInUse:
-        "Spotify ne peut pas se connecter car le port de callback 8765 est utilisé. Ferme l’application qui utilise ce port, puis réessaie. Syncbox ne l’a pas arrêtée.",
+        'Spotify ne peut pas se connecter car le port de callback 8765 est utilisé. Ferme l’application qui utilise ce port, puis réessaie. Syncbox ne l’a pas arrêtée.',
       failed: 'échec de connexion — réessaie',
       needClientId: 'Renseigne ton Client ID Spotify ci-dessous pour activer la connexion.',
       clientIdLabel: 'Spotify Client ID',
@@ -511,9 +600,9 @@ export const fr: typeof en = {
       clientIdHelpTitle: 'Créer mon app Spotify, pas à pas',
       helpIntro:
         'Syncbox se connecte via ta propre app Spotify en mode développement, à créer une seule fois. Le propriétaire de l’app doit disposer d’un abonnement Spotify Premium actif. Le mode développement accepte au maximum 5 utilisateurs autorisés. Compte 5 minutes :',
-      helpStep1: 'Ouvre le Spotify Developer Dashboard et connecte-toi avec ton compte Spotify habituel.',
-      helpStep2:
-        '« Create app » — donne un nom (ex. Syncbox) et une description au choix.',
+      helpStep1:
+        'Ouvre le Spotify Developer Dashboard et connecte-toi avec ton compte Spotify habituel.',
+      helpStep2: '« Create app » — donne un nom (ex. Syncbox) et une description au choix.',
       helpStep3:
         'Dans le champ « Redirect URIs », colle EXACTEMENT cette adresse (c’est elle que Spotify vérifie, au caractère près), puis « Add » :',
       helpStep3warn:
@@ -534,7 +623,8 @@ export const fr: typeof en = {
       arlLabel: 'ARL Deezer Premium',
       arlPlaceholder: 'Coller l’ARL',
       arlStored: 'ARL stocké',
-      arlHelp: 'Stocké uniquement dans le coffre local chiffré ; jamais exporté dans les réglages ou les données.',
+      arlHelp:
+        'Stocké uniquement dans le coffre local chiffré ; jamais exporté dans les réglages ou les données.',
       saveArl: 'Enregistrer l’ARL',
       deleteArl: 'Supprimer l’ARL',
       arlSaved: 'ARL Deezer enregistré.',
@@ -550,12 +640,15 @@ export const fr: typeof en = {
       validate: 'Valider',
       browse: 'Parcourir…',
       dbLabel: 'Base Rekordbox (master.db)',
-      dbHelp: 'La base chiffrée où Rekordbox garde ta collection (morceaux, playlists, cues, MyTags). Syncbox la lit et y écrit les MyTags / smart playlists — avec un backup horodaté avant chaque écriture.',
+      dbHelp:
+        'La base chiffrée où Rekordbox garde ta collection (morceaux, playlists, cues, MyTags). Syncbox la lit et y écrit les MyTags / smart playlists — avec un backup horodaté avant chaque écriture.',
       useMacDefault: 'Utiliser le défaut macOS',
       dbFindTitle: 'Comment le trouver ?',
-      dbFindBody: 'Rekordbox → Préférences → Avancé → Base de données affiche le dossier. Sur macOS c’est presque toujours ~/Library/Pioneer/rekordbox/master.db.',
+      dbFindBody:
+        'Rekordbox → Préférences → Avancé → Base de données affiche le dossier. Sur macOS c’est presque toujours ~/Library/Pioneer/rekordbox/master.db.',
       rootLabel: 'Racine de stockage',
-      rootHelp: 'Le dossier qui contient ta musique et la zone de travail Syncbox. Les fichiers sous racine_stockage/rekordbox/ appartiennent à la bibliothèque permanente ; les fichiers de travail gérés par Syncbox vivent sous racine_stockage/_syncbox/. La sécurité dépend de l’opération et de la classe de propriété.',
+      rootHelp:
+        'Le dossier qui contient ta musique et la zone de travail Syncbox. Les fichiers sous racine_stockage/rekordbox/ appartiennent à la bibliothèque permanente ; les fichiers de travail gérés par Syncbox vivent sous racine_stockage/_syncbox/. La sécurité dépend de l’opération et de la classe de propriété.',
       derivedTitle: 'Arborescence dérivée (lecture seule)',
       derived: {
         permanent_library: 'Bibliothèque permanente (ton audio)',
@@ -569,14 +662,14 @@ export const fr: typeof en = {
           'Les fichiers préparés pour chaque event, un sous-dossier par événement, avant leur bascule vers ta collection.',
         backups: 'Backups de la base',
         backupsDesc:
-          'Une copie horodatée de master.db avant CHAQUE écriture, avec rotation selon la rétention ci-dessous.',
+          'Un point de restauration vérifié Rekordbox + Syncbox avant CHAQUE écriture, échantillonné selon la rétention ci-dessous.',
       },
       derivedNote:
         'Les dossiers _syncbox sont créés automatiquement au premier usage ; leurs noms sont fixes car des chemins déjà écrits dans master.db pointent dessus. Tes dossiers audio sous rekordbox/ t’appartiennent — Syncbox ne fait que les lire.',
     },
     retention: {
       title: 'Rétention des backups',
-      sub: 'Nombre de backups conservés avant rotation (0 = illimité).',
+      sub: 'Points récents conservés avant l’échantillonnage progressif horaire, quotidien, hebdomadaire et mensuel (0 = illimité).',
     },
     language: {
       title: 'Langue',
@@ -587,20 +680,23 @@ export const fr: typeof en = {
       settingsLabel: 'Réglages (JSON)',
       settingsDesc: 'Chemins, Client ID Spotify, réglages de matching — un petit fichier lisible.',
       dataLabel: 'Toutes les données (base)',
-      dataDesc: 'Réglages plus sources, événements et historique en un instantané de base. L’import remplace les données actuelles — une sauvegarde de sécurité est faite d’abord.',
+      dataDesc:
+        'Réglages plus sources, événements et historique en un instantané de base. L’import remplace les données actuelles — une sauvegarde de sécurité est faite d’abord.',
       export: 'Exporter…',
       import: 'Importer…',
       exportedTo: 'Exporté vers {path}',
       imported: 'Réglages importés.',
       importedPartial: 'Réglages importés — ignorés (invalides sur cette machine) : {skipped}',
-      dataImportConfirm: 'Remplacer toutes les données Syncbox par ce fichier ? Les données actuelles sont d’abord sauvegardées (réversible).',
+      dataImportConfirm:
+        'Remplacer toutes les données Syncbox par ce fichier ? Les données actuelles sont d’abord sauvegardées (réversible).',
       dataImported: 'Données importées. Les données précédentes ont été sauvegardées : {backup}.',
       dataImportedNoBackup: 'Données importées.',
       needShell: 'Disponible dans l’app de bureau (dialogues de fichiers natifs).',
     },
     advanced: {
       title: 'Avancé · seuils de matching',
-      warning: 'Les valeurs par défaut sont recommandées et calibrées. Ne les change que si tu sais ce que tu fais — un re-matching manuel par track est presque toujours préférable.',
+      warning:
+        'Les valeurs par défaut sont recommandées et calibrées. Ne les change que si tu sais ce que tu fais — un re-matching manuel par track est presque toujours préférable.',
       threshold: 'Seuil de confiance',
       margin: 'Marge d’ambiguïté',
       weights: 'Pondérations (somme = 1.00)',
@@ -613,7 +709,8 @@ export const fr: typeof en = {
       isrc_trust: 'Toujours faire confiance à l’ISRC',
       isrc_strict: 'Strict — rejeter au moindre signal de collision',
       lockedTitle: 'Verrouillé — invariants d’algorithme',
-      lockedBody: 'ISRC exact prioritaire sur le fuzzy · pipeline de normalisation unique (matching + dedup) · buckets de durée. Non modifiables.',
+      lockedBody:
+        'ISRC exact prioritaire sur le fuzzy · pipeline de normalisation unique (matching + dedup) · buckets de durée. Non modifiables.',
       reset: 'Réinitialiser aux valeurs par défaut',
       save: 'Enregistrer',
       saved: 'Seuils de matching enregistrés.',
@@ -710,7 +807,8 @@ export const fr: typeof en = {
       lead: 'Ce fichier est sur un volume {volume} sans corbeille. {lost} — il ne pourra pas être restauré.',
       volume: 'cloud / exFAT',
       lost: 'L’audio sera perdu définitivement',
-      reversibleNote: 'La ligne Rekordbox reste réversible (soft-delete + backup). Seul l’audio est définitif.',
+      reversibleNote:
+        'La ligne Rekordbox reste réversible (soft-delete + backup). Seul l’audio est définitif.',
       checkbox: 'Je comprends que l’audio sera définitivement perdu sur ce volume.',
       confirm: 'Supprimer définitivement',
     },
@@ -719,7 +817,8 @@ export const fr: typeof en = {
       lead: 'Relier remplace le fichier audio associé à cette piste Rekordbox. Tes {cues} sont stockés à part (fichiers ANLZ) et {uncovered} : si le nouveau fichier diffère, ils peuvent se décaler et demander une ré-analyse.',
       cues: 'points de repère (cues), beatgrid et waveform',
       uncovered: 'ne sont pas couverts par le backup',
-      reversibleNote: 'La base Rekordbox (tags, playlists, smart playlists) reste sauvegardée et réversible. Seuls les repères du fichier remplacé peuvent être à refaire.',
+      reversibleNote:
+        'La base Rekordbox (tags, playlists, smart playlists) reste sauvegardée et réversible. Seuls les repères du fichier remplacé peuvent être à refaire.',
       checkbox: 'J’ai compris — les repères de ce fichier pourront être à refaire.',
       confirm: 'Continuer · relier le fichier',
     },
@@ -750,7 +849,8 @@ export const fr: typeof en = {
       closedTitle: 'Rekordbox fermé — mutations autorisées',
       closedSub: 'Backup horodaté créé avant chaque écriture. Suppressions réversibles.',
       openTitle: 'Rekordbox est ouvert — écritures en pause',
-      openSub: "Revue, diagnostics et liens d'achat restent disponibles. Ferme Rekordbox pour appliquer.",
+      openSub:
+        "Revue, diagnostics et liens d'achat restent disponibles. Ferme Rekordbox pour appliquer.",
       lastBackup: 'Dernier backup',
       noBackup: 'aucun pour l’instant',
     },
@@ -796,9 +896,9 @@ export const fr: typeof en = {
   activity: {
     job_sources_sync_all: 'Sources synchronisées',
     job_sources_sync: 'Source synchronisée',
-    'job_sources_apply': 'Tracks appliqués à Rekordbox',
-    'job_events_apply': 'Événement appliqué',
-    'job_events_reapply': 'Événement ré-appliqué',
-    'job_duplicates_scan': 'Scan des doublons terminé',
+    job_sources_apply: 'Tracks appliqués à Rekordbox',
+    job_events_apply: 'Événement appliqué',
+    job_events_reapply: 'Événement ré-appliqué',
+    job_duplicates_scan: 'Scan des doublons terminé',
   },
 }

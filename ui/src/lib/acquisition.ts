@@ -37,11 +37,34 @@ export interface AcquisitionItem {
   body: Record<string, unknown>
 }
 
-/** UI-driven sequential download queue over POST /api/acquisition/jobs.
-    The sidecar runs one download per (blocking) request, so the queue lives
-    here: per-row live phase + x/N batch counter, no extra backend. */
-// ponytail: la file meurt si l'app se ferme en plein lot ; passer côté
-// sidecar (jobs en arrière-plan + SSE) si les lots longs deviennent la norme
+export interface AcquisitionJob {
+  id: number
+  scope: string
+  ref: string
+  status: string
+  error?: string | null
+  quality?: number | null
+}
+
+const TERMINAL_JOB_STATUSES = new Set([
+  'downloaded',
+  'relinked',
+  'relink_blocked',
+  'relink_failed',
+  'failed',
+])
+
+function stateOf(job: AcquisitionJob): AcquisitionState {
+  if (!TERMINAL_JOB_STATUSES.has(job.status)) {
+    return { phase: job.status === 'running' ? 'running' : 'queued' }
+  }
+  if (job.status === 'downloaded' || job.status === 'relinked') {
+    return { phase: 'downloaded', quality: job.quality ?? undefined }
+  }
+  return { phase: 'failed', error: job.error ?? undefined }
+}
+
+/** Persist the complete batch first, then observe the sidecar's FIFO worker. */
 export function useAcquisitionQueue() {
   const states = ref<Record<string, AcquisitionState>>({})
   const batch = ref<{ done: number; total: number } | null>(null)
@@ -53,8 +76,28 @@ export function useAcquisitionQueue() {
 
   /** Drop badges for rows that no longer need one (resolved or gone). */
   function prune(liveKeys: Set<string>) {
-    for (const key of Object.keys(states.value))
-      if (!liveKeys.has(key)) delete states.value[key]
+    for (const key of Object.keys(states.value)) if (!liveKeys.has(key)) delete states.value[key]
+  }
+
+  /** Poll one job to a terminal state; true on success. */
+  async function poll(
+    key: string,
+    queued: AcquisitionJob,
+    describe: (cause: unknown) => string,
+  ): Promise<boolean> {
+    let job = queued
+    try {
+      while (!TERMINAL_JOB_STATUSES.has(job.status)) {
+        states.value[key] = stateOf(job)
+        await new Promise((resolve) => window.setTimeout(resolve, 500))
+        job = await api.get<AcquisitionJob>(`/api/acquisition/jobs/${job.id}`)
+      }
+      states.value[key] = stateOf(job)
+      return job.status === 'downloaded' || job.status === 'relinked'
+    } catch (cause) {
+      states.value[key] = { phase: 'failed', error: describe(cause) }
+      return false
+    }
   }
 
   async function run(items: AcquisitionItem[], describe: (cause: unknown) => string) {
@@ -62,30 +105,62 @@ export function useAcquisitionQueue() {
     let failed = 0
     if (items.length > 1) batch.value = { done: 0, total: items.length }
     for (const item of items) states.value[item.key] = { phase: 'queued' }
-    for (const item of items) {
-      states.value[item.key] = { phase: 'running' }
-      try {
-        const job = await api.post<{
-          status: string
-          error?: string | null
-          quality?: number | null
-        }>('/api/acquisition/jobs', item.body)
-        if (job.status === 'downloaded' || job.status === 'relinked') {
-          states.value[item.key] = { phase: 'downloaded', quality: job.quality ?? undefined }
-          ok += 1
-        } else {
-          states.value[item.key] = { phase: 'failed', error: job.error ?? undefined }
-          failed += 1
-        }
-      } catch (cause) {
+
+    // ONE transactional POST: the whole batch is durable in the sidecar
+    // before its worker may claim any item, so closing the UI mid-batch can
+    // no longer truncate the intended queue.
+    let jobs: AcquisitionJob[]
+    try {
+      const payload = await api.post<{ jobs: AcquisitionJob[] }>(
+        '/api/acquisition/jobs/batch',
+        { items: items.map((item) => item.body) },
+      )
+      jobs = payload.jobs
+    } catch (cause) {
+      for (const item of items) {
         states.value[item.key] = { phase: 'failed', error: describe(cause) }
-        failed += 1
       }
-      if (batch.value) batch.value = { done: ok + failed, total: batch.value.total }
+      batch.value = null
+      return { ok: 0, failed: items.length }
     }
+
+    await Promise.all(
+      jobs.map(async (job, index) => {
+        const success = await poll(items[index].key, job, describe)
+        if (success) ok += 1
+        else failed += 1
+        if (batch.value) batch.value = { done: ok + failed, total: batch.value.total }
+      }),
+    )
     batch.value = null
     return { ok, failed }
   }
 
-  return { states, batch, running, run, prune }
+  /** Rebuild badges from the sidecar's persistent queue after the UI was
+      closed and reopened, and resume polling every non-terminal job. */
+  async function hydrate(
+    keyOf: (job: AcquisitionJob) => string | null,
+    describe: (cause: unknown) => string,
+  ) {
+    let payload: { active?: AcquisitionJob[]; recent?: AcquisitionJob[] }
+    try {
+      payload = await api.get<{ active?: AcquisitionJob[]; recent?: AcquisitionJob[] }>(
+        '/api/acquisition/jobs',
+      )
+    } catch {
+      return // sidecar unreachable: nothing to rehydrate
+    }
+    for (const job of [...(payload.recent ?? [])].reverse()) {
+      const key = keyOf(job)
+      if (key) states.value[key] = stateOf(job)
+    }
+    await Promise.all(
+      (payload.active ?? []).map((job) => {
+        const key = keyOf(job)
+        return key ? poll(key, job, describe) : Promise.resolve(false)
+      }),
+    )
+  }
+
+  return { states, batch, running, run, prune, hydrate }
 }

@@ -81,10 +81,7 @@ export interface EventTrack {
 export type FileOwnership = 'app_managed' | 'permanent_library' | 'external'
 
 export type EventDeleteTrackAction =
-  | 'already_permanent'
-  | 'migrate_to_collection'
-  | 'delete_with_event'
-  | 'soft_delete_only'
+  'already_permanent' | 'migrate_to_collection' | 'delete_with_event' | 'keep_in_place'
 
 export interface EventDeleteTrackPlan {
   content_id: string
@@ -110,7 +107,18 @@ export interface EventDeletePreview {
   xml_artifacts: string[]
   staging_artifacts: string[]
   expected_file_deletions: string[]
+  unresolved?: EventDeleteIssue[]
   validation: unknown
+}
+
+export interface EventDeleteIssue {
+  id: string
+  kind: string
+  title: string | null
+  artist: string | null
+  job_id?: number
+  status?: string
+  resolution_options: string[]
 }
 
 export interface MatchCandidate {
@@ -166,8 +174,17 @@ export interface MissingEntry {
   file_path?: string | null
   resolved_path?: string | null
   purchase_links: Array<{ store: string; url: string }>
-  relink_candidates: Array<{ path: string; score: number; format: string; duration_s?: number }>
-  acquisition?: { provider: 'deezer'; available: boolean; reason?: string | null }
+  relink_candidates: Array<{
+    path: string
+    score: number
+    format: string
+    duration_s?: number
+  }>
+  acquisition?: {
+    provider: 'deezer'
+    available: boolean
+    reason?: string | null
+  }
 }
 
 export interface DeezerSearchResult {
@@ -204,4 +221,8 @@ export interface BackupInfo {
   name: string
   files: string[]
   size_bytes: number
+  reason?: string | null
+  verified?: boolean
+  coherent?: boolean
+  pinned?: boolean
 }
