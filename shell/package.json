@@ -1,7 +1,7 @@
 {
   "name": "syncbox-shell",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.3.0",
   "packageManager": "pnpm@10.29.3",
   "engines": {
     "node": "24.13.0",

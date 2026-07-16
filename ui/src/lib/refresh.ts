@@ -11,17 +11,17 @@ export function sameData(a: unknown, b: unknown): boolean {
     Inside <keep-alive>, activation follows mount immediately — that first
     activation is skipped so the initial load runs once. Outside keep-alive
     (unit tests, one-off mounts) it degrades to a plain onMounted load. */
-export function useRefreshOnReturn(load: () => void): void {
+export function useRefreshOnReturn(load: () => void | Promise<void>): void {
   let justMounted = false
   onMounted(() => {
     justMounted = true
-    load()
+    return load()
   })
   onActivated(() => {
     if (justMounted) {
       justMounted = false
       return
     }
-    load()
+    return load()
   })
 }

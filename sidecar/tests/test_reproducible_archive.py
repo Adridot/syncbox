@@ -221,7 +221,7 @@ def test_release_environment_uses_stable_source_metadata(monkeypatch):
     assert metadata["release"] == {
         "source_date_epoch_basis": "versioned-release-metadata",
         "source_date_epoch_utc": "2026-07-16T00:00:00Z",
-        "version": "0.2.4",
+        "version": "0.3.0",
     }
     assert metadata["toolchain"]["rustc"].startswith("rustc 1.96.1 ")
     assert metadata["toolchain"]["node"] == "v24.13.0"

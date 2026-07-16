@@ -20,6 +20,7 @@ const busy = ref(false)
 const error = ref<string | null>(null)
 
 async function search() {
+  if (busy.value) return
   const value = query.value.trim()
   if (!value) return
   busy.value = true
