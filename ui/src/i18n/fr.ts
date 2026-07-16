@@ -295,6 +295,10 @@ export const fr: typeof en = {
       issue: {
         active_acquisition:
           'Un téléchargement est encore en attente ou en cours. Attends sa fin puis actualise cet aperçu.',
+        missing_retained_source:
+          'Ce titre conservé n’a plus de fichier sur le disque. Rélie-le ou retire-le dans Rekordbox, puis actualise cet aperçu.',
+        unsafe_retained_source:
+          'Ce titre conservé ne pointe pas vers un fichier régulier. Rélie-le ou retire-le dans Rekordbox, puis actualise cet aperçu.',
       },
       technicalDetails: 'Détails techniques',
       resolveFirst: 'Résoudre les cas restants',

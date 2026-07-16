@@ -57,12 +57,17 @@ function stubApi(acquisitionJob: unknown = {}) {
           ok: true,
           status: 200,
           json: () =>
-            Promise.resolve(path === '/api/acquisition/jobs' ? acquisitionJob : {}),
+            Promise.resolve(
+              path === '/api/acquisition/jobs/batch'
+                ? { jobs: [acquisitionJob] }
+                : {},
+            ),
         })
       const payloads: Record<string, unknown> = {
         '/api/missing/library': { entries: [LIB_ENTRY] },
         '/api/missing/event': { entries: [NO_LINK_ENTRY] },
         '/api/missing/collection': { entries: [] },
+        '/api/acquisition/jobs': { active: [], recent: [] },
       }
       return Promise.resolve({
         ok: true,

@@ -284,6 +284,10 @@ export const en = {
       issue: {
         active_acquisition:
           'A download is still queued or running. Wait for it to finish, then refresh this preview.',
+        missing_retained_source:
+          'This retained track has no file on disk. Relink it or remove it in Rekordbox, then refresh this preview.',
+        unsafe_retained_source:
+          'This retained track does not point at a regular file. Relink it or remove it in Rekordbox, then refresh this preview.',
       },
       technicalDetails: 'Technical details',
       resolveFirst: 'Resolve the remaining cases',

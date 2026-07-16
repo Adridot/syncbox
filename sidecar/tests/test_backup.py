@@ -542,6 +542,8 @@ def test_restore_copy_failure_leaves_live_db_intact(db, tmp_path, monkeypatch):
 
 
 def test_restore_failure_removes_staged_syncbox_database(db, tmp_path, monkeypatch):
+    # Staging failure (here: while snapshotting the app DB into its staged
+    # sibling) must unstage everything and leave every live file untouched.
     backups_root = tmp_path / "backups"
     app_db = tmp_path / "syncbox.db"
     connection = sqlite3.connect(app_db)
@@ -550,12 +552,205 @@ def test_restore_failure_removes_staged_syncbox_database(db, tmp_path, monkeypat
     connection.close()
     made = backup.create_backup(db, backups_root, app_db_path=app_db)
     install_fake_guard(monkeypatch)
+    db.write_bytes(b"main-v2")
+    live_app_bytes = app_db.read_bytes()
 
-    def fail_restore_extras(*_args, **_kwargs):
-        raise OSError("restore failed")
+    real_snapshot_sqlite = backup._snapshot_sqlite
 
-    monkeypatch.setattr(backup, "restore_extra_files", fail_restore_extras)
+    def failing_snapshot(source, destination):
+        if str(destination).endswith(".restore-tmp"):
+            raise OSError("restore failed")
+        return real_snapshot_sqlite(source, destination)
+
+    monkeypatch.setattr(backup, "_snapshot_sqlite", failing_snapshot)
     with pytest.raises(OSError, match="restore failed"):
         backup.restore_backup(made.name, backups_root, db, app_db_path=app_db)
 
     assert not app_db.with_name(app_db.name + ".restore-tmp").exists()
+    assert not list(db.parent.glob("*.restore-tmp"))
+    # Nothing was published and no journal is pending: live pair untouched.
+    assert db.read_bytes() == b"main-v2"
+    assert app_db.read_bytes() == live_app_bytes
+    assert not (tmp_path / backup._RESTORE_JOURNAL).exists()
+
+
+# --- PR #31 review regression tests ------------------------------------------
+
+
+def _make_app_db(path, value="before"):
+    connection = sqlite3.connect(path)
+    connection.execute("CREATE TABLE state (value TEXT)")
+    connection.execute("INSERT INTO state VALUES (?)", (value,))
+    connection.commit()
+    connection.close()
+
+
+def _app_value(path):
+    connection = sqlite3.connect(path)
+    try:
+        return connection.execute("SELECT value FROM state").fetchone()[0]
+    finally:
+        connection.close()
+
+
+def _set_app_value(path, value):
+    connection = sqlite3.connect(path)
+    connection.execute("UPDATE state SET value = ?", (value,))
+    connection.commit()
+    connection.close()
+
+
+def test_unmanifested_extra_master_db_is_rejected(db, tmp_path, monkeypatch):
+    """Review P1: a file absent from the manifest fails the whole restore —
+    an undeclared extra/master.db would otherwise overwrite the verified
+    database after restoration."""
+    backups_root = tmp_path / "backups"
+    app_db = tmp_path / "syncbox.db"
+    _make_app_db(app_db)
+    made = backup.create_backup(db, backups_root, app_db_path=app_db)
+    install_fake_guard(monkeypatch)
+    db.write_bytes(b"main-v2")
+
+    smuggled = made / "extra" / "master.db"
+    smuggled.parent.mkdir(exist_ok=True)
+    smuggled.write_bytes(b"attacker bytes")
+
+    with pytest.raises(ValueError, match="missing from its manifest"):
+        backup.restore_backup(made.name, backups_root, db, app_db_path=app_db)
+
+    assert db.read_bytes() == b"main-v2"
+    assert _app_value(app_db) == "before"
+
+
+def test_declared_extra_may_never_target_the_databases(db, tmp_path):
+    """Review P1: even a manifest-declared extra must not resolve onto
+    master.db, its wal/shm, or the Syncbox DB."""
+    backup_dir = tmp_path / "crafted"
+    (backup_dir / "extra").mkdir(parents=True)
+    (backup_dir / "extra" / "master.db").write_bytes(b"attacker bytes")
+    app_db = tmp_path / "syncbox.db"
+
+    with pytest.raises(ValueError, match="protected database file"):
+        backup._backed_extra_targets(backup_dir, db, app_db_path=app_db)
+
+
+def test_restore_error_between_master_and_syncbox_rolls_back_the_pair(
+    db, tmp_path, monkeypatch
+):
+    """Review P1: a synchronous failure after master.db was replaced but
+    before syncbox.db rolls the WHOLE pair back to the pre-restore state."""
+    backups_root = tmp_path / "backups"
+    app_db = tmp_path / "syncbox.db"
+    _make_app_db(app_db)
+    made = backup.create_backup(db, backups_root, app_db_path=app_db)
+    install_fake_guard(monkeypatch)
+
+    db.write_bytes(b"main-v2")
+    _set_app_value(app_db, "after")
+
+    real_replace = backup.os.replace
+    failures = []
+
+    def failing_replace(src, dst):
+        if str(dst) == str(app_db) and not failures:
+            failures.append(dst)
+            raise OSError(5, "I/O error")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(backup.os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        backup.restore_backup(made.name, backups_root, db, app_db_path=app_db)
+
+    # Rolled back as one unit: Rekordbox AND Syncbox are at the pre-restore
+    # epoch, nothing is staged, no journal is pending.
+    assert db.read_bytes() == b"main-v2"
+    assert _app_value(app_db) == "after"
+    assert not list(db.parent.glob("*.restore-tmp"))
+    assert not list(tmp_path.glob("*.restore-tmp"))
+    assert not (tmp_path / backup._RESTORE_JOURNAL).exists()
+
+
+def test_crash_between_master_and_syncbox_replacements_rolls_forward(
+    db, tmp_path, monkeypatch
+):
+    """Review P1: with the journal durable and the staged set intact, a crash
+    between the two database replacements completes the pair at recovery."""
+    backups_root = tmp_path / "backups"
+    app_db = tmp_path / "syncbox.db"
+    _make_app_db(app_db)
+    made = backup.create_backup(db, backups_root, app_db_path=app_db)
+    install_fake_guard(monkeypatch)
+
+    db.write_bytes(b"main-v2")
+    _set_app_value(app_db, "after")
+
+    # Reproduce the exact crash window: stage + journal, replace ONLY
+    # master.db, then die before syncbox.db is published.
+    replacements, removals = backup._stage_restore(made, db, app_db)
+    backup._write_restore_journal(
+        tmp_path,
+        {
+            "schema": 1,
+            "created_at": "2026-07-16T00:00:00",
+            "source": str(made),
+            "snapshot": None,
+            "db_path": str(db),
+            "app_db_path": str(app_db),
+            "replacements": replacements,
+            "removals": removals,
+        },
+    )
+    backup.os.replace(db.with_name(db.name + ".restore-tmp"), db)
+
+    assert backup.recover_restore(tmp_path) == "completed"
+
+    assert db.read_bytes() == b"main-v1"
+    assert _app_value(app_db) == "before"
+    assert not (tmp_path / backup._RESTORE_JOURNAL).exists()
+    assert not list(db.parent.glob("*.restore-tmp"))
+    assert not list(tmp_path.glob("*.restore-tmp"))
+
+
+def test_unrecoverable_staged_set_rolls_back_to_the_snapshot(
+    db, tmp_path, monkeypatch
+):
+    """Review P1: when the staged set was lost mid-publish, recovery restores
+    the pre-restore snapshot — the pair never stays mixed across epochs."""
+    backups_root = tmp_path / "backups"
+    app_db = tmp_path / "syncbox.db"
+    _make_app_db(app_db)
+    made = backup.create_backup(db, backups_root, app_db_path=app_db)
+    install_fake_guard(monkeypatch)
+    freeze_timestamp(monkeypatch, "20260716-120000")
+
+    db.write_bytes(b"main-v2")
+    _set_app_value(app_db, "after")
+    snapshot = backup.create_backup(
+        db, backups_root, retention=0, app_db_path=app_db, reason="pre_restore"
+    )
+
+    replacements, removals = backup._stage_restore(made, db, app_db)
+    backup._write_restore_journal(
+        tmp_path,
+        {
+            "schema": 1,
+            "created_at": "2026-07-16T00:00:00",
+            "source": str(made),
+            "snapshot": str(snapshot),
+            "db_path": str(db),
+            "app_db_path": str(app_db),
+            "replacements": replacements,
+            "removals": removals,
+        },
+    )
+    # Crash story: master.db was already replaced by the OLD backup bytes,
+    # then the remaining staged files were lost (disk cleanup, corruption).
+    backup.os.replace(db.with_name(db.name + ".restore-tmp"), db)
+    app_staged = app_db.with_name(app_db.name + ".restore-tmp")
+    app_staged.unlink()
+    # Make roll-forward impossible for the app DB (staged gone, target old).
+    assert backup.recover_restore(tmp_path) == "rolled_back"
+
+    assert db.read_bytes() == b"main-v2"
+    assert _app_value(app_db) == "after"
+    assert not (tmp_path / backup._RESTORE_JOURNAL).exists()

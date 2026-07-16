@@ -4,7 +4,7 @@
 // bar, add-by-link (Spotify-only §11.1) or manual entry, match/claim, and
 // the apply / re-apply / delete modals (all RB-guarded). Every click
 // surfaces its backend outcome (B1).
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, NetworkError, api } from '../api/client'
@@ -171,7 +171,14 @@ const {
   running: acqRunning,
   run: runAcq,
   prune: pruneAcq,
+  hydrate: hydrateAcq,
 } = useAcquisitionQueue()
+
+// The queue is persistent in the sidecar: reopening the UI mid-batch must
+// restore badges/errors and resume polling the still-active event jobs.
+onMounted(() =>
+  hydrateAcq((job) => (job.scope === 'event' ? String(job.ref) : null), describe),
+)
 
 const acqReady = ref(false)
 async function refreshAcqReady() {

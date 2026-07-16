@@ -1017,7 +1017,7 @@ def delete_event(
             return stored
         _assert_event_tag_exclusive(conn, event)
         preview = read_plan(db_path, event, storage_root)
-        preview["unresolved"] = _active_acquisition_issues(conn, event["id"])
+        preview["unresolved"] = _unresolved_issues(conn, event, preview)
         return preview
 
     if not isinstance(plan, dict):
@@ -1084,7 +1084,7 @@ def delete_event(
     if not resuming:
         _assert_event_tag_exclusive(conn, event)
         fresh = read_plan(db_path, event, storage_root)
-        fresh["unresolved"] = _active_acquisition_issues(conn, event["id"])
+        fresh["unresolved"] = _unresolved_issues(conn, event, fresh)
         if fresh != plan:
             _clear_delete_state(conn, event["id"])
             raise StaleSnapshotError(
@@ -1241,6 +1241,43 @@ def delete_event(
 def _get_event(conn, event_id):
     row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
     return dict(row) if row is not None else None
+
+
+def _unresolved_issues(conn, event, plan: dict) -> list[dict]:
+    """Every blocker the preview can already prove, not only active jobs.
+
+    A retained track whose source is missing or not a regular file would
+    only fail later inside ``_copy_migration``; surfacing it here blocks
+    the destructive action from the preview on, with resolution options
+    the user can act on.
+    """
+    issues = _active_acquisition_issues(conn, event["id"])
+    sources = {
+        state.get("content_id"): state
+        for state in plan.get("validation", {}).get("sources", [])
+    }
+    for track in plan.get("tracks", []):
+        if track["action"] != "migrate_to_collection":
+            continue
+        state = sources.get(track["content_id"]) or {}
+        if not state.get("exists"):
+            kind = "missing_retained_source"
+        elif state.get("kind") != "file":
+            kind = "unsafe_retained_source"
+        else:
+            continue
+        issues.append(
+            {
+                "id": f"{kind}-{track['content_id']}",
+                "kind": kind,
+                "title": track["title"],
+                "artist": track["artist"],
+                "content_id": track["content_id"],
+                "source_path": track["source_path"],
+                "resolution_options": ["relink_in_rekordbox", "remove_from_rekordbox"],
+            }
+        )
+    return issues
 
 
 def _active_acquisition_issues(conn, event_id) -> list[dict]:

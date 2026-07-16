@@ -319,6 +319,27 @@ class OAuthCallbackListener:
         )
 
 
+def bind_api_socket(host: str = HOST, port: int = PORT) -> socket.socket:
+    """Exclusively bind the permanent API port and return the socket.
+
+    The bind IS the single-instance lock: the kernel holds it until the
+    owning process dies, so a caller that owns this socket is provably the
+    only live sidecar. It must be acquired BEFORE any startup step that
+    assumes exclusivity (resetting interrupted acquisition jobs, starting
+    the worker), and then handed to :func:`serve` — binding for real, not
+    probe-and-close, also removes the check/bind race window.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+        sock.listen(2048)
+    except OSError as exc:
+        sock.close()
+        raise PortInUseError(host, port) from exc
+    return sock
+
+
 def ensure_port_free(host: str = HOST, port: int = PORT) -> None:
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # SO_REUSEADDR mirrors uvicorn's own bind: without it, server-side
@@ -336,14 +357,25 @@ def ensure_port_free(host: str = HOST, port: int = PORT) -> None:
         probe.close()
 
 
-async def serve(app, *, host: str = HOST, port: int = PORT, graceful_timeout: int = 3):
+async def serve(
+    app,
+    *,
+    host: str = HOST,
+    port: int = PORT,
+    graceful_timeout: int = 3,
+    sockets=None,
+):
     """Run uvicorn programmatically in the CURRENT (main) asyncio loop.
 
     Never run this in a thread with signal handlers disabled: sse-starlette
     detects shutdown through uvicorn's main-thread signal handling, and the
     SSE generators would be cancelled brutally (research 06 hard rule).
+
+    ``sockets`` accepts sockets already bound by :func:`bind_api_socket`
+    (the single-instance lock); without them the legacy probe is kept.
     """
-    ensure_port_free(host, port)
+    if sockets is None:
+        ensure_port_free(host, port)
     config = uvicorn.Config(
         app,
         host=host,
@@ -358,4 +390,4 @@ async def serve(app, *, host: str = HOST, port: int = PORT, graceful_timeout: in
         server.should_exit = True
 
     app.state.shutdown.bind(stop)
-    await server.serve()
+    await server.serve(sockets=sockets)

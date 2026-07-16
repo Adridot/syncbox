@@ -10,6 +10,7 @@ consumes child output (6.6).
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from syncbox import api, appdb, platform_os, quality, server
+from syncbox.safety import backup as safety_backup
 from syncbox.secrets import SecretsStore
 from syncbox.spotify import SpotifyAuth, SpotifyClient
 
@@ -35,7 +37,7 @@ def _drop_playlist_xml_noise(record) -> bool:
     return "not found in masterPlaylists6.xml" not in record.getMessage()
 
 
-def compose(data_dir=None, *, oauth_listener=None, start_acquisition_worker=False):
+def compose(data_dir=None, *, oauth_listener=None):
     """Build the fully wired Starlette app; ``data_dir`` overrides the OS
     app-data location (tests), as does SYNCBOX_DATA_DIR (regression harness)."""
     if data_dir is None:
@@ -56,6 +58,12 @@ def compose(data_dir=None, *, oauth_listener=None, start_acquisition_worker=Fals
     )
     logging.getLogger("pyrekordbox.db6.database").addFilter(_drop_playlist_xml_noise)
     db_file = data_dir / "syncbox.db"
+    # A restore interrupted by a crash left a durable journal: finish or roll
+    # back the whole Rekordbox + Syncbox pair BEFORE opening the app DB, so
+    # the API never runs on a half-restored state.
+    recovered = safety_backup.recover_restore(data_dir)
+    if recovered:
+        log.warning("interrupted backup restore was %s at startup", recovered)
     conn = appdb.open_app_db(db_file)
     secrets = SecretsStore(data_dir)
     deps = api.Deps(
@@ -72,9 +80,6 @@ def compose(data_dir=None, *, oauth_listener=None, start_acquisition_worker=Fals
     deps.spotify_auth = auth
     deps.spotify_client = SpotifyClient(auth)
     app = api.build_app(deps)
-    if start_acquisition_worker:
-        deps.acquisition_worker = api.AcquisitionWorker(deps)
-        deps.acquisition_worker.start()
     app.state.secrets = secrets  # closed on exit (6.6 handshake tail)
     return app
 
@@ -169,14 +174,26 @@ def main(argv=None) -> int:
             return 2
         return _packaging_check()
 
-    app = compose(start_acquisition_worker=True)
-    log.info("syncbox sidecar starting on http://%s:%s", server.HOST, server.PORT)
+    app = compose()
+    # Single-instance ownership FIRST: the exclusive port bind is the lock.
+    # Only after it is held may interrupted jobs be requeued and the worker
+    # started — a second sidecar must fail here without touching the first
+    # instance's live queue.
     try:
-        asyncio.run(server.serve(app))
+        api_socket = server.bind_api_socket()
     except server.PortInUseError as exc:
         log.error("%s", exc)
+        app.state.secrets.close()
+        app.state.deps.conn.close()
         return 1
+    app.state.deps.acquisition_worker = api.AcquisitionWorker(app.state.deps)
+    app.state.deps.acquisition_worker.start()
+    log.info("syncbox sidecar starting on http://%s:%s", server.HOST, server.PORT)
+    try:
+        asyncio.run(server.serve(app, sockets=[api_socket]))
     finally:
+        with contextlib.suppress(OSError):
+            api_socket.close()
         worker_stopped = (
             app.state.deps.acquisition_worker is None
             or app.state.deps.acquisition_worker.stop()

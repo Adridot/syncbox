@@ -260,3 +260,17 @@ def test_no_gzip_middleware_anywhere():
     app = create_app()
     names = [m.cls.__name__ for m in app.user_middleware]
     assert "GZipMiddleware" not in names
+
+
+def test_bind_api_socket_is_an_exclusive_lock():
+    """Review P1: the real bind (not a probe) is the single-instance lock."""
+    held = server.bind_api_socket(server.HOST, 0)
+    try:
+        port = held.getsockname()[1]
+        with pytest.raises(server.PortInUseError):
+            server.bind_api_socket(server.HOST, port)
+    finally:
+        held.close()
+    # Released with its owner: the port binds again immediately.
+    reacquired = server.bind_api_socket(server.HOST, port)
+    reacquired.close()

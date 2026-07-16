@@ -3,9 +3,12 @@
 import hashlib
 import io
 import json
+import os
+import sqlite3
 import ssl
 import stat
 import threading
+import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -23,6 +26,8 @@ from syncbox import (
     events_service,
     repos,
 )
+from syncbox.platform_os import PermanentDeleteConsentRequired
+from syncbox.safety.mutate import StaleSnapshotError
 from syncbox.safety.process_guard import MutationBlockedError
 from syncbox.secrets import SecretsStore
 
@@ -443,7 +448,9 @@ def test_event_download_destination_cannot_escape_managed_storage(tmp_path):
         (event.lastrowid,),
     )
 
-    with pytest.raises(ValueError, match="escapes managed storage"):
+    # The slug-equality rule subsumes the old escape check: a staging_dir
+    # outside <storage>/_syncbox/events/<slug> is refused either way.
+    with pytest.raises(ValueError, match="does not match event"):
         api._acquisition_entry(
             env.deps, "event", str(track.lastrowid), require_isrc=False
         )
@@ -874,3 +881,612 @@ def test_legacy_job_storage_migration_moves_safe_files_and_updates_app_state(
     assert env.conn.execute(
         "SELECT staging_file_path FROM event_tracks WHERE id = ?", (track["id"],)
     ).fetchone()[0] == str(destination)
+
+
+# --- PR #31 review regression tests --------------------------------------------------
+
+
+def _enable_acquisition(env, tmp_path):
+    _install_marker(tmp_path)
+    env.deps.settings.update({"deezer_acquisition_enabled": True})
+    env.secrets.set(acquisition.DEEZER_ARL_SECRET, SECRET_SENTINEL)
+
+
+def _seed_missing_library_tracks(conn, count: int) -> list[dict]:
+    source = repos.add_source(conn, PLAYLIST_ID, name="PL")
+    repos.replace_source_tracks(
+        conn,
+        source["id"],
+        [
+            {
+                "spotify_track_id": f"t{index}",
+                "title": f"Track {index}",
+                "artist": "Artist",
+                "isrc": f"USQX913001{index:02d}",
+                "status": "missing",
+            }
+            for index in range(count)
+        ],
+    )
+    return repos.list_source_tracks(conn, source["id"])
+
+
+def _wait_for(predicate, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    raise AssertionError("condition not met within the timeout")
+
+
+def test_two_workers_on_two_connections_never_run_the_same_job(tmp_path):
+    """Review P1: an atomically claimed FIFO never hands one job to two workers."""
+    executions = []
+    guard = threading.Lock()
+
+    def runner(data_dir, arl, isrc, output_dir):
+        with guard:
+            executions.append(Path(output_dir).name)
+        time.sleep(0.05)
+        output = Path(output_dir) / "track.mp3"
+        output.write_bytes(b"audio-" + Path(output_dir).name.encode())
+        return {"result": "FULL_TRACK_DOWNLOADED", "output_path": str(output)}
+
+    env = make_env(tmp_path, runner=runner)
+    _enable_acquisition(env, tmp_path)
+    tracks = _seed_missing_library_tracks(env.conn, 3)
+
+    # Both workers run BEFORE the batch lands (in production a second worker
+    # cannot even exist — the port bind in __main__ is the lock; this test
+    # proves the claim itself never double-assigns under raw concurrency).
+    first = api.AcquisitionWorker(env.deps)
+    second = api.AcquisitionWorker(env.deps)
+    first.start()
+    second.start()
+    try:
+        queued = env.client.post(
+            "/api/acquisition/jobs/batch",
+            json={
+                "items": [
+                    {"scope": "library", "row_id": track["id"]} for track in tracks
+                ]
+            },
+        )
+        assert queued.status_code == 202
+        job_ids = [job["id"] for job in queued.json()["jobs"]]
+        assert len(job_ids) == 3
+        _wait_for(
+            lambda: all(
+                row["status"] == "downloaded"
+                for row in env.conn.execute(
+                    "SELECT status FROM acquisition_jobs"
+                ).fetchall()
+            )
+        )
+    finally:
+        assert first.stop()
+        assert second.stop()
+
+    # Every job ran EXACTLY once and carries the claim of a known instance.
+    assert sorted(executions) == [f"job-{job_id}" for job_id in sorted(job_ids)]
+    rows = env.conn.execute(
+        "SELECT claimed_by, phase, published_path, published_sha256, output_path "
+        "FROM acquisition_jobs ORDER BY id"
+    ).fetchall()
+    claimants = {row["claimed_by"] for row in rows}
+    assert None not in claimants
+    assert claimants <= {first.instance_id, second.instance_id}
+    # The durable publication state was persisted for each job.
+    for row in rows:
+        assert row["phase"] == "published"
+        assert row["published_path"] == row["output_path"]
+        assert row["published_sha256"] == hashlib.sha256(
+            Path(row["output_path"]).read_bytes()
+        ).hexdigest()
+
+
+def test_single_worker_preserves_fifo_order(tmp_path):
+    """Review P1: claims come strictly in job-id order."""
+    executions = []
+
+    def runner(data_dir, arl, isrc, output_dir):
+        executions.append(Path(output_dir).name)
+        output = Path(output_dir) / "track.mp3"
+        output.write_bytes(b"audio")
+        return {"result": "FULL_TRACK_DOWNLOADED", "output_path": str(output)}
+
+    env = make_env(tmp_path, runner=runner)
+    _enable_acquisition(env, tmp_path)
+    tracks = _seed_missing_library_tracks(env.conn, 3)
+    queued = env.client.post(
+        "/api/acquisition/jobs/batch",
+        json={
+            "items": [{"scope": "library", "row_id": track["id"]} for track in tracks]
+        },
+    )
+    job_ids = [job["id"] for job in queued.json()["jobs"]]
+
+    worker = api.AcquisitionWorker(env.deps)
+    worker.start()
+    try:
+        _wait_for(
+            lambda: all(
+                row["status"] == "downloaded"
+                for row in env.conn.execute(
+                    "SELECT status FROM acquisition_jobs"
+                ).fetchall()
+            )
+        )
+    finally:
+        assert worker.stop()
+
+    assert executions == [f"job-{job_id}" for job_id in sorted(job_ids)]
+
+
+def test_symlinked_acquisition_parent_never_touches_link_target(tmp_path):
+    """Review P1: <storage>/_syncbox/acquisition symlinked to /victim must not
+    let any workspace cleanup or migration source traverse the link."""
+
+    def runner(*args, **kwargs):
+        raise AssertionError("no download may start on an unsafe workspace")
+
+    env = make_env(tmp_path, runner=runner)
+    _enable_acquisition(env, tmp_path)
+    track = seed_library_missing(env.conn)
+
+    victim = tmp_path / "victim"
+    (victim / "job-1").mkdir(parents=True)
+    precious = victim / "job-1" / "precious.txt"
+    precious.write_bytes(b"keep me")
+    sync_dir = env.storage / "_syncbox"
+    sync_dir.mkdir(exist_ok=True)
+    (sync_dir / "acquisition").symlink_to(victim, target_is_directory=True)
+
+    job = env.client.post(
+        "/api/acquisition/jobs", json={"scope": "library", "row_id": track["id"]}
+    ).json()
+
+    assert job["status"] == "failed"
+    assert "symbolic links" in job["error"]
+    assert precious.read_bytes() == b"keep me"
+    assert (victim / "job-1").is_dir()
+
+    with pytest.raises(ValueError, match="symbolic links"):
+        acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+
+
+def _seed_published_job(env, *, ref, library_track_id, content=b"published audio"):
+    destination_dir = env.storage / "rekordbox" / "Collection"
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    published = destination_dir / "crush.mp3"
+    published.write_bytes(content)
+    digest = hashlib.sha256(content).hexdigest()
+    job_id = env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, artist, isrc, status, "
+        "library_track_id, phase, published_path, published_sha256, output_path) "
+        "VALUES ('library', ?, 'Instant Crush', 'Daft Punk', ?, 'running', "
+        "?, 'published', ?, ?, ?)",
+        (str(ref), ISRC, library_track_id, str(published), digest, str(published)),
+    ).lastrowid
+    return job_id, published
+
+
+def test_crash_before_track_ready_resumes_from_published_output(tmp_path):
+    """Review P2: restart between publication and the owner update finishes
+    from the existing file — no re-download, no ' - 2' duplicate."""
+
+    def runner(*args, **kwargs):
+        raise AssertionError("resume must not download again")
+
+    env = make_env(tmp_path, runner=runner)
+    _enable_acquisition(env, tmp_path)
+    track = seed_library_missing(env.conn)
+    job_id, published = _seed_published_job(
+        env, ref=track["id"], library_track_id=track["id"]
+    )
+
+    worker = api.AcquisitionWorker(env.deps)
+    worker.start()
+    try:
+        _wait_for(
+            lambda: api._job_row(env.conn, job_id)["status"] == "downloaded"
+        )
+    finally:
+        assert worker.stop()
+
+    job = api._job_row(env.conn, job_id)
+    assert job["output_path"] == str(published)
+    resumed = repos.get_track(env.conn, track["id"])
+    assert resumed["status"] == "ready"
+    assert resumed["staging_file_path"] == str(published)
+    assert sorted(path.name for path in published.parent.iterdir()) == ["crush.mp3"]
+
+
+def test_crash_after_track_ready_never_fails_the_pair(tmp_path):
+    """Review P2: restart after the owner already turned 'ready' completes the
+    job instead of downgrading both to failed."""
+
+    def runner(*args, **kwargs):
+        raise AssertionError("resume must not download again")
+
+    env = make_env(tmp_path, runner=runner)
+    _enable_acquisition(env, tmp_path)
+    track = seed_library_missing(env.conn)
+    job_id, published = _seed_published_job(
+        env, ref=track["id"], library_track_id=track["id"]
+    )
+    env.conn.execute(
+        "UPDATE library_tracks SET status = 'ready', staging_file_path = ? "
+        "WHERE id = ?",
+        (str(published), track["id"]),
+    )
+
+    worker = api.AcquisitionWorker(env.deps)
+    worker.start()
+    try:
+        _wait_for(
+            lambda: api._job_row(env.conn, job_id)["status"] == "downloaded"
+        )
+    finally:
+        assert worker.stop()
+
+    resumed = repos.get_track(env.conn, track["id"])
+    assert resumed["status"] == "ready"
+    assert sorted(path.name for path in published.parent.iterdir()) == ["crush.mp3"]
+
+
+def test_relink_retry_reuses_published_output_without_redownload(
+    tmp_path, monkeypatch
+):
+    """Review P2: a relink_blocked retry resumes the persisted output."""
+
+    def runner(*args, **kwargs):
+        raise AssertionError("relink retry must not download again")
+
+    env = make_env(
+        tmp_path,
+        rows=[
+            {
+                "content_id": "42",
+                "title": "Instant Crush",
+                "artist": "Daft Punk",
+                "isrc": ISRC,
+                "file_missing": True,
+                "file_path": "/missing.mp3",
+            }
+        ],
+        runner=runner,
+    )
+    _enable_acquisition(env, tmp_path)
+    destination_dir = env.storage / "rekordbox" / "Collection"
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    published = destination_dir / "crush.mp3"
+    published.write_bytes(b"published audio")
+    digest = hashlib.sha256(b"published audio").hexdigest()
+    previous = env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, artist, isrc, status, "
+        "relink, anlz_consent, phase, published_path, published_sha256, output_path, error) "
+        "VALUES ('collection', '42', 'Instant Crush', 'Daft Punk', ?, "
+        "'relink_blocked', 1, 1, 'published', ?, ?, ?, 'rekordbox_open')",
+        (ISRC, str(published), digest, str(published)),
+    ).lastrowid
+    relinked = []
+    monkeypatch.setattr(
+        api.missing_service,
+        "relink_collection_file",
+        lambda *args, **kwargs: relinked.append(args) or "stored/crush.mp3",
+    )
+
+    job = env.client.post(
+        "/api/acquisition/jobs",
+        json={"scope": "collection", "content_id": "42", "relink": True,
+              "anlz_consent": True},
+    ).json()
+
+    assert job["id"] == previous
+    assert job["status"] == "relinked"
+    assert job["stored_path"] == "stored/crush.mp3"
+    assert len(relinked) == 1
+    assert sorted(path.name for path in destination_dir.iterdir()) == ["crush.mp3"]
+
+
+def test_ref_spellings_share_one_active_job(tmp_path):
+    """Review P2: '01' and '1' resolve to the same owner and the same job."""
+    env = make_env(tmp_path)
+    _enable_acquisition(env, tmp_path)
+    track_id = seed_event_missing(env.conn)
+
+    first = env.client.post(
+        "/api/acquisition/jobs",
+        json={"scope": "event", "row_id": f"0{track_id}", "enqueue": True},
+    )
+    second = env.client.post(
+        "/api/acquisition/jobs",
+        json={"scope": "event", "row_id": str(track_id), "enqueue": True},
+    )
+
+    assert first.status_code == 202 and second.status_code == 202
+    assert first.json()["id"] == second.json()["id"]
+    assert first.json()["ref"] == str(track_id)
+    active = env.conn.execute(
+        "SELECT COUNT(*) FROM acquisition_jobs WHERE status IN ('queued', 'running')"
+    ).fetchone()[0]
+    assert active == 1
+
+
+def test_event_staging_dir_pointing_at_another_event_is_refused(tmp_path):
+    """Review P2: event A must never publish into event B's directory."""
+    env = make_env(tmp_path)
+    _enable_acquisition(env, tmp_path)
+    event_a = events_service.create_event(env.conn, env.storage, "Event A", manual=True)
+    event_b = events_service.create_event(env.conn, env.storage, "Event B", manual=True)
+    env.conn.execute(
+        "UPDATE events SET staging_dir = ? WHERE id = ?",
+        (event_b["staging_dir"], event_a["id"]),
+    )
+    track = events_service.add_track(
+        env.conn, event_a, title="Instant Crush", artist="Daft Punk"
+    )
+    env.conn.execute(
+        "UPDATE event_tracks SET isrc = ?, status = 'missing' WHERE id = ?",
+        (ISRC, track["id"]),
+    )
+
+    response = env.client.post(
+        "/api/acquisition/jobs", json={"scope": "event", "row_id": track["id"]}
+    )
+    assert response.status_code == 400
+    assert "does not match event" in response.json()["message"]
+
+    # Legacy migration applies the same slug binding.
+    with pytest.raises(ValueError, match="does not match event"):
+        acquisition.event_audio_destination(
+            env.storage, event_b["staging_dir"], event_slug=event_a["slug"]
+        )
+
+
+def test_migration_skips_owner_published_outputs(tmp_path, monkeypatch):
+    """Review P2: a modern owner-published output is out of migration scope,
+    never an 'unsafe_source' warning that would stick forever."""
+    env = make_env(tmp_path)
+    event = events_service.create_event(env.conn, env.storage, "Modern", manual=True)
+    track = events_service.add_track(env.conn, event, title="New", artist="Artist")
+    published = Path(event["staging_dir"]) / "audio" / "new.mp3"
+    published.parent.mkdir(parents=True, exist_ok=True)
+    published.write_bytes(b"owner audio")
+    env.conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, title, artist, status, "
+        "event_id, event_track_id, output_path) "
+        "VALUES ('event', ?, 'New', 'Artist', 'downloaded', ?, ?, ?)",
+        (str(track["id"]), event["id"], track["id"], str(published)),
+    )
+
+    class FakeRO:
+        def execute(self, sql, params=()):
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: FakeRO())
+
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+    assert plan["items"] == []
+    assert plan["ignored"] == []
+
+
+class _ContentRO:
+    """Read-only master.db stub: one active content row with a FolderPath."""
+
+    def __init__(self, content_id, folder_path):
+        self.content_id = str(content_id)
+        self.folder_path = folder_path
+
+    class _Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def __iter__(self):
+            return iter(self._rows)
+
+        def fetchone(self):
+            return self._rows[0] if self._rows else None
+
+        def fetchall(self):
+            return list(self._rows)
+
+    def execute(self, sql, params=()):
+        if "WHERE ID" in sql:
+            wanted = str(params[0]) if params else None
+            if wanted == self.content_id:
+                if "AnalysisDataPath" in sql:
+                    return self._Result([(self.folder_path, None, 0)])
+                return self._Result([(self.folder_path, 0)])
+            return self._Result([])
+        if "FolderPath" in sql:  # active paths listing
+            return self._Result([(self.content_id, self.folder_path)])
+        return self._Result([])
+
+    def close(self):
+        pass
+
+
+def test_resume_after_428_keeps_source_on_any_change(tmp_path, monkeypatch):
+    """Review P1: after a permanent-delete 428, the retried cleanup re-hashes
+    the source and re-reads the live Rekordbox path before deleting anything."""
+    env = make_env(tmp_path)
+    event = events_service.create_event(env.conn, env.storage, "Resume", manual=True)
+    track = events_service.add_track(env.conn, event, title="Legacy", artist="Artist")
+    job = env.conn.execute(
+        "INSERT INTO acquisition_jobs "
+        "(scope, ref, title, artist, status, event_id, event_track_id) "
+        "VALUES ('event', ?, 'Legacy', 'Artist', 'downloaded', ?, ?)",
+        (str(track["id"]), event["id"], track["id"]),
+    ).lastrowid
+    source = acquisition.acquisition_output_dir(env.storage, job) / "legacy.mp3"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"legacy audio")
+    env.conn.execute(
+        "UPDATE acquisition_jobs SET output_path = ? WHERE id = ?", (str(source), job)
+    )
+    env.conn.execute(
+        "UPDATE event_tracks SET status = 'ready', staging_file_path = ?, "
+        "content_id = '77' WHERE id = ?",
+        (str(source), track["id"]),
+    )
+
+    live = _ContentRO("77", str(source))
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: live)
+
+    @contextmanager
+    def fake_mutate(*args, **kwargs):
+        yield object()
+
+    monkeypatch.setattr(acquisition_migration, "mutate", fake_mutate)
+
+    def fake_migrate_content_path(db, content_id, stored, **kwargs):
+        # Mirror the real mutation: the live FolderPath now references the
+        # migrated destination.
+        live.folder_path = stored
+
+    monkeypatch.setattr(
+        acquisition_migration, "migrate_content_path", fake_migrate_content_path
+    )
+
+    def refuse_delete(path, *, consent_to_permanent_delete=False):
+        raise PermanentDeleteConsentRequired(Path(path), OSError("no trash"))
+
+    monkeypatch.setattr(acquisition_migration, "delete_file", refuse_delete)
+
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+    assert len(plan["items"]) == 1
+    with pytest.raises(PermanentDeleteConsentRequired):
+        acquisition_migration.execute(
+            env.conn,
+            env.deps.db_path,
+            env.deps.backups_root,
+            env.deps.cache(),
+            env.storage,
+            plan,
+        )
+    destination = Path(plan["items"][0]["destination_path"])
+    assert destination.is_file()  # copy landed before the 428
+
+    # The Rekordbox path now references the DESTINATION (as the committed
+    # mutation would): the baseline retry below must reach the deletion gate.
+    live.folder_path = str(destination)
+
+    deletions = []
+
+    def record_delete(path, *, consent_to_permanent_delete=False):
+        deletions.append(str(path))
+        Path(path).unlink()
+
+    monkeypatch.setattr(acquisition_migration, "delete_file", record_delete)
+
+    # 1) Source modified after the 428: cleanup refuses, source is kept.
+    original_stat = source.stat()
+    source.write_bytes(b"tampered by the user")
+    with pytest.raises(StaleSnapshotError, match="source changed"):
+        acquisition_migration.execute(
+            env.conn,
+            env.deps.db_path,
+            env.deps.backups_root,
+            env.deps.cache(),
+            env.storage,
+            plan,
+            consent_to_permanent_delete=True,
+        )
+    assert deletions == []
+    assert source.read_bytes() == b"tampered by the user"
+
+    # 2) Source restored but the live Rekordbox path moved elsewhere:
+    #    deleting the source would orphan the live reference — refused.
+    source.write_bytes(b"legacy audio")
+    os.utime(source, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    live.folder_path = str(tmp_path / "elsewhere.mp3")
+    with pytest.raises(StaleSnapshotError, match="Rekordbox path"):
+        acquisition_migration.execute(
+            env.conn,
+            env.deps.db_path,
+            env.deps.backups_root,
+            env.deps.cache(),
+            env.storage,
+            plan,
+            consent_to_permanent_delete=True,
+        )
+    assert deletions == []
+    assert source.is_file()
+
+    # Baseline: with source and Rekordbox path both intact, cleanup proceeds.
+    live.folder_path = str(destination)
+    result = acquisition_migration.execute(
+        env.conn,
+        env.deps.db_path,
+        env.deps.backups_root,
+        env.deps.cache(),
+        env.storage,
+        plan,
+        consent_to_permanent_delete=True,
+    )
+    assert deletions == [str(source)]
+    assert result["removed_sources"] == [str(source)]
+
+
+def test_migration_0008_canonicalizes_and_dedupes_a_v6_database(tmp_path):
+    """Review P2: a v6 database with duplicate spellings, orphans and
+    non-canonical refs migrates to one active job per canonical owner."""
+    db = tmp_path / "v6.db"
+    conn = appdb.connect(db)
+    try:
+        for version, _name, sql in appdb._scripts()[:6]:
+            conn.execute("BEGIN")
+            for stmt in appdb._statements(sql):
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version = {version}")
+            conn.execute("COMMIT")
+        conn.execute(
+            "INSERT INTO events (name, slug, default_tag) VALUES ('E', 'e', 'E')"
+        )
+        conn.execute(
+            "INSERT INTO event_tracks (event_id, title, status) "
+            "VALUES (1, 'T', 'missing')"
+        )
+        # Duplicate active jobs through ref spellings, plus an orphan ref.
+        conn.execute(
+            "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+            "VALUES ('event', '1', 'canonical', 'queued')"
+        )
+        conn.execute(
+            "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+            "VALUES ('event', '01', 'spelled', 'running')"
+        )
+        conn.execute(
+            "INSERT INTO acquisition_jobs (scope, ref, title, status) "
+            "VALUES ('event', '999', 'orphan', 'queued')"
+        )
+
+        assert appdb.migrate(conn) >= 8
+
+        rows = conn.execute(
+            "SELECT ref, status, event_track_id FROM acquisition_jobs ORDER BY id"
+        ).fetchall()
+        assert (rows[0]["ref"], rows[0]["status"], rows[0]["event_track_id"]) == (
+            "1",
+            "queued",
+            1,
+        )
+        # The '01' spelling was canonicalized then superseded as a duplicate.
+        assert (rows[1]["ref"], rows[1]["status"]) == ("1", "failed")
+        # The orphan keeps its ref and no owner id.
+        assert (rows[2]["ref"], rows[2]["event_track_id"]) == ("999", None)
+
+        # The partial unique index guards the owner id itself.
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO acquisition_jobs (scope, ref, title, status, "
+                "event_track_id) VALUES ('event', 'another', 'dup', 'queued', 1)"
+            )
+    finally:
+        conn.close()

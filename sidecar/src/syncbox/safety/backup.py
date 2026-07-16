@@ -7,8 +7,10 @@ current database first so the restore is itself reversible.
 """
 
 import errno
+import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -24,7 +26,10 @@ _EXTRA_DIR = "extra"
 _SYNCBOX_DIR = "syncbox"
 _MANIFEST = "manifest.json"
 _PENDING_EVENT_DELETE = ".pending-event-delete"
+_RESTORE_JOURNAL = "restore-journal.json"
 _TIER_LIMITS = (("hour", 48), ("day", 30), ("week", 12), ("month", 12))
+
+log = logging.getLogger(__name__)
 
 
 def _timestamp() -> str:
@@ -122,6 +127,23 @@ def _validate_manifest(backup_dir: Path) -> dict:
         raise ValueError(f"backup manifest is invalid: {manifest_path}") from exc
     if payload.get("schema") != 1 or not isinstance(payload.get("files"), dict):
         raise ValueError(f"backup manifest is unsupported: {manifest_path}")
+    # The manifest must describe the EXACT file set. A file present on disk
+    # but absent from the manifest would otherwise ride along unverified —
+    # restore scans directories, so an undeclared extra/master.db would
+    # overwrite the live database after the verified restore.
+    actual = {
+        str(path.relative_to(backup_dir))
+        for path in backup_dir.rglob("*")
+        if path.is_file()
+        and path != manifest_path
+        and path != backup_dir / _PENDING_EVENT_DELETE
+    }
+    undeclared = sorted(actual - set(payload["files"]))
+    if undeclared:
+        raise ValueError(
+            "backup contains files missing from its manifest: "
+            + ", ".join(undeclared)
+        )
     for relative, expected in payload["files"].items():
         raw_path = backup_dir / relative
         if raw_path.is_symlink():
@@ -374,13 +396,23 @@ def _resolve_backup_dir(name, backups_root: Path) -> Path:
     return target
 
 
-def _backed_extra_targets(backup_dir: Path, db_path: Path) -> list[tuple[Path, Path]]:
+def _backed_extra_targets(
+    backup_dir: Path, db_path: Path, *, app_db_path=None
+) -> list[tuple[Path, Path]]:
     root = backup_dir / _EXTRA_DIR
     if not root.exists():
         return []
     if root.is_symlink() or not root.is_dir():
         raise ValueError(f"invalid extra backup directory: {root}")
     live_root = db_path.parent.resolve(strict=False)
+    # Support files may never masquerade as the databases themselves: those
+    # are restored through their own verified, staged paths only.
+    forbidden = {db_path.resolve(strict=False)}
+    forbidden.update(path.resolve(strict=False) for path in _sidecars(db_path))
+    if app_db_path is not None:
+        app_db_path = Path(app_db_path)
+        forbidden.add(app_db_path.resolve(strict=False))
+        forbidden.update(path.resolve(strict=False) for path in _sidecars(app_db_path))
     targets = []
     for source in sorted(root.rglob("*")):
         if source.is_symlink():
@@ -399,14 +431,22 @@ def _backed_extra_targets(backup_dir: Path, db_path: Path) -> list[tuple[Path, P
             raise ValueError(
                 f"backup extra path escapes the database directory: {relative}"
             ) from exc
+        if target in forbidden:
+            raise ValueError(
+                f"backup extra path targets a protected database file: {relative}"
+            )
         targets.append((source, target))
     return targets
 
 
-def restore_extra_files(backup_dir, db_path, *, required_files=()) -> list[Path]:
+def restore_extra_files(
+    backup_dir, db_path, *, required_files=(), app_db_path=None
+) -> list[Path]:
     """Atomically restore support files, validating required paths first."""
     db_path = Path(db_path)
-    targets = _backed_extra_targets(Path(backup_dir), db_path)
+    targets = _backed_extra_targets(
+        Path(backup_dir), db_path, app_db_path=app_db_path
+    )
     available = {target.resolve(strict=False) for _, target in targets}
     required = {Path(path).resolve(strict=False) for path in required_files}
     missing = sorted(str(path) for path in required - available)
@@ -437,7 +477,231 @@ def restore_extra_files(backup_dir, db_path, *, required_files=()) -> list[Path]
     return restored
 
 
-def restore_backup(name, backups_root, db_path, *, app_db_path=None) -> Path | None:
+def _fullsync_file(path: Path) -> None:
+    """Flush file bytes to durable storage. On macOS fsync alone only
+    reaches the drive cache; F_FULLFSYNC asks for real persistence
+    (Apple fsync(2))."""
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        if hasattr(fcntl, "F_FULLFSYNC"):
+            try:
+                fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
+                return
+            except OSError:
+                pass
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _stage_copy(source: Path, target: Path) -> dict:
+    """Copy ``source`` next to ``target`` and fsync it, ready for os.replace."""
+    staged = target.with_name(target.name + ".restore-tmp")
+    try:
+        shutil.copy2(source, staged)
+        _fullsync_file(staged)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return {"staged": str(staged), "target": str(target), "sha256": _sha256(staged)}
+
+
+def _stage_restore(
+    source: Path, db_path: Path, app_db_path
+) -> tuple[list[dict], list[str]]:
+    """Stage EVERY file of the restore set before anything is published.
+
+    Returns (replacements, removals): each replacement is a fsynced staged
+    sibling of its target plus the expected hash; removals are live sidecar
+    files the restored databases must not be paired with. Nothing visible
+    is modified here; a failure unstages everything.
+    """
+    replacements: list[dict] = []
+    removals: list[str] = []
+    try:
+        backed_up_db = source / db_path.name
+        replacements.append(_stage_copy(backed_up_db, db_path))
+        for live_sidecar, backed_sidecar in zip(
+            _sidecars(db_path), _sidecars(backed_up_db)
+        ):
+            if backed_sidecar.is_file():
+                replacements.append(_stage_copy(backed_sidecar, live_sidecar))
+            else:
+                removals.append(str(live_sidecar))
+        for extra_source, target in _backed_extra_targets(
+            source, db_path, app_db_path=app_db_path
+        ):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            replacements.append(_stage_copy(extra_source, target))
+        if app_db_path is not None:
+            backed_up_app = source / _SYNCBOX_DIR / app_db_path.name
+            staged = app_db_path.with_name(app_db_path.name + ".restore-tmp")
+            staged.unlink(missing_ok=True)
+            try:
+                # A fresh SQLite snapshot of the backed-up app DB: compact,
+                # integrity-checked, and independent of any wal the backup
+                # may carry.
+                _snapshot_sqlite(backed_up_app, staged)
+                _fullsync_file(staged)
+            except BaseException:
+                staged.unlink(missing_ok=True)
+                raise
+            removals.extend(str(path) for path in _sidecars(app_db_path))
+            replacements.append(
+                {
+                    "staged": str(staged),
+                    "target": str(app_db_path),
+                    "sha256": _sha256(staged),
+                }
+            )
+    except BaseException:
+        for entry in replacements:
+            Path(entry["staged"]).unlink(missing_ok=True)
+        raise
+    return replacements, removals
+
+
+def _publish_restore(replacements: list[dict], removals: list[str]) -> None:
+    """Apply a journaled restore plan. Idempotent: crash recovery re-runs it,
+    accepting targets that already carry the journaled bytes."""
+    directories = set()
+    for target in removals:
+        target = Path(target)
+        target.unlink(missing_ok=True)
+        directories.add(target.parent)
+    for entry in replacements:
+        staged = Path(entry["staged"])
+        target = Path(entry["target"])
+        if staged.exists():
+            os.replace(staged, target)
+        elif not (target.is_file() and _sha256(target) == entry["sha256"]):
+            raise ValueError(f"restore publication lost its staged file: {target}")
+        directories.add(target.parent)
+    for directory in directories:
+        _fsync_dir(directory)
+
+
+def _can_complete(replacements: list[dict]) -> bool:
+    for entry in replacements:
+        staged = Path(entry["staged"])
+        if staged.is_file() and _sha256(staged) == entry["sha256"]:
+            continue
+        target = Path(entry["target"])
+        if target.is_file() and _sha256(target) == entry["sha256"]:
+            continue
+        return False
+    return True
+
+
+def _write_restore_journal(journal_dir: Path, payload: dict) -> None:
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    journal = journal_dir / _RESTORE_JOURNAL
+    tmp = journal.with_name(journal.name + ".tmp")
+    tmp.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    _fullsync_file(tmp)
+    os.replace(tmp, journal)
+    _fsync_dir(journal_dir)
+
+
+def _clear_restore_journal(journal_dir: Path) -> None:
+    (Path(journal_dir) / _RESTORE_JOURNAL).unlink(missing_ok=True)
+    _fsync_dir(Path(journal_dir))
+
+
+def _execute_journaled_restore(
+    source: Path, db_path: Path, app_db_path, journal_dir: Path, *, snapshot
+) -> None:
+    """Stage, journal, then publish one restore as a single recoverable unit.
+
+    The journal is durable BEFORE the first live file is replaced, so a
+    crash at any point leaves either a completable staged set (rolled
+    forward on recovery) or a pre-restore snapshot to roll back to. A
+    synchronous publication error rolls back to the snapshot immediately
+    by restoring it through this same journaled path.
+    """
+    replacements, removals = _stage_restore(source, db_path, app_db_path)
+    _write_restore_journal(
+        Path(journal_dir),
+        {
+            "schema": 1,
+            "created_at": datetime.now().astimezone().isoformat(),
+            "source": str(source),
+            "snapshot": str(snapshot) if snapshot is not None else None,
+            "db_path": str(db_path),
+            "app_db_path": str(app_db_path) if app_db_path is not None else None,
+            "replacements": replacements,
+            "removals": removals,
+        },
+    )
+    try:
+        _publish_restore(replacements, removals)
+    except BaseException:
+        for entry in replacements:
+            Path(entry["staged"]).unlink(missing_ok=True)
+        if snapshot is not None:
+            _execute_journaled_restore(
+                Path(snapshot), db_path, app_db_path, journal_dir, snapshot=None
+            )
+        raise
+    _clear_restore_journal(journal_dir)
+
+
+def recover_restore(journal_dir) -> str | None:
+    """Resolve an interrupted restore recorded in ``journal_dir``.
+
+    Runs at composition-root startup (before the app DB is opened) and
+    before any new restore. Rolls the interrupted restore forward when the
+    journaled staged/target set is intact, otherwise rolls the whole
+    Rekordbox + Syncbox pair back to the pre-restore snapshot. Returns
+    'completed', 'rolled_back', or None when there is nothing to recover.
+    """
+    journal_dir = Path(journal_dir)
+    journal = journal_dir / _RESTORE_JOURNAL
+    if not journal.is_file():
+        return None
+    payload = json.loads(journal.read_text(encoding="utf-8"))
+    replacements = payload.get("replacements") or []
+    removals = payload.get("removals") or []
+    if _can_complete(replacements):
+        _publish_restore(replacements, removals)
+        _clear_restore_journal(journal_dir)
+        log.warning("completed an interrupted backup restore at recovery")
+        return "completed"
+    snapshot = payload.get("snapshot")
+    if snapshot and Path(snapshot).is_dir():
+        for entry in replacements:
+            Path(entry["staged"]).unlink(missing_ok=True)
+        app_db_path = (
+            Path(payload["app_db_path"]) if payload.get("app_db_path") else None
+        )
+        _execute_journaled_restore(
+            Path(snapshot),
+            Path(payload["db_path"]),
+            app_db_path,
+            journal_dir,
+            snapshot=None,
+        )
+        log.warning("rolled back an interrupted backup restore at recovery")
+        return "rolled_back"
+    raise ValueError(
+        "an interrupted restore can neither be completed nor rolled back; "
+        f"keep {journal} and the backups directory for manual recovery"
+    )
+
+
+def restore_backup(
+    name, backups_root, db_path, *, app_db_path=None, journal_dir=None
+) -> Path | None:
     """Restore the named backup over the live database.
 
     Returns the path of the pre-restore snapshot taken from the current
@@ -445,9 +709,23 @@ def restore_backup(name, backups_root, db_path, *, app_db_path=None) -> Path | N
     a restore leaves two backups behind) — or None when no live database
     exists (the disaster case restore exists for: nothing to snapshot,
     Rekordbox-closed still enforced).
+
+    The replacement itself is journaled: every component (master.db, its
+    wal/shm, support extras, and the Syncbox DB) is staged and fsynced
+    before the first live file changes, so the Rekordbox + Syncbox pair is
+    recovered as one unit after a crash (see :func:`recover_restore`).
     """
     backups_root = Path(backups_root)
     db_path = Path(db_path)
+    app_db_path = Path(app_db_path) if app_db_path is not None else None
+    journal_dir = (
+        Path(journal_dir)
+        if journal_dir is not None
+        else (app_db_path.parent if app_db_path is not None else backups_root)
+    )
+    # An earlier interrupted restore must be resolved before a new one may
+    # touch the same files.
+    recover_restore(journal_dir)
 
     source = _resolve_backup_dir(name, backups_root)
     if (source / _MANIFEST).exists():
@@ -455,7 +733,6 @@ def restore_backup(name, backups_root, db_path, *, app_db_path=None) -> Path | N
     backed_up_db = source / db_path.name
     if not backed_up_db.is_file():
         raise FileNotFoundError(f"backup {name!r} does not contain {db_path.name}")
-    app_db_path = Path(app_db_path) if app_db_path is not None else None
     backed_up_app = (
         source / _SYNCBOX_DIR / app_db_path.name if app_db_path is not None else None
     )
@@ -477,7 +754,9 @@ def restore_backup(name, backups_root, db_path, *, app_db_path=None) -> Path | N
         # backup being restored.
         current_extras = [
             target
-            for _, target in _backed_extra_targets(source, db_path)
+            for _, target in _backed_extra_targets(
+                source, db_path, app_db_path=app_db_path
+            )
             if target.is_file() and not target.is_symlink()
         ]
         snapshot = create_backup(
@@ -489,40 +768,7 @@ def restore_backup(name, backups_root, db_path, *, app_db_path=None) -> Path | N
             reason="pre_restore",
         )
 
-    app_staged = None
-    if backed_up_app is not None:
-        app_staged = app_db_path.with_name(app_db_path.name + ".restore-tmp")
-        app_staged.unlink(missing_ok=True)
-        try:
-            _snapshot_sqlite(backed_up_app, app_staged)
-        except BaseException:
-            app_staged.unlink(missing_ok=True)
-            raise
-
-    try:
-        # Ordering is load-bearing (a crash at any point must leave each live
-        # DB old or new, never torn, and never paired with a foreign wal):
-        # 1. clear live wal/shm — their content is preserved in the snapshot;
-        # 2. copy next to the live DB, then atomically replace it;
-        # 3. bring over the backup's sidecars and the staged Syncbox DB.
-        for sidecar in _sidecars(db_path):
-            sidecar.unlink(missing_ok=True)
-        tmp = db_path.with_name(db_path.name + ".restore-tmp")
-        try:
-            shutil.copy2(backed_up_db, tmp)
-            os.replace(tmp, db_path)
-        except BaseException:
-            tmp.unlink(missing_ok=True)
-            raise
-        for backed_sidecar in _sidecars(backed_up_db):
-            if backed_sidecar.is_file():
-                shutil.copy2(backed_sidecar, db_path.with_name(backed_sidecar.name))
-        restore_extra_files(source, db_path)
-        if app_staged is not None:
-            for sidecar in _sidecars(app_db_path):
-                sidecar.unlink(missing_ok=True)
-            os.replace(app_staged, app_db_path)
-        return snapshot
-    finally:
-        if app_staged is not None:
-            app_staged.unlink(missing_ok=True)
+    _execute_journaled_restore(
+        source, db_path, app_db_path, journal_dir, snapshot=snapshot
+    )
+    return snapshot

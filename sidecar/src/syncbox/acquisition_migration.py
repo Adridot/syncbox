@@ -105,6 +105,7 @@ def _owner(conn, job, storage_root):
             "track_id": row["id"],
             "event_id": row["event_id"],
             "staging_dir": staging,
+            "slug": row["slug"],
         }
     if job["scope"] == "library":
         row = conn.execute(
@@ -129,7 +130,7 @@ def _safe_owner_destination(job, owner, storage_root) -> Path | None:
     try:
         if job["scope"] == "event":
             destination = acquisition.event_audio_destination(
-                storage_root, owner["staging_dir"]
+                storage_root, owner["staging_dir"], event_slug=owner["slug"]
             )
         else:
             destination = acquisition.collection_destination(storage_root)
@@ -141,8 +142,10 @@ def _safe_owner_destination(job, owner, storage_root) -> Path | None:
 
 
 def build_plan(conn, storage_root, db_path) -> dict:
-    root = Path(storage_root).resolve(strict=False)
-    legacy_root = root / SYNC_DIR_NAME / "acquisition"
+    # Refuses symlinked ancestors: with acquisition -> /victim, every job
+    # source below it would really live outside managed storage and the
+    # cleanup pass would delete external files.
+    legacy_root = acquisition.acquisition_root(storage_root)
     before = _serial_fingerprint(db_path)
     ro = open_readonly(db_path)
     try:
@@ -164,6 +167,10 @@ def build_plan(conn, storage_root, db_path) -> dict:
             raw_source_path = Path(raw_source)
             source = raw_source_path.resolve(strict=False)
             job_root = legacy_root / f"job-{job['id']}"
+            if job["legacy_output_path"] is None and not _inside(source, legacy_root):
+                # Owner-published output (event/audio or Collection): not a
+                # legacy candidate — silently out of scope, never a warning.
+                continue
             if raw_source_path.is_symlink() or not _inside(source, job_root):
                 ignored.append(
                     {
@@ -380,6 +387,68 @@ def _copy_item(item: dict) -> bool:
     return True
 
 
+def _assert_cleanup_safe(conn, item: dict, storage_root, db_path) -> None:
+    """Revalidate EVERYTHING this item relies on immediately before deleting
+    its legacy source — a resumed plan (e.g. after a permanent-delete 428)
+    may be arbitrarily old, so nothing validated at planning time is
+    trusted here. Any mismatch keeps the source and surfaces a conflict.
+    """
+    legacy_root = acquisition.acquisition_root(storage_root)
+    raw_source = Path(item["source_path"])
+    source = raw_source.resolve(strict=False)
+    if raw_source.is_symlink() or not _inside(source, legacy_root / f"job-{item['job_id']}"):
+        raise StaleSnapshotError(f"migration source escaped its workspace: {source}")
+    if not _matches_state(item["source_state"]):
+        raise StaleSnapshotError(f"migration source changed: {source}")
+    raw_destination = Path(item["destination_path"])
+    if (
+        raw_destination.is_symlink()
+        or not raw_destination.is_file()
+        or _sha256(raw_destination) != item["source_state"]["sha256"]
+    ):
+        raise StaleSnapshotError(
+            f"migration destination changed: {raw_destination}"
+        )
+    job = conn.execute(
+        "SELECT * FROM acquisition_jobs WHERE id = ?", (item["job_id"],)
+    ).fetchone()
+    if job is None:
+        raise StaleSnapshotError(f"migration job {item['job_id']} no longer exists")
+    owner = _owner(conn, job, storage_root)
+    if owner is None:
+        raise StaleSnapshotError(
+            f"migration owner for job {item['job_id']} no longer exists"
+        )
+    owner_destination = _safe_owner_destination(job, owner, storage_root)
+    if (
+        owner_destination is None
+        or raw_destination.resolve(strict=False).parent != owner_destination
+    ):
+        raise StaleSnapshotError(
+            f"migration destination no longer belongs to its owner: {raw_destination}"
+        )
+    if item["content_id"]:
+        ro = open_readonly(db_path)
+        try:
+            content = ro.execute(
+                "SELECT FolderPath, rb_local_deleted FROM djmdContent WHERE ID = ?",
+                (str(item["content_id"]),),
+            ).fetchone()
+        finally:
+            ro.close()
+        if content is None or int(content[1] or 0):
+            raise StaleSnapshotError(
+                f"Rekordbox content {item['content_id']} disappeared; "
+                "keeping the migration source"
+            )
+        current = resolve_stored_path(content[0], storage_root)
+        if not paths_equal(current, raw_destination, storage_root):
+            raise StaleSnapshotError(
+                f"Rekordbox path for {item['content_id']} does not reference "
+                "the migrated destination; keeping the migration source"
+            )
+
+
 def _resume_state(conn, item: dict) -> str | None:
     row = conn.execute(
         "SELECT output_path, legacy_output_path FROM acquisition_jobs WHERE id = ?",
@@ -425,7 +494,12 @@ def execute(
         try:
             for item in plan["items"]:
                 if _copy_item(item):
-                    created.append(Path(item["destination_path"]))
+                    created.append(
+                        (
+                            Path(item["destination_path"]),
+                            item["source_state"]["sha256"],
+                        )
+                    )
             backup_files = [
                 Path(path) for item in plan["items"] for path in item["anlz_paths"]
             ]
@@ -450,8 +524,18 @@ def execute(
                             anlz_paths=item["anlz_paths"],
                         )
         except BaseException:
-            for path in created:
-                path.unlink(missing_ok=True)
+            # Rollback removes ONLY the exact bytes this run created: a
+            # destination that changed since the copy is somebody's file now.
+            for path, digest in created:
+                try:
+                    if (
+                        not path.is_symlink()
+                        and path.is_file()
+                        and _sha256(path) == digest
+                    ):
+                        path.unlink()
+                except OSError:
+                    pass
             raise
 
         conn.execute("BEGIN")
@@ -495,6 +579,7 @@ def execute(
             continue
         source = Path(item["source_path"])
         if source.exists():
+            _assert_cleanup_safe(conn, item, storage_root, db_path)
             delete_file(source, consent_to_permanent_delete=consent_to_permanent_delete)
             removed.append(str(source))
         conn.execute(
