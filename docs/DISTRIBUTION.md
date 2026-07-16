@@ -104,6 +104,21 @@ ZIPs, the convenience DMG, and a `SHA256SUMS.txt`. The tag must match
 must pass; and two isolated absolute source roots are built in parallel —
 the release is blocked unless their ZIPs are byte-identical.
 
+The workflow also diffs the committed
+`sidecar/src/syncbox/optional_component.json` against the manifest the build
+just regenerated and refuses to publish on any mismatch, so a stale component
+pin cannot ship again. The component archive changes with every version bump
+(its pyproject version is baked in), so refresh the pin as part of release
+preparation, before tagging:
+
+```sh
+cd shell && pnpm bundle:macos --component-only
+```
+
+and commit the rewritten manifest. This runs the same pinned-toolchain
+reproducible build as the workflow, so the locally written sha256/size match
+what CI rebuilds from the tag.
+
 Hosted runners cannot match the pinned Apple host toolchain, so the workflow
 sets `SYNCBOX_RELEASE_HOST_TOOLCHAIN=unpinned`: the six Apple host fields
 (`apple_clang`, `apple_ld`, `developer_dir`, `macos_build`, `macos_sdk`,
