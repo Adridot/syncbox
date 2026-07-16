@@ -47,7 +47,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           (cd sidecar && uv lock --check && uv sync --locked --managed-python)
-          (cd optional-component && uv lock --check)
+          (cd optional-component && uv lock --check && uv sync --locked --managed-python)
           rm -rf sidecar/vendor/sqlcipher3-commoncrypto/build \
                  sidecar/vendor/sqlcipher3-commoncrypto/sqlcipher3_wheels.egg-info
 
