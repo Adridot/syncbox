@@ -67,12 +67,14 @@ def mutate(
     db_path,
     backups_root,
     *,
-    retention: int = 15,
+    retention: int = 20,
     expected_fingerprint=None,
     open_db,
     invalidate_cache=None,
     backup_files=(),
     backup_observer=None,
+    app_db_path=None,
+    backup_reason: str = "rekordbox_mutation",
 ):
     """Unit-of-work for one master.db mutation. The order is load-bearing:
 
@@ -93,7 +95,10 @@ def mutate(
     """
     db_path = Path(db_path)
     _assert_mutation_ready(db_path)
-    if expected_fingerprint is not None and fingerprint(db_path) != expected_fingerprint:
+    if (
+        expected_fingerprint is not None
+        and fingerprint(db_path) != expected_fingerprint
+    ):
         raise StaleSnapshotError(
             f"{db_path} changed since the dry-run snapshot; nothing was "
             "written and no backup was created. Run a fresh dry-run and retry."
@@ -110,9 +115,17 @@ def mutate(
             backups_root,
             retention=retention,
             extra_files=backup_files,
+            app_db_path=app_db_path,
+            reason=backup_reason,
         )
     else:
-        backup_path = create_backup(db_path, backups_root, retention=retention)
+        backup_path = create_backup(
+            db_path,
+            backups_root,
+            retention=retention,
+            app_db_path=app_db_path,
+            reason=backup_reason,
+        )
     if backup_observer is not None:
         backup_observer(backup_path)
     handle = open_db(db_path)

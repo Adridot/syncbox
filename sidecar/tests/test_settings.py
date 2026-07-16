@@ -13,7 +13,7 @@ def settings(tmp_path):
 
 
 def test_defaults_apply_at_read_without_writing(settings):
-    assert settings.get("backup_retention") == 15
+    assert settings.get("backup_retention") == 20
     assert settings.get("language") == "en"
     assert settings.get("deezer_acquisition_enabled") is False
     assert settings.all() == DEFAULTS

@@ -7,9 +7,12 @@ current database first so the restore is itself reversible.
 """
 
 import errno
+import hashlib
+import json
 import os
 import re
 import shutil
+import sqlite3
 import tempfile
 from datetime import datetime
 from importlib import import_module
@@ -18,7 +21,10 @@ from pathlib import Path
 _PREFIX = "rekordbox-db-"
 _NAME = re.compile(r"^rekordbox-db-(\d{8}-\d{6})(?:-(\d+))?$")
 _EXTRA_DIR = "extra"
+_SYNCBOX_DIR = "syncbox"
+_MANIFEST = "manifest.json"
 _PENDING_EVENT_DELETE = ".pending-event-delete"
+_TIER_LIMITS = (("hour", 48), ("day", 30), ("week", 12), ("month", 12))
 
 
 def _timestamp() -> str:
@@ -61,7 +67,90 @@ def _extra_sources(db_path: Path, extra_files) -> list[tuple[Path, Path]]:
     return mapped
 
 
-def create_backup(db_path, backups_root, retention: int = 15, *, extra_files=()) -> Path:
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _snapshot_sqlite(source: Path, destination: Path) -> None:
+    source_connection = sqlite3.connect(
+        f"{source.resolve().as_uri()}?mode=ro", uri=True
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination_connection = sqlite3.connect(destination)
+    try:
+        source_connection.backup(destination_connection)
+        result = destination_connection.execute("PRAGMA integrity_check").fetchone()[0]
+        if result != "ok":
+            raise ValueError(f"Syncbox snapshot failed integrity_check: {result}")
+    finally:
+        destination_connection.close()
+        source_connection.close()
+
+
+def _write_manifest(staging: Path, *, reason: str) -> None:
+    files = sorted(
+        path for path in staging.rglob("*") if path.is_file() and path.name != _MANIFEST
+    )
+    payload = {
+        "schema": 1,
+        "created_at": datetime.now().astimezone().isoformat(),
+        "reason": reason,
+        "files": {
+            str(path.relative_to(staging)): {
+                "size": path.stat().st_size,
+                "sha256": _sha256(path),
+            }
+            for path in files
+        },
+    }
+    (staging / _MANIFEST).write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def _validate_manifest(backup_dir: Path) -> dict:
+    manifest_path = backup_dir / _MANIFEST
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise ValueError(f"backup manifest is missing or unsafe: {manifest_path}")
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"backup manifest is invalid: {manifest_path}") from exc
+    if payload.get("schema") != 1 or not isinstance(payload.get("files"), dict):
+        raise ValueError(f"backup manifest is unsupported: {manifest_path}")
+    for relative, expected in payload["files"].items():
+        raw_path = backup_dir / relative
+        if raw_path.is_symlink():
+            raise ValueError(f"backup manifest file is unsafe: {relative}")
+        path = raw_path.resolve(strict=False)
+        try:
+            path.relative_to(backup_dir.resolve(strict=True))
+        except ValueError as exc:
+            raise ValueError(
+                f"backup manifest path escapes its root: {relative}"
+            ) from exc
+        if not path.is_file():
+            raise ValueError(f"backup manifest file is missing or unsafe: {relative}")
+        if path.stat().st_size != expected.get("size") or _sha256(path) != expected.get(
+            "sha256"
+        ):
+            raise ValueError(f"backup file failed verification: {relative}")
+    return payload
+
+
+def create_backup(
+    db_path,
+    backups_root,
+    retention: int = 20,
+    *,
+    extra_files=(),
+    app_db_path=None,
+    reason: str = "rekordbox_mutation",
+) -> Path:
     """Copy master.db, SQLite sidecars, and selected Rekordbox support files.
 
     Same-second collisions get a ``-<n>`` suffix starting at 2 (POC 09
@@ -90,6 +179,24 @@ def create_backup(db_path, backups_root, retention: int = 15, *, extra_files=())
             destination = staging / _EXTRA_DIR / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
+        if app_db_path is not None:
+            app_db_path = Path(app_db_path)
+            if not app_db_path.is_file():
+                raise FileNotFoundError(f"Syncbox database not found: {app_db_path}")
+            _snapshot_sqlite(app_db_path, staging / _SYNCBOX_DIR / app_db_path.name)
+        copied_pairs = [(db_path, staging / db_path.name)]
+        copied_pairs.extend(
+            (sidecar, staging / sidecar.name)
+            for sidecar in _sidecars(db_path)
+            if sidecar.is_file()
+        )
+        copied_pairs.extend(
+            (source, staging / _EXTRA_DIR / relative) for source, relative in extras
+        )
+        for source, copied in copied_pairs:
+            if _sha256(source) != _sha256(copied):
+                raise ValueError(f"backup copy verification failed: {source}")
+        _write_manifest(staging, reason=reason)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -139,6 +246,12 @@ def list_backups(backups_root) -> list[dict]:
         return []
     out = []
     for child in reversed(_backup_dirs_oldest_first(root)):
+        try:
+            manifest = json.loads((child / _MANIFEST).read_text(encoding="utf-8"))
+            if manifest.get("schema") != 1:
+                manifest = {}
+        except OSError, json.JSONDecodeError:
+            manifest = {}
         files = sorted(
             f
             for f in child.rglob("*")
@@ -149,25 +262,54 @@ def list_backups(backups_root) -> list[dict]:
                 "name": child.name,
                 "files": [str(f.relative_to(child)) for f in files],
                 "size_bytes": sum(f.stat().st_size for f in files),
+                "reason": manifest.get("reason"),
+                "verified": bool(manifest),
+                "coherent": any(
+                    str(relative).startswith(f"{_SYNCBOX_DIR}/")
+                    for relative in manifest.get("files", {})
+                ),
+                "pinned": (child / _PENDING_EVENT_DELETE).is_file(),
             }
         )
     return out
 
 
+def _bucket_key(path: Path, tier: str):
+    match = _NAME.match(path.name)
+    stamp = datetime.strptime(match.group(1), "%Y%m%d-%H%M%S")
+    if tier == "hour":
+        return stamp.strftime("%Y%m%d-%H")
+    if tier == "day":
+        return stamp.date().isoformat()
+    if tier == "week":
+        year, week, _ = stamp.isocalendar()
+        return year, week
+    return stamp.strftime("%Y-%m")
+
+
 def _rotate(backups_root: Path, retention: int, just_created: Path) -> None:
-    if retention <= 0:  # 0 = unlimited
+    if retention <= 0:
         return
     candidates = _backup_dirs_oldest_first(backups_root)
-    excess = len(candidates) - retention
+    keep = set(candidates[-retention:])
+    keep.add(just_created)
+    newest_first = list(reversed(candidates))
+    for tier, limit in _TIER_LIMITS:
+        seen = set()
+        for candidate in newest_first:
+            key = _bucket_key(candidate, tier)
+            if key in seen:
+                continue
+            seen.add(key)
+            keep.add(candidate)
+            if len(seen) >= limit:
+                break
     for stale in candidates:
-        if excess <= 0:
-            return
-        if stale == just_created:
+        if stale in keep:
             continue
         if (stale / _PENDING_EVENT_DELETE).is_file():
             continue
         shutil.rmtree(stale)
-        excess -= 1
 
 
 def pin_backup(backup_dir) -> Path:
@@ -247,7 +389,9 @@ def _backed_extra_targets(backup_dir: Path, db_path: Path) -> list[tuple[Path, P
             continue
         relative = source.relative_to(root)
         if relative.is_absolute() or ".." in relative.parts:
-            raise ValueError(f"backup extra path escapes the database directory: {relative}")
+            raise ValueError(
+                f"backup extra path escapes the database directory: {relative}"
+            )
         target = (live_root / relative).resolve(strict=False)
         try:
             target.relative_to(live_root)
@@ -293,7 +437,7 @@ def restore_extra_files(backup_dir, db_path, *, required_files=()) -> list[Path]
     return restored
 
 
-def restore_backup(name, backups_root, db_path) -> Path | None:
+def restore_backup(name, backups_root, db_path, *, app_db_path=None) -> Path | None:
     """Restore the named backup over the live database.
 
     Returns the path of the pre-restore snapshot taken from the current
@@ -306,9 +450,19 @@ def restore_backup(name, backups_root, db_path) -> Path | None:
     db_path = Path(db_path)
 
     source = _resolve_backup_dir(name, backups_root)
+    if (source / _MANIFEST).exists():
+        _validate_manifest(source)
     backed_up_db = source / db_path.name
     if not backed_up_db.is_file():
         raise FileNotFoundError(f"backup {name!r} does not contain {db_path.name}")
+    app_db_path = Path(app_db_path) if app_db_path is not None else None
+    backed_up_app = (
+        source / _SYNCBOX_DIR / app_db_path.name if app_db_path is not None else None
+    )
+    if backed_up_app is not None and not backed_up_app.is_file():
+        raise ValueError(
+            f"backup {name!r} does not contain a coherent Syncbox database"
+        )
 
     snapshot = None
     try:
@@ -327,27 +481,48 @@ def restore_backup(name, backups_root, db_path) -> Path | None:
             if target.is_file() and not target.is_symlink()
         ]
         snapshot = create_backup(
-            db_path, backups_root, retention=0, extra_files=current_extras
+            db_path,
+            backups_root,
+            retention=0,
+            extra_files=current_extras,
+            app_db_path=app_db_path,
+            reason="pre_restore",
         )
 
-    # Ordering is load-bearing (a crash at any point must leave the live DB
-    # either old or new, never torn, and never paired with a foreign wal):
-    # 1. clear live wal/shm — their content is preserved in the snapshot; a
-    #    stale live wal must never be replayed over the restored db file;
-    # 2. copy the backup db next to the live one, then atomically replace
-    #    (os.replace is atomic on APFS/NTFS) — no torn master.db, ever;
-    # 3. bring over the backup's own sidecars.
-    for sidecar in _sidecars(db_path):
-        sidecar.unlink(missing_ok=True)
-    tmp = db_path.with_name(db_path.name + ".restore-tmp")
+    app_staged = None
+    if backed_up_app is not None:
+        app_staged = app_db_path.with_name(app_db_path.name + ".restore-tmp")
+        app_staged.unlink(missing_ok=True)
+        try:
+            _snapshot_sqlite(backed_up_app, app_staged)
+        except BaseException:
+            app_staged.unlink(missing_ok=True)
+            raise
+
     try:
-        shutil.copy2(backed_up_db, tmp)
-        os.replace(tmp, db_path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-    for backed_sidecar in _sidecars(backed_up_db):
-        if backed_sidecar.is_file():
-            shutil.copy2(backed_sidecar, db_path.with_name(backed_sidecar.name))
-    restore_extra_files(source, db_path)
-    return snapshot
+        # Ordering is load-bearing (a crash at any point must leave each live
+        # DB old or new, never torn, and never paired with a foreign wal):
+        # 1. clear live wal/shm — their content is preserved in the snapshot;
+        # 2. copy next to the live DB, then atomically replace it;
+        # 3. bring over the backup's sidecars and the staged Syncbox DB.
+        for sidecar in _sidecars(db_path):
+            sidecar.unlink(missing_ok=True)
+        tmp = db_path.with_name(db_path.name + ".restore-tmp")
+        try:
+            shutil.copy2(backed_up_db, tmp)
+            os.replace(tmp, db_path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        for backed_sidecar in _sidecars(backed_up_db):
+            if backed_sidecar.is_file():
+                shutil.copy2(backed_sidecar, db_path.with_name(backed_sidecar.name))
+        restore_extra_files(source, db_path)
+        if app_staged is not None:
+            for sidecar in _sidecars(app_db_path):
+                sidecar.unlink(missing_ok=True)
+            os.replace(app_staged, app_db_path)
+        return snapshot
+    finally:
+        if app_staged is not None:
+            app_staged.unlink(missing_ok=True)

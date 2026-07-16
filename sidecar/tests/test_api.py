@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 from syncbox import api, appdb, repos
 from syncbox.platform_os import PermanentDeleteConsentRequired
 from syncbox.quality import QualityResult
-from syncbox.safety import process_guard
+from syncbox.safety import backup, process_guard
 from syncbox.safety.process_guard import MutationBlockedError
 from syncbox.secrets import SecretsStore
 from syncbox.server import OAuthCallbackPortInUseError
@@ -165,7 +165,9 @@ def test_db_path_expands_tilde(tmp_path):
 def test_invalid_json_body_is_400_not_500(tmp_path):
     env = make_env(tmp_path)
     response = env.client.post(
-        "/api/sources", content=b"not json", headers={"content-type": "application/json"}
+        "/api/sources",
+        content=b"not json",
+        headers={"content-type": "application/json"},
     )
     assert response.status_code == 400
     assert response.json()["error"] == "invalid_request"
@@ -183,7 +185,11 @@ def test_sources_crud(tmp_path):
 
     created = env.client.post(
         "/api/sources",
-        json={"spotify_playlist_id": PLAYLIST_ID, "name": "Bangers", "tags": ["Techno"]},
+        json={
+            "spotify_playlist_id": PLAYLIST_ID,
+            "name": "Bangers",
+            "tags": ["Techno"],
+        },
     )
     assert created.status_code == 201
     source = created.json()
@@ -213,8 +219,18 @@ def test_source_tracks_filters(tmp_path):
     source, _ = seed_source(
         env.conn,
         [
-            {"spotify_track_id": "t1", "title": "Alpha", "artist": "A", "status": "missing"},
-            {"spotify_track_id": "t2", "title": "Beta", "artist": "B", "status": "matched"},
+            {
+                "spotify_track_id": "t1",
+                "title": "Alpha",
+                "artist": "A",
+                "status": "missing",
+            },
+            {
+                "spotify_track_id": "t2",
+                "title": "Beta",
+                "artist": "B",
+                "status": "matched",
+            },
         ],
     )
     url = f"/api/sources/{source['id']}/tracks"
@@ -258,9 +274,7 @@ def test_sync_one_source_end_to_end(tmp_path):
         }
     }
     client = SimpleNamespace(get=lambda path: payloads[path])
-    env = make_env(
-        tmp_path, rows=[rb_row("42", isrc=isrc)], spotify_client=client
-    )
+    env = make_env(tmp_path, rows=[rb_row("42", isrc=isrc)], spotify_client=client)
     source, _ = seed_source(env.conn, [])
     response = env.client.post(f"/api/sources/{source['id']}/sync")
     assert response.status_code == 200
@@ -535,9 +549,28 @@ def test_event_apply_and_reapply_wire_only_delta(tmp_path, monkeypatch):
     event = env.client.post("/api/events", json={"name": "Gig"}).json()
     calls = []
 
-    def fake_apply(conn, db_path, backups_root, cache, storage_root, ev, *, only_delta=False, retention=15):
-        calls.append({"only_delta": only_delta, "retention": retention, "event_id": ev["id"]})
-        return {"noop": False, "applied": 2, "event_status": "applied", "tag_id": "1", "playlist_id": "2"}
+    def fake_apply(
+        conn,
+        db_path,
+        backups_root,
+        cache,
+        storage_root,
+        ev,
+        *,
+        only_delta=False,
+        retention=20,
+        **kwargs,
+    ):
+        calls.append(
+            {"only_delta": only_delta, "retention": retention, "event_id": ev["id"]}
+        )
+        return {
+            "noop": False,
+            "applied": 2,
+            "event_status": "applied",
+            "tag_id": "1",
+            "playlist_id": "2",
+        }
 
     monkeypatch.setattr(api.events_service, "apply_event", fake_apply)
     assert env.client.post(f"/api/events/{event['id']}/apply").status_code == 200
@@ -553,10 +586,27 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
 
     preview_plan = {"dry_run": True, "plan_version": 1, "event_id": event["id"]}
 
-    def fake_delete(conn, db_path, backups_root, cache, storage_root, ev, *, dry_run=True, plan=None, consent_to_permanent_delete=False, retention=15):
-        seen.append({"dry_run": dry_run, "plan": plan, "consent": consent_to_permanent_delete})
+    def fake_delete(
+        conn,
+        db_path,
+        backups_root,
+        cache,
+        storage_root,
+        ev,
+        *,
+        dry_run=True,
+        plan=None,
+        consent_to_permanent_delete=False,
+        retention=20,
+        **kwargs,
+    ):
+        seen.append(
+            {"dry_run": dry_run, "plan": plan, "consent": consent_to_permanent_delete}
+        )
         if not dry_run and not consent_to_permanent_delete:
-            raise PermanentDeleteConsentRequired(Path("/vol/x.mp3"), OSError("no trash"))
+            raise PermanentDeleteConsentRequired(
+                Path("/vol/x.mp3"), OSError("no trash")
+            )
         return preview_plan if dry_run else {**preview_plan, "dry_run": False}
 
     monkeypatch.setattr(api.events_service, "delete_event", fake_delete)
@@ -565,7 +615,8 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
     assert preview.json()["dry_run"] is True  # preview is the DEFAULT (D11/D23)
 
     blocked = env.client.post(
-        f"/api/events/{event['id']}/delete", json={"dry_run": False, "plan": preview_plan}
+        f"/api/events/{event['id']}/delete",
+        json={"dry_run": False, "plan": preview_plan},
     )
     assert blocked.status_code == 428
     payload = blocked.json()
@@ -575,7 +626,11 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
 
     ok = env.client.post(
         f"/api/events/{event['id']}/delete",
-        json={"dry_run": False, "plan": preview_plan, "consent_to_permanent_delete": True},
+        json={
+            "dry_run": False,
+            "plan": preview_plan,
+            "consent_to_permanent_delete": True,
+        },
     )
     assert ok.status_code == 200
     assert seen[-1] == {"dry_run": False, "plan": preview_plan, "consent": True}
@@ -704,7 +759,16 @@ def test_duplicates_resolve_order_and_reentry(tmp_path, monkeypatch):
             order.append("ro:close")
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         order.append(("mutate:enter", expected_fingerprint))
         yield "db"
         order.append("mutate:exit")
@@ -723,8 +787,9 @@ def test_duplicates_resolve_order_and_reentry(tmp_path, monkeypatch):
     monkeypatch.setattr(
         api,
         "delete_file",
-        lambda path, *, consent_to_permanent_delete: order.append(f"delete:{path}")
-        or "trashed",
+        lambda path, *, consent_to_permanent_delete: (
+            order.append(f"delete:{path}") or "trashed"
+        ),
     )
 
     response = env.client.post(
@@ -770,7 +835,16 @@ def test_duplicates_resolve_never_deletes_a_shared_keeper_file(tmp_path, monkeyp
     deleted = []
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         yield "db"
 
     monkeypatch.setattr(api, "open_readonly", lambda path: FakeRO())
@@ -781,8 +855,9 @@ def test_duplicates_resolve_never_deletes_a_shared_keeper_file(tmp_path, monkeyp
     monkeypatch.setattr(
         api,
         "delete_file",
-        lambda path, *, consent_to_permanent_delete: deleted.append(str(path))
-        or "trashed",
+        lambda path, *, consent_to_permanent_delete: (
+            deleted.append(str(path)) or "trashed"
+        ),
     )
 
     response = env.client.post(
@@ -822,7 +897,16 @@ def test_duplicates_resolve_keeper_guard_equates_32_spellings(tmp_path, monkeypa
     deleted = []
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         yield "db"
 
     monkeypatch.setattr(api, "open_readonly", lambda path: FakeRO())
@@ -833,8 +917,9 @@ def test_duplicates_resolve_keeper_guard_equates_32_spellings(tmp_path, monkeypa
     monkeypatch.setattr(
         api,
         "delete_file",
-        lambda path, *, consent_to_permanent_delete: deleted.append(str(path))
-        or "trashed",
+        lambda path, *, consent_to_permanent_delete: (
+            deleted.append(str(path)) or "trashed"
+        ),
     )
 
     response = env.client.post(
@@ -887,7 +972,16 @@ def test_duplicates_resolve_trashes_a_permanent_library_loser(tmp_path, monkeypa
             pass
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         yield "db"
 
     monkeypatch.setattr(api, "open_readonly", lambda path: FakeRO())
@@ -898,8 +992,9 @@ def test_duplicates_resolve_trashes_a_permanent_library_loser(tmp_path, monkeypa
     monkeypatch.setattr(
         api,
         "delete_file",
-        lambda path, *, consent_to_permanent_delete: deleted.append(str(path))
-        or "trashed",
+        lambda path, *, consent_to_permanent_delete: (
+            deleted.append(str(path)) or "trashed"
+        ),
     )
 
     response = env.client.post(
@@ -941,7 +1036,10 @@ def test_duplicates_resolve_permanent_delete_consent_428(tmp_path, monkeypatch):
 
 def test_untagged_patterns_crud_and_bad_regex(tmp_path):
     env = make_env(tmp_path)
-    assert env.client.post("/api/untagged/patterns", json={"pattern": "("}).status_code == 400
+    assert (
+        env.client.post("/api/untagged/patterns", json={"pattern": "("}).status_code
+        == 400
+    )
     created = env.client.post("/api/untagged/patterns", json={"pattern": "^promo"})
     assert created.status_code == 201
     listing = env.client.get("/api/untagged/patterns").json()["patterns"]
@@ -961,7 +1059,9 @@ def test_untagged_list_categorizes(tmp_path):
     assert [t["category"] for t in tracks] == ["junk", "review"]
 
 
-def test_untagged_delete_is_ownership_neutral_and_reports_stale_rows(tmp_path, monkeypatch):
+def test_untagged_delete_is_ownership_neutral_and_reports_stale_rows(
+    tmp_path, monkeypatch
+):
     rows = [
         rb_row("1"),
         rb_row("2", ownership="permanent_library"),
@@ -971,13 +1071,20 @@ def test_untagged_delete_is_ownership_neutral_and_reports_stale_rows(tmp_path, m
     deleted = []
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         yield "db"
 
     monkeypatch.setattr(api, "mutate", fake_mutate)
-    monkeypatch.setattr(
-        api, "soft_delete_content", lambda db, cid: deleted.append(cid)
-    )
+    monkeypatch.setattr(api, "soft_delete_content", lambda db, cid: deleted.append(cid))
     response = env.client.post(
         "/api/untagged/delete", json={"content_ids": ["1", "2", "3", "9"]}
     )
@@ -1043,7 +1150,12 @@ def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
     env = make_env(tmp_path, rows=rows)
     dry = env.client.post("/api/smartfixes/dry-run", json={}).json()
     assert dry["payload"] == [
-        {"content_id": "1", "field": "title", "before": "Song   Twice", "after": "Song Twice"}
+        {
+            "content_id": "1",
+            "field": "title",
+            "before": "Song   Twice",
+            "after": "Song Twice",
+        }
     ]
     assert dry["fingerprint"] == [["db", 1]]
 
@@ -1056,7 +1168,8 @@ def test_smartfixes_dry_run_and_execute_wiring(tmp_path, monkeypatch):
         storage_root,
         dry_payload,
         *,
-        retention=15,
+        retention=20,
+        **kwargs,
     ):
         captured.update(dry_payload)
         captured["storage_root"] = storage_root
@@ -1081,7 +1194,16 @@ def test_smartfixes_include_permanent_library_tracks(tmp_path, monkeypatch):
     applied = []
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         yield "db"
 
     monkeypatch.setattr(api.smartfixes_run, "mutate", fake_mutate)
@@ -1187,7 +1309,9 @@ def test_readouts_aggregates(tmp_path):
 
     this_month = datetime.now().strftime("%Y-%m-05 10:00:00")
     rows = [
-        rb_row("1", key_name="Am", play_count=3, genre="House", date_created=this_month),
+        rb_row(
+            "1", key_name="Am", play_count=3, genre="House", date_created=this_month
+        ),
         rb_row("2", key_name="8A", play_count=0, genre="House"),
         rb_row("3", key_name="unmappable", play_count=None, genre="Techno"),
     ]
@@ -1208,14 +1332,20 @@ def test_doctor_backups_restore_and_retention(tmp_path, monkeypatch):
     env = make_env(tmp_path)
     monkeypatch.setattr(process_guard, "assert_mutation_ready", lambda db_path: None)
     backups_root = env.deps.backups_root
-    fake = backups_root / "rekordbox-db-20260101-000000"
-    fake.mkdir(parents=True)
-    (fake / "master.db").write_bytes(b"OLD CONTENT")
+    env.db_file.write_bytes(b"OLD CONTENT")
+    monkeypatch.setattr(backup, "_timestamp", lambda: "20260101-000000")
+    fake = backup.create_backup(
+        env.db_file,
+        backups_root,
+        retention=0,
+        app_db_path=env.deps.app_db_path,
+    )
     (backups_root / "not-a-backup").mkdir()  # never listed, never restorable
 
     listing = env.client.get("/api/doctor/backups").json()["backups"]
     assert [b["name"] for b in listing] == ["rekordbox-db-20260101-000000"]
-    assert listing[0]["files"] == ["master.db"]
+    assert listing[0]["coherent"] is True
+    assert "master.db" in listing[0]["files"]
 
     env.db_file.write_bytes(b"LIVE CONTENT")
     restored = env.client.post(f"/api/doctor/backups/{fake.name}/restore")
@@ -1224,13 +1354,21 @@ def test_doctor_backups_restore_and_retention(tmp_path, monkeypatch):
     assert restored.json()["pre_restore_snapshot"]  # restore is itself reversible
     assert env.cache.invalidated >= 1
 
-    assert env.client.post("/api/doctor/backups/..%2Fx/restore").status_code in (400, 404)
+    assert env.client.post("/api/doctor/backups/..%2Fx/restore").status_code in (
+        400,
+        404,
+    )
     missing = env.client.post(
         "/api/doctor/backups/rekordbox-db-19990101-000000/restore"
     )
     assert missing.status_code == 404
 
-    assert env.client.post("/api/doctor/retention", json={"backup_retention": -1}).status_code == 400
+    assert (
+        env.client.post(
+            "/api/doctor/retention", json={"backup_retention": -1}
+        ).status_code
+        == 400
+    )
     ok = env.client.post("/api/doctor/retention", json={"backup_retention": 5})
     assert ok.status_code == 200
     assert env.deps.settings.get("backup_retention") == 5
@@ -1238,7 +1376,10 @@ def test_doctor_backups_restore_and_retention(tmp_path, monkeypatch):
 
 def test_doctor_logs_tail(tmp_path):
     env = make_env(tmp_path)
-    assert env.client.get("/api/doctor/logs").json() == {"configured": False, "lines": []}
+    assert env.client.get("/api/doctor/logs").json() == {
+        "configured": False,
+        "lines": [],
+    }
     Path(env.deps.log_path).write_text("one\ntwo\nthree\nfour\n")
     body = env.client.get("/api/doctor/logs", params={"lines": 2}).json()
     assert body["configured"] is True
@@ -1392,10 +1533,26 @@ def test_spotify_disconnect_deletes_relationships_without_touching_rekordbox(tmp
 
 def test_sse_stream_carries_real_job_progress(tmp_path, monkeypatch):
     rows = [
-        rb_row("1", isrc="USDUP0000001", title="Song", artist="A", resolved_path="/x/1.mp3"),
-        rb_row("2", isrc="USDUP0000001", title="Song", artist="A", resolved_path="/x/2.mp3"),
-        rb_row("3", isrc="USDUP0000002", title="Other", artist="B", resolved_path="/x/3.mp3"),
-        rb_row("4", isrc="USDUP0000002", title="Other", artist="B", resolved_path="/x/4.mp3"),
+        rb_row(
+            "1", isrc="USDUP0000001", title="Song", artist="A", resolved_path="/x/1.mp3"
+        ),
+        rb_row(
+            "2", isrc="USDUP0000001", title="Song", artist="A", resolved_path="/x/2.mp3"
+        ),
+        rb_row(
+            "3",
+            isrc="USDUP0000002",
+            title="Other",
+            artist="B",
+            resolved_path="/x/3.mp3",
+        ),
+        rb_row(
+            "4",
+            isrc="USDUP0000002",
+            title="Other",
+            artist="B",
+            resolved_path="/x/4.mp3",
+        ),
     ]
     env = make_env(tmp_path, rows=rows)
 
@@ -1512,8 +1669,18 @@ def test_track_manual_match_transition(tmp_path):
     _, tracks = seed_source(
         env.conn,
         [
-            {"spotify_track_id": "t1", "title": "X", "artist": "A", "status": "conflict"},
-            {"spotify_track_id": "t2", "title": "Y", "artist": "B", "status": "ignored"},
+            {
+                "spotify_track_id": "t1",
+                "title": "X",
+                "artist": "A",
+                "status": "conflict",
+            },
+            {
+                "spotify_track_id": "t2",
+                "title": "Y",
+                "artist": "B",
+                "status": "ignored",
+            },
         ],
     )
     updated = env.client.post(
@@ -1549,7 +1716,16 @@ def test_missing_remove_soft_deletes_via_mutate(tmp_path, monkeypatch):
     seen = {}
 
     @contextmanager
-    def fake_mutate(db_path, backups_root, *, retention, expected_fingerprint=None, open_db, invalidate_cache=None):
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
         seen["fingerprint"] = expected_fingerprint
         yield "db"
 
@@ -1585,7 +1761,12 @@ def test_settings_g4_validation(tmp_path):
     env = make_env(tmp_path)
     put = lambda payload: env.client.put("/api/settings", json=payload)
 
-    assert put({"match_weights": {"title": 0.5, "artist": 0.3, "duration": 0.1}}).status_code == 400
+    assert (
+        put(
+            {"match_weights": {"title": 0.5, "artist": 0.3, "duration": 0.1}}
+        ).status_code
+        == 400
+    )
     assert put({"match_weights": {"title": 1.0}}).status_code == 400
     assert put({"isrc_collision_policy": "nope"}).status_code == 400
     assert put({"match_confidence_threshold": 101}).status_code == 400
@@ -1615,7 +1796,14 @@ def test_matcher_consumes_settings_thresholds(tmp_path):
     env = make_env(tmp_path, rows=[rb_row("42", title="Song", artist="A")])
     _, tracks = seed_source(
         env.conn,
-        [{"spotify_track_id": "t1", "title": "Song", "artist": "A", "status": "conflict"}],
+        [
+            {
+                "spotify_track_id": "t1",
+                "title": "Song",
+                "artist": "A",
+                "status": "conflict",
+            }
+        ],
     )
     track_id = tracks[0]["id"]
     rematch = lambda: env.client.post(f"/api/library/tracks/{track_id}/rematch").json()
@@ -1658,7 +1846,9 @@ def test_spotify_playlist_preview(tmp_path):
     }
 
     payload["images"] = []
-    assert env.client.get("/api/spotify/playlists/PL1/preview").json()["image_url"] is None
+    assert (
+        env.client.get("/api/spotify/playlists/PL1/preview").json()["image_url"] is None
+    )
 
 
 def test_spotify_playlist_preview_errors_map(tmp_path):
@@ -1743,14 +1933,14 @@ def test_mytags_catalog(tmp_path, monkeypatch):
             return Cursor()
 
         _rows = [
-                (1, "Genre", "root"),
-                (2, "Mainroom", 1),
-                (3, "Situation", "root"),
-                (4, "Wedding", 3),
-                (5, "Melodic", 1),
-                (6, None, 1),  # nameless -> skipped
-                (7, "Orphan", 99),  # unknown parent -> category None
-            ]
+            (1, "Genre", "root"),
+            (2, "Mainroom", 1),
+            (3, "Situation", "root"),
+            (4, "Wedding", 3),
+            (5, "Melodic", 1),
+            (6, None, 1),  # nameless -> skipped
+            (7, "Orphan", 99),  # unknown parent -> category None
+        ]
 
         def close(self):
             pass
@@ -1815,7 +2005,12 @@ def test_track_mark_missing_guard_and_transition(tmp_path):
                 "content_id": "c9",
                 "confidence": 80,
             },
-            {"spotify_track_id": "t2", "title": "Beta", "artist": "B", "status": "ready"},
+            {
+                "spotify_track_id": "t2",
+                "title": "Beta",
+                "artist": "B",
+                "status": "ready",
+            },
         ],
     )
     conflict, ready = tracks
@@ -1871,7 +2066,9 @@ def test_events_create_playlist_mode_imports_tracks(tmp_path):
 
 def test_event_track_remove_guards_imported(tmp_path):
     env = make_env(tmp_path)
-    event = env.client.post("/api/events", json={"name": "Party", "manual": True}).json()
+    event = env.client.post(
+        "/api/events", json={"name": "Party", "manual": True}
+    ).json()
     track = env.client.post(
         f"/api/events/{event['id']}/tracks", json={"title": "Oops", "artist": "Bad"}
     ).json()
@@ -1890,7 +2087,9 @@ def test_event_track_remove_guards_imported(tmp_path):
     )
     refused = env.client.delete(f"/api/events/{event['id']}/tracks/{kept['id']}")
     assert refused.status_code == 409
-    assert env.client.delete(f"/api/events/{event['id']}/tracks/9999").status_code == 404
+    assert (
+        env.client.delete(f"/api/events/{event['id']}/tracks/9999").status_code == 404
+    )
 
 
 # --- export/import (5.10 transfer) ---------------------------------------------------
@@ -1927,8 +2126,15 @@ def test_exports_and_logs_exclude_encrypted_oauth_tokens(tmp_path):
 
     settings = tmp_path / "settings.json"
     data = tmp_path / "data.db"
-    assert env.client.post("/api/settings/export", json={"path": str(settings)}).status_code == 200
-    assert env.client.post("/api/data/export", json={"path": str(data)}).status_code == 200
+    assert (
+        env.client.post(
+            "/api/settings/export", json={"path": str(settings)}
+        ).status_code
+        == 200
+    )
+    assert (
+        env.client.post("/api/data/export", json={"path": str(data)}).status_code == 200
+    )
 
     assert sentinel.encode() not in settings.read_bytes()
     assert sentinel.encode() not in data.read_bytes()
@@ -1971,7 +2177,9 @@ def test_settings_import_rejects_foreign_file(tmp_path):
     not_ours = tmp_path / "random.json"
     not_ours.write_text('{"hello": "world"}', encoding="utf-8")
     assert (
-        env.client.post("/api/settings/import", json={"path": str(not_ours)}).status_code
+        env.client.post(
+            "/api/settings/import", json={"path": str(not_ours)}
+        ).status_code
         == 400
     )
     assert (
@@ -2041,9 +2249,7 @@ def test_transfer_paths_must_be_absolute_and_live_db_cannot_import_itself(tmp_pa
     assert relative.status_code == 400
     assert "absolute" in relative.json()["message"]
 
-    live = env.client.post(
-        "/api/data/import", json={"path": str(env.deps.app_db_path)}
-    )
+    live = env.client.post("/api/data/import", json={"path": str(env.deps.app_db_path)})
     assert live.status_code == 400
     assert "live Syncbox database" in live.json()["message"]
     assert env.client.get("/api/settings").json() == before

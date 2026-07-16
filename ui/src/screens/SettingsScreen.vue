@@ -41,7 +41,7 @@ interface DeezerStatus {
 }
 
 const clientId = ref('')
-const retention = ref(15)
+const retention = ref(20)
 const language = ref('fr')
 const threshold = ref(82)
 const margin = ref(6)

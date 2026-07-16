@@ -35,7 +35,7 @@ def _drop_playlist_xml_noise(record) -> bool:
     return "not found in masterPlaylists6.xml" not in record.getMessage()
 
 
-def compose(data_dir=None, *, oauth_listener=None):
+def compose(data_dir=None, *, oauth_listener=None, start_acquisition_worker=False):
     """Build the fully wired Starlette app; ``data_dir`` overrides the OS
     app-data location (tests), as does SYNCBOX_DATA_DIR (regression harness)."""
     if data_dir is None:
@@ -72,6 +72,9 @@ def compose(data_dir=None, *, oauth_listener=None):
     deps.spotify_auth = auth
     deps.spotify_client = SpotifyClient(auth)
     app = api.build_app(deps)
+    if start_acquisition_worker:
+        deps.acquisition_worker = api.AcquisitionWorker(deps)
+        deps.acquisition_worker.start()
     app.state.secrets = secrets  # closed on exit (6.6 handshake tail)
     return app
 
@@ -144,7 +147,8 @@ def _packaging_check() -> int:
                 "sqlcipher_status": cipher_status,
                 "api_port": server.PORT,
                 "oauth_callback_port": server.OAUTH_CALLBACK_PORT,
-                "streamrip_importable": importlib.util.find_spec("streamrip") is not None,
+                "streamrip_importable": importlib.util.find_spec("streamrip")
+                is not None,
             },
             sort_keys=True,
         )
@@ -165,7 +169,7 @@ def main(argv=None) -> int:
             return 2
         return _packaging_check()
 
-    app = compose()
+    app = compose(start_acquisition_worker=True)
     log.info("syncbox sidecar starting on http://%s:%s", server.HOST, server.PORT)
     try:
         asyncio.run(server.serve(app))
@@ -173,16 +177,23 @@ def main(argv=None) -> int:
         log.error("%s", exc)
         return 1
     finally:
+        worker_stopped = (
+            app.state.deps.acquisition_worker is None
+            or app.state.deps.acquisition_worker.stop()
+        )
         app.state.deps.oauth_listener.stop()
         app.state.deps.oauth_listener.wait_closed()
         # 6.6 handshake tail: SQLCipher secrets store and app DB closed
         # before the process exits, so a clean stop never needs the shell's
         # kill of last resort to reclaim them.
-        app.state.secrets.close()
-        app.state.deps.conn.close()
-    log.info(
-        "syncbox sidecar stopped (intentional=%s)", app.state.shutdown.intentional
-    )
+        if worker_stopped:
+            app.state.secrets.close()
+            app.state.deps.conn.close()
+        else:
+            log.warning(
+                "acquisition worker is still stopping; process exit will close its resources"
+            )
+    log.info("syncbox sidecar stopped (intentional=%s)", app.state.shutdown.intentional)
     return 0
 
 

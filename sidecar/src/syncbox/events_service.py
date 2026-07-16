@@ -61,9 +61,7 @@ def _isrc(value) -> str:
 
 def slugify(name: str) -> str:
     """ASCII slug: NFKD-folded, lowercase, non-alphanumerics collapsed to '-'."""
-    text = (
-        unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode()
-    )
+    text = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode()
     text = _SLUG_JUNK.sub("-", text.lower()).strip("-")
     return text or "event"
 
@@ -101,9 +99,7 @@ def create_event(conn, storage_root, name, *, spotify_playlist_id=None, manual=F
     if manual and spotify_playlist_id:
         raise ValueError("a manual event cannot also carry a spotify_playlist_id")
     events_root = (
-        Path(os.path.expanduser(os.fspath(storage_root)))
-        / SYNC_DIR_NAME
-        / "events"
+        Path(os.path.expanduser(os.fspath(storage_root))) / SYNC_DIR_NAME / "events"
     )
     events_root.mkdir(parents=True, exist_ok=True)
     base = slugify(name)
@@ -116,7 +112,9 @@ def create_event(conn, storage_root, name, *, spotify_playlist_id=None, manual=F
             staging.mkdir(exist_ok=False)  # the atomic slug claim (5.7)
         except FileExistsError:
             continue
+        audio_dir = staging / "audio"
         try:
+            audio_dir.mkdir()
             cur = conn.execute(
                 "INSERT INTO events (name, slug, default_tag,"
                 " spotify_playlist_id, staging_dir, status)"
@@ -132,8 +130,14 @@ def create_event(conn, storage_root, name, *, spotify_playlist_id=None, manual=F
         except sqlite3.IntegrityError:
             # A DB row holds this slug but its dir was gone (user deleted it
             # by hand): release the freshly claimed dir and walk on.
+            audio_dir.rmdir()
             staging.rmdir()
             continue
+        except BaseException:
+            if audio_dir.is_dir():
+                audio_dir.rmdir()
+            staging.rmdir()
+            raise
         return get_event(conn, cur.lastrowid)
 
 
@@ -322,7 +326,8 @@ def apply_event(
     event,
     *,
     only_delta=False,
-    retention: int = 15,
+    retention: int = 20,
+    app_db_path=None,
 ) -> dict:
     """Apply the event inside ONE mutate() unit-of-work (5.7, 11.2).
 
@@ -358,6 +363,8 @@ def apply_event(
         expected_fingerprint=cache.current_fingerprint,
         open_db=open_rekordbox,
         invalidate_cache=cache.invalidate,
+        app_db_path=app_db_path,
+        backup_reason="event_reapply" if only_delta else "event_apply",
     ) as db:
         tag = find_or_create_mytag(db, event["default_tag"], SITUATION_CATEGORY)
         folder = ensure_playlist_folder(db, EVENT_FOLDER_NAME)
@@ -435,9 +442,7 @@ def _staging_files(staging_dir, cap: int = 10_000) -> list[Path]:
 
 
 def _delete_preview(query, event, storage_root, db_path, db_fingerprint) -> dict:
-    return event_delete.build_plan(
-        query, event, storage_root, db_path, db_fingerprint
-    )
+    return event_delete.build_plan(query, event, storage_root, db_path, db_fingerprint)
 
 
 def delete_event(
@@ -451,7 +456,8 @@ def delete_event(
     dry_run: bool = True,
     plan=None,
     consent_to_permanent_delete: bool = False,
-    retention: int = 15,
+    retention: int = 20,
+    app_db_path=None,
 ) -> dict:
     return event_delete.delete_event(
         conn,
@@ -464,4 +470,5 @@ def delete_event(
         plan=plan,
         consent_to_permanent_delete=consent_to_permanent_delete,
         retention=retention,
+        app_db_path=app_db_path,
     )

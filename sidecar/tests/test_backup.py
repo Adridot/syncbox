@@ -4,6 +4,7 @@ All tests run on dummy files in tmp dirs; none requires the real fixture.
 """
 
 import sys
+import sqlite3
 import types
 from pathlib import Path
 
@@ -68,7 +69,9 @@ def backups_root(tmp_path):
 
 
 class TestCreateBackup:
-    def test_copies_db_wal_shm_into_timestamped_dir(self, db, backups_root, monkeypatch):
+    def test_copies_db_wal_shm_into_timestamped_dir(
+        self, db, backups_root, monkeypatch
+    ):
         freeze_timestamp(monkeypatch, "20260702-120000")
         dest = backup.create_backup(db, backups_root)
         assert dest == backups_root / "rekordbox-db-20260702-120000"
@@ -89,7 +92,9 @@ class TestCreateBackup:
             backup.create_backup(tmp_path / "absent.db", backups_root)
         assert not backups_root.exists()
 
-    def test_same_second_collision_gets_numeric_suffix(self, db, backups_root, monkeypatch):
+    def test_same_second_collision_gets_numeric_suffix(
+        self, db, backups_root, monkeypatch
+    ):
         # POC 09 measured this really happens within one wall-clock second.
         freeze_timestamp(monkeypatch, "20260702-120000")
         first = backup.create_backup(db, backups_root)
@@ -134,6 +139,34 @@ class TestCreateBackup:
                 required_files=[required],
             )
 
+    def test_includes_a_verified_syncbox_database_snapshot(
+        self, db, backups_root, tmp_path
+    ):
+        app_db = tmp_path / "syncbox.db"
+        connection = sqlite3.connect(app_db)
+        connection.execute("CREATE TABLE state (value TEXT)")
+        connection.execute("INSERT INTO state VALUES ('before')")
+        connection.commit()
+        connection.close()
+
+        destination = backup.create_backup(
+            db,
+            backups_root,
+            app_db_path=app_db,
+            reason="event_delete",
+        )
+
+        snapshot = destination / "syncbox" / "syncbox.db"
+        assert snapshot.is_file()
+        probe = sqlite3.connect(snapshot)
+        try:
+            assert probe.execute("SELECT value FROM state").fetchone()[0] == "before"
+        finally:
+            probe.close()
+        listing = backup.list_backups(backups_root)[0]
+        assert listing["verified"] is True
+        assert listing["reason"] == "event_delete"
+
 
 class TestRotation:
     def test_retention_zero_is_unlimited(self, db, backups_root, monkeypatch):
@@ -144,7 +177,9 @@ class TestRotation:
         assert len(backup_names(backups_root)) == 20
 
     def test_exactly_n_backups_kept_untouched(self, db, backups_root, monkeypatch):
-        freeze_timestamp(monkeypatch, "20260702-120000", "20260702-120001", "20260702-120002")
+        freeze_timestamp(
+            monkeypatch, "20260702-120000", "20260702-120001", "20260702-120002"
+        )
         for _ in range(3):
             backup.create_backup(db, backups_root, retention=3)
         assert backup_names(backups_root) == [
@@ -164,14 +199,20 @@ class TestRotation:
             "rekordbox-db-20260702-120003",
         ]
 
-    def test_just_created_backup_never_rotated_away(self, db, backups_root, monkeypatch):
-        freeze_timestamp(monkeypatch, "20260702-120000", "20260702-120001", "20260702-120002")
+    def test_just_created_backup_never_rotated_away(
+        self, db, backups_root, monkeypatch
+    ):
+        freeze_timestamp(
+            monkeypatch, "20260702-120000", "20260702-120001", "20260702-120002"
+        )
         for _ in range(3):
             newest = backup.create_backup(db, backups_root, retention=1)
             assert backup_names(backups_root) == [newest.name]
         assert backup_names(backups_root) == ["rekordbox-db-20260702-120002"]
 
-    def test_rotation_orders_collision_suffixes_numerically(self, db, backups_root, monkeypatch):
+    def test_rotation_orders_collision_suffixes_numerically(
+        self, db, backups_root, monkeypatch
+    ):
         # "-10" must sort after "-9", not between the base name and "-2".
         freeze_timestamp(monkeypatch, "20260702-120000")
         for _ in range(11):
@@ -215,6 +256,23 @@ class TestRotation:
         newest = backup.create_backup(db, backups_root, retention=1)
         assert backup_names(backups_root) == [newest.name]
 
+    def test_hourly_tier_preserves_history_beyond_the_recent_count(
+        self, db, backups_root, monkeypatch
+    ):
+        freeze_timestamp(
+            monkeypatch,
+            "20260702-100000",
+            "20260702-110000",
+            "20260702-120000",
+        )
+        for _ in range(3):
+            backup.create_backup(db, backups_root, retention=1)
+        assert backup_names(backups_root) == [
+            "rekordbox-db-20260702-100000",
+            "rekordbox-db-20260702-110000",
+            "rekordbox-db-20260702-120000",
+        ]
+
 
 # --- restore_backup --------------------------------------------------------
 
@@ -235,7 +293,9 @@ class TestRestoreValidation:
         assert backup_names(backups_root) == [existing.name]
         assert db.read_bytes() == b"main-v1"
 
-    def test_rejects_symlink_escaping_backups_root(self, db, backups_root, tmp_path, monkeypatch):
+    def test_rejects_symlink_escaping_backups_root(
+        self, db, backups_root, tmp_path, monkeypatch
+    ):
         guard = install_fake_guard(monkeypatch)
         backup.create_backup(db, backups_root)
         outside = tmp_path / "outside"
@@ -299,7 +359,9 @@ class TestRestoreBehavior:
         assert db.with_name("master.db-wal").read_bytes() == b"wal-v1"
         assert db.with_name("master.db-shm").read_bytes() == b"shm-v1"
 
-    def test_clears_live_wal_shm_when_backup_has_none(self, db, backups_root, monkeypatch):
+    def test_clears_live_wal_shm_when_backup_has_none(
+        self, db, backups_root, monkeypatch
+    ):
         install_fake_guard(monkeypatch)
         db.with_name("master.db-wal").unlink()
         db.with_name("master.db-shm").unlink()
@@ -316,7 +378,9 @@ class TestRestoreBehavior:
         assert not db.with_name("master.db-wal").exists()
         assert not db.with_name("master.db-shm").exists()
 
-    def test_restore_snapshot_is_never_rotated_away(self, db, backups_root, monkeypatch):
+    def test_restore_snapshot_is_never_rotated_away(
+        self, db, backups_root, monkeypatch
+    ):
         # Even with many existing backups, restoring must not rotate: rotation
         # here could delete the very backup being restored.
         install_fake_guard(monkeypatch)
@@ -355,14 +419,14 @@ class TestRestoreBehavior:
 # --- fix-round regression tests (adversarial review findings) ----------------
 
 
-def test_retention_default_is_15_everywhere():
-    # SPEC-01 1.3: default retention 15 (0 = unlimited) - pinned so it cannot drift.
+def test_retention_default_is_20_everywhere():
+    # The recent tier keeps 20 snapshots before hourly/daily/weekly/monthly thinning.
     import inspect
 
     from syncbox.safety import mutate as mutate_mod
 
-    assert inspect.signature(backup.create_backup).parameters["retention"].default == 15
-    assert inspect.signature(mutate_mod.mutate).parameters["retention"].default == 15
+    assert inspect.signature(backup.create_backup).parameters["retention"].default == 20
+    assert inspect.signature(mutate_mod.mutate).parameters["retention"].default == 20
 
 
 def test_failed_copy_leaves_no_backup_dir(db, tmp_path, monkeypatch):
@@ -402,6 +466,48 @@ def test_restore_without_live_db(db, tmp_path, monkeypatch):
     assert db.read_bytes() == b"main-v1"
 
 
+def test_restore_replaces_rekordbox_and_syncbox_state_together(
+    db, tmp_path, monkeypatch
+):
+    backups_root = tmp_path / "backups"
+    app_db = tmp_path / "syncbox.db"
+    connection = sqlite3.connect(app_db)
+    connection.execute("CREATE TABLE state (value TEXT)")
+    connection.execute("INSERT INTO state VALUES ('before')")
+    connection.commit()
+    connection.close()
+    made = backup.create_backup(db, backups_root, app_db_path=app_db)
+
+    db.write_bytes(b"main-v2")
+    connection = sqlite3.connect(app_db)
+    connection.execute("UPDATE state SET value = 'after'")
+    connection.commit()
+    connection.close()
+    install_fake_guard(monkeypatch)
+
+    backup.restore_backup(made.name, backups_root, db, app_db_path=app_db)
+
+    assert db.read_bytes() == b"main-v1"
+    connection = sqlite3.connect(app_db)
+    try:
+        assert connection.execute("SELECT value FROM state").fetchone()[0] == "before"
+    finally:
+        connection.close()
+
+
+def test_coherent_restore_rejects_rekordbox_only_backup(db, tmp_path):
+    backups_root = tmp_path / "backups"
+    app_db = tmp_path / "syncbox.db"
+    connection = sqlite3.connect(app_db)
+    connection.execute("CREATE TABLE state (value TEXT)")
+    connection.commit()
+    connection.close()
+    made = backup.create_backup(db, backups_root)
+
+    with pytest.raises(ValueError, match="coherent Syncbox database"):
+        backup.restore_backup(made.name, backups_root, db, app_db_path=app_db)
+
+
 def test_restore_copy_failure_leaves_live_db_intact(db, tmp_path, monkeypatch):
     # os.replace is atomic: a failure while copying the backup must leave the
     # live master.db byte-identical (old), never torn, and no tmp junk behind.
@@ -433,3 +539,23 @@ def test_restore_copy_failure_leaves_live_db_intact(db, tmp_path, monkeypatch):
     assert len(snapshots) == 1
     assert (snapshots[0] / "master.db").read_bytes() == b"main-v2"
     assert (snapshots[0] / "master.db-wal").read_bytes() == b"wal-v1"
+
+
+def test_restore_failure_removes_staged_syncbox_database(db, tmp_path, monkeypatch):
+    backups_root = tmp_path / "backups"
+    app_db = tmp_path / "syncbox.db"
+    connection = sqlite3.connect(app_db)
+    connection.execute("CREATE TABLE state (value TEXT)")
+    connection.commit()
+    connection.close()
+    made = backup.create_backup(db, backups_root, app_db_path=app_db)
+    install_fake_guard(monkeypatch)
+
+    def fail_restore_extras(*_args, **_kwargs):
+        raise OSError("restore failed")
+
+    monkeypatch.setattr(backup, "restore_extra_files", fail_restore_extras)
+    with pytest.raises(OSError, match="restore failed"):
+        backup.restore_backup(made.name, backups_root, db, app_db_path=app_db)
+
+    assert not app_db.with_name(app_db.name + ".restore-tmp").exists()

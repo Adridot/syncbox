@@ -157,8 +157,7 @@ def sync_one_source(conn, spotify_client, cache, storage_root, source, **thresho
         name=payload.get("name") or source["name"],
         snapshot_id=snapshot_id,
         status="synced",
-        cover_url=(images[0].get("url") if images else None)
-        or source.get("cover_url"),
+        cover_url=(images[0].get("url") if images else None) or source.get("cover_url"),
     )
     stats = {"total": len(rows)}
     for row in rows:
@@ -204,7 +203,8 @@ def apply_to_rekordbox(
     source_id: int,
     track_ids: list[int],
     *,
-    retention: int = 15,
+    retention: int = 20,
+    app_db_path=None,
 ) -> dict:
     """Import selected library rows: tag their Rekordbox content with the
     source's MyTags inside ONE mutate(), then mark them 'imported'."""
@@ -250,6 +250,8 @@ def apply_to_rekordbox(
         expected_fingerprint=cache.current_fingerprint,
         open_db=open_rekordbox,
         invalidate_cache=cache.invalidate,
+        app_db_path=app_db_path,
+        backup_reason="library_apply",
     ) as db:
         for track in tracks:
             content_id = track["content_id"]

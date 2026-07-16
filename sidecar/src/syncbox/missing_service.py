@@ -175,8 +175,7 @@ def set_missing_status(conn, scope: str, row_id: int, status: str) -> dict:
                 (row["status"], row_id),
             )
         conn.execute(
-            f"UPDATE {table} SET status = ?, updated_at = datetime('now') "
-            "WHERE id = ?",
+            f"UPDATE {table} SET status = ?, updated_at = datetime('now') WHERE id = ?",
             (status, row_id),
         )
         conn.execute("COMMIT")
@@ -230,7 +229,8 @@ def relink_collection_file(
     new_path,
     *,
     anlz_consent: bool,
-    retention: int = 15,
+    retention: int = 20,
+    app_db_path=None,
 ) -> str:
     """Re-associate DjmdContent.FolderPath to a LOCAL file the user already
     lawfully owns. Returns the stored (3.2) form written to master.db.
@@ -268,6 +268,8 @@ def relink_collection_file(
         retention=retention,
         open_db=open_rekordbox,
         invalidate_cache=cache.invalidate,
+        app_db_path=app_db_path,
+        backup_reason="collection_relink",
     ) as db:
         relink_content_path(db, content_id, stored)
     return stored

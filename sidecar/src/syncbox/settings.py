@@ -17,7 +17,7 @@ DEFAULTS = {
     "spotify_client_id": "",
     "rekordbox_db_path": "",
     "storage_root": "",
-    "backup_retention": 15,
+    "backup_retention": 20,
     "language": "en",
     # G4 matching knobs (SPEC-DESIGN 4): thresholds/weights/policy only -
     # the algorithm (ISRC-first, D19 pipeline, buckets) is locked. Defaults

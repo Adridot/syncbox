@@ -8,13 +8,21 @@ import stat
 import threading
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from starlette.testclient import TestClient
 
-from syncbox import acquisition, api, appdb, repos
+from syncbox import (
+    acquisition,
+    acquisition_migration,
+    api,
+    appdb,
+    events_service,
+    repos,
+)
 from syncbox.safety.process_guard import MutationBlockedError
 from syncbox.secrets import SecretsStore
 
@@ -126,9 +134,7 @@ def test_deezer_arl_is_secret_not_setting_or_export(tmp_path):
     bad = env.client.put("/api/acquisition/deezer/arl", json={"arl": "not-a-token"})
     assert bad.status_code == 400
 
-    saved = env.client.put(
-        "/api/acquisition/deezer/arl", json={"arl": SECRET_SENTINEL}
-    )
+    saved = env.client.put("/api/acquisition/deezer/arl", json={"arl": SECRET_SENTINEL})
     assert saved.status_code == 200
     assert saved.json()["has_arl"] is True
     assert SECRET_SENTINEL not in saved.text
@@ -165,9 +171,7 @@ def test_component_install_requires_explicit_enablement(tmp_path):
 
 def _component_archive(tmp_path):
     archive = tmp_path / "component.zip"
-    info = zipfile.ZipInfo(
-        f"{acquisition.COMPONENT_NAME}/{acquisition.COMPONENT_NAME}"
-    )
+    info = zipfile.ZipInfo(f"{acquisition.COMPONENT_NAME}/{acquisition.COMPONENT_NAME}")
     info.create_system = 3
     info.external_attr = (stat.S_IFREG | 0o755) << 16
     with zipfile.ZipFile(archive, "w") as bundle:
@@ -409,6 +413,42 @@ def test_download_rejects_directory_as_output(tmp_path):
         )
 
 
+def test_publish_download_rejects_symbolic_links(tmp_path):
+    source = tmp_path / "source.flac"
+    source.write_bytes(b"audio")
+    source_link = tmp_path / "source-link.flac"
+    source_link.symlink_to(source)
+    destination = tmp_path / "destination"
+
+    with pytest.raises(ValueError, match="output is a symbolic link"):
+        acquisition.publish_download(source_link, destination)
+
+    destination.mkdir()
+    destination_link = tmp_path / "destination-link"
+    destination_link.symlink_to(destination, target_is_directory=True)
+    with pytest.raises(ValueError, match="destination is a symbolic link"):
+        acquisition.publish_download(source, destination_link)
+
+
+def test_event_download_destination_cannot_escape_managed_storage(tmp_path):
+    env = make_env(tmp_path)
+    event = env.conn.execute(
+        "INSERT INTO events (name, slug, default_tag, staging_dir) "
+        "VALUES ('Event', 'event', 'Event', ?)",
+        (str(tmp_path / "outside"),),
+    )
+    track = env.conn.execute(
+        "INSERT INTO event_tracks (event_id, title, status) "
+        "VALUES (?, 'Track', 'missing')",
+        (event.lastrowid,),
+    )
+
+    with pytest.raises(ValueError, match="escapes managed storage"):
+        api._acquisition_entry(
+            env.deps, "event", str(track.lastrowid), require_isrc=False
+        )
+
+
 def test_acquisition_job_transitions_are_bounded_and_idempotent(tmp_path):
     env = make_env(tmp_path)
     cursor = env.conn.execute(
@@ -418,7 +458,9 @@ def test_acquisition_job_transitions_are_bounded_and_idempotent(tmp_path):
 
     assert api._update_job(env.conn, job_id, status="running")["status"] == "running"
     assert api._update_job(env.conn, job_id, status="running")["status"] == "running"
-    assert api._update_job(env.conn, job_id, status="downloaded")["status"] == "downloaded"
+    assert (
+        api._update_job(env.conn, job_id, status="downloaded")["status"] == "downloaded"
+    )
     with pytest.raises(ValueError, match="invalid acquisition job transition"):
         api._update_job(env.conn, job_id, status="running")
 
@@ -447,6 +489,7 @@ def test_library_acquisition_job_downloads_to_staging(tmp_path):
     job = response.json()
     assert job["status"] == "downloaded"
     assert job["output_path"].endswith("download.mp3")
+    assert Path(job["output_path"]).parent == env.storage / "rekordbox" / "Collection"
     updated = repos.get_track(env.conn, track["id"])
     assert updated["status"] == "ready"
     assert updated["staging_file_path"] == job["output_path"]
@@ -483,7 +526,12 @@ def test_collection_relink_block_keeps_downloaded_file(tmp_path, monkeypatch):
 
     response = env.client.post(
         "/api/acquisition/jobs",
-        json={"scope": "collection", "content_id": "42", "relink": True, "anlz_consent": True},
+        json={
+            "scope": "collection",
+            "content_id": "42",
+            "relink": True,
+            "anlz_consent": True,
+        },
     )
 
     assert response.status_code == 200
@@ -494,7 +542,10 @@ def test_collection_relink_block_keeps_downloaded_file(tmp_path, monkeypatch):
 
 
 def test_acquisition_failure_is_a_job_not_500(tmp_path):
-    env = make_env(tmp_path, runner=lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+    env = make_env(
+        tmp_path,
+        runner=lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
     _install_marker(tmp_path)
     env.deps.settings.update({"deezer_acquisition_enabled": True})
     env.secrets.set(acquisition.DEEZER_ARL_SECRET, SECRET_SENTINEL)
@@ -677,3 +728,149 @@ def test_collection_relink_asks_consent_before_downloading(tmp_path):
 
     assert response.status_code == 428
     assert downloads == []
+
+
+def test_event_download_is_owned_by_the_event_and_job_cascades(tmp_path):
+    def runner(data_dir, arl, isrc, output_dir):
+        output = Path(output_dir) / "event.mp3"
+        output.write_bytes(b"audio")
+        return {"result": "FULL_TRACK_DOWNLOADED", "output_path": str(output)}
+
+    env = make_env(tmp_path, runner=runner)
+    _install_marker(tmp_path)
+    env.deps.settings.update({"deezer_acquisition_enabled": True})
+    env.secrets.set(acquisition.DEEZER_ARL_SECRET, SECRET_SENTINEL)
+    event = events_service.create_event(env.conn, env.storage, "Night Set", manual=True)
+    track = events_service.add_track(
+        env.conn,
+        event,
+        title="Instant Crush",
+        artist="Daft Punk",
+    )
+    env.conn.execute(
+        "UPDATE event_tracks SET isrc = ?, status = 'missing' WHERE id = ?",
+        (ISRC, track["id"]),
+    )
+
+    job = env.client.post(
+        "/api/acquisition/jobs", json={"scope": "event", "row_id": track["id"]}
+    ).json()
+
+    assert Path(job["output_path"]).parent == Path(event["staging_dir"]) / "audio"
+    linked = env.conn.execute(
+        "SELECT event_id, event_track_id FROM acquisition_jobs WHERE id = ?",
+        (job["id"],),
+    ).fetchone()
+    assert tuple(linked) == (event["id"], track["id"])
+    env.conn.execute("DELETE FROM events WHERE id = ?", (event["id"],))
+    assert (
+        env.conn.execute(
+            "SELECT 1 FROM acquisition_jobs WHERE id = ?", (job["id"],)
+        ).fetchone()
+        is None
+    )
+
+
+def test_persistent_worker_resumes_a_queued_job_without_the_ui(tmp_path):
+    finished = threading.Event()
+
+    def runner(data_dir, arl, isrc, output_dir):
+        output = Path(output_dir) / "queued.mp3"
+        output.write_bytes(b"audio")
+        finished.set()
+        return {"result": "FULL_TRACK_DOWNLOADED", "output_path": str(output)}
+
+    env = make_env(tmp_path, runner=runner)
+    _install_marker(tmp_path)
+    env.deps.settings.update({"deezer_acquisition_enabled": True})
+    env.secrets.set(acquisition.DEEZER_ARL_SECRET, SECRET_SENTINEL)
+    track = seed_library_missing(env.conn)
+    queued = env.client.post(
+        "/api/acquisition/jobs",
+        json={"scope": "library", "row_id": track["id"], "enqueue": True},
+    )
+    assert queued.status_code == 202
+    assert queued.json()["status"] == "queued"
+
+    worker = api.AcquisitionWorker(env.deps)
+    worker.start()
+    assert finished.wait(2)
+    assert worker.stop()
+
+    job = api._job_row(env.conn, queued.json()["id"])
+    assert job["status"] == "downloaded"
+    assert Path(job["output_path"]).parent == env.storage / "rekordbox" / "Collection"
+
+
+def test_legacy_job_storage_migration_moves_safe_files_and_updates_app_state(
+    tmp_path, monkeypatch
+):
+    env = make_env(tmp_path)
+    event = events_service.create_event(
+        env.conn, env.storage, "Legacy Set", manual=True
+    )
+    track = events_service.add_track(env.conn, event, title="Legacy", artist="Artist")
+    job = env.conn.execute(
+        "INSERT INTO acquisition_jobs "
+        "(scope, ref, title, artist, status, event_id, event_track_id) "
+        "VALUES ('event', ?, 'Legacy', 'Artist', 'downloaded', ?, ?)",
+        (str(track["id"]), event["id"], track["id"]),
+    ).lastrowid
+    source = acquisition.acquisition_output_dir(env.storage, job) / "legacy.mp3"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"legacy audio")
+    env.conn.execute(
+        "UPDATE acquisition_jobs SET output_path = ? WHERE id = ?", (str(source), job)
+    )
+    env.conn.execute(
+        "UPDATE event_tracks SET status = 'ready', staging_file_path = ? WHERE id = ?",
+        (str(source), track["id"]),
+    )
+
+    class FakeRO:
+        def execute(self, sql, params=()):
+            return []
+
+        def close(self):
+            pass
+
+    @contextmanager
+    def fake_mutate(*args, **kwargs):
+        yield object()
+
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: FakeRO())
+    monkeypatch.setattr(acquisition_migration, "mutate", fake_mutate)
+    monkeypatch.setattr(
+        acquisition_migration,
+        "delete_file",
+        lambda path, **kwargs: Path(path).unlink(),
+    )
+
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+    assert len(plan["items"]) == 1
+    assert (
+        Path(plan["items"][0]["destination_path"]).parent
+        == Path(event["staging_dir"]) / "audio"
+    )
+
+    result = acquisition_migration.execute(
+        env.conn,
+        env.deps.db_path,
+        env.deps.backups_root,
+        env.deps.cache(),
+        env.storage,
+        plan,
+    )
+
+    destination = Path(plan["items"][0]["destination_path"])
+    assert result["migrated"] == 1
+    assert destination.read_bytes() == b"legacy audio"
+    assert not source.exists()
+    migrated = env.conn.execute(
+        "SELECT output_path, legacy_output_path FROM acquisition_jobs WHERE id = ?",
+        (job,),
+    ).fetchone()
+    assert tuple(migrated) == (str(destination), None)
+    assert env.conn.execute(
+        "SELECT staging_file_path FROM event_tracks WHERE id = ?", (track["id"],)
+    ).fetchone()[0] == str(destination)

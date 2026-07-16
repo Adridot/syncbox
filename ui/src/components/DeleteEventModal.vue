@@ -2,7 +2,7 @@
 // The destructive request echoes the complete displayed plan so execution
 // cannot silently diverge from the preview. Consent retries preserve it via
 // the shared API client.
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, api } from '../api/client'
@@ -21,6 +21,25 @@ const preview = ref<EventDeletePreview | null>(null)
 const loadError = ref<string | null>(null)
 const busy = ref(false)
 const error = ref<string | null>(null)
+
+const actionOrder = [
+  'delete_with_event',
+  'migrate_to_collection',
+  'keep_in_place',
+  'already_permanent',
+] as const
+const groupedTracks = computed(() =>
+  actionOrder
+    .map((action) => ({
+      action,
+      tracks: preview.value?.tracks.filter((track) => track.action === action) ?? [],
+    }))
+    .filter((group) => group.tracks.length > 0),
+)
+const unresolved = computed(() => preview.value?.unresolved ?? [])
+const deleteCount = computed(
+  () => preview.value?.tracks.filter((track) => track.action === 'delete_with_event').length ?? 0,
+)
 
 onMounted(async () => {
   try {
@@ -83,110 +102,96 @@ async function confirm() {
           </div>
         </div>
 
-        <section class="tracks">
+        <section class="categories">
           <h4>{{ t('events.del.tracksCount', preview.tracks.length) }}</h4>
-          <div v-if="!preview.tracks.length" class="empty">{{ t('events.del.noTracks') }}</div>
-          <article
-            v-for="track in preview.tracks"
-            :key="track.content_id"
-            class="track"
-            :data-action="track.action"
+          <div v-if="!preview.tracks.length" class="empty">
+            {{ t('events.del.noTracks') }}
+          </div>
+          <details
+            v-for="group in groupedTracks"
+            :key="group.action"
+            class="category"
+            :data-action="group.action"
           >
-            <div class="track-head">
+            <summary>
+              <span>{{ t(`events.del.action.${group.action}`) }}</span>
+              <span class="count">{{ group.tracks.length }}</span>
+            </summary>
+            <p class="category-help">
+              {{ t(`events.del.actionHelp.${group.action}`) }}
+            </p>
+            <div v-for="track in group.tracks" :key="track.content_id" class="compact-track">
               <div>
-                <div class="track-title">{{ track.title || t('missing.untitled') }}</div>
+                <div class="track-title">
+                  {{ track.title || t('missing.untitled') }}
+                </div>
                 <div class="track-artist">{{ track.artist || '—' }}</div>
               </div>
-              <span class="action" :data-action="track.action">{{
-                t(`events.del.action.${track.action}`)
-              }}</span>
+              <span v-if="track.retaining_mytags.length" class="tags">
+                {{ track.retaining_mytags.join(', ') }}
+              </span>
             </div>
-            <dl class="track-grid">
-              <div class="field">
-                <dt>{{ t('events.del.contentId') }}</dt>
-                <dd class="mono">{{ track.content_id }}</dd>
-              </div>
-              <div class="field wide">
-                <dt>{{ t('events.del.sourcePath') }}</dt>
-                <dd class="mono path">{{ track.source_path || '—' }}</dd>
-              </div>
-              <div class="field">
-                <dt>{{ t('ownership.label') }}</dt>
-                <dd :data-ownership="track.ownership">{{
-                  t(`ownership.${track.ownership}`)
-                }}</dd>
-              </div>
-              <div class="field">
-                <dt>{{ t('events.del.retainingTags') }}</dt>
-                <dd>{{
-                  track.retaining_mytags.length
-                    ? track.retaining_mytags.join(', ')
-                    : t('events.del.noRetainingTags')
-                }}</dd>
-              </div>
-              <div v-if="track.destination_path" class="field wide">
-                <dt>{{ t('events.del.destinationPath') }}</dt>
-                <dd class="mono path">{{ track.destination_path }}</dd>
-              </div>
-              <div class="field wide">
-                <dt>{{ t('events.del.anlz') }}</dt>
-                <dd :data-anlz-update="track.anlz_update_required">{{
-                  track.anlz_update_required
-                    ? t('events.del.anlzRequired')
-                    : t('events.del.anlzUnchanged')
-                }}</dd>
-              </div>
-            </dl>
+          </details>
+        </section>
+
+        <section v-if="unresolved.length" class="issues">
+          <h4>{{ t('events.del.unresolved', unresolved.length) }}</h4>
+          <article v-for="issue in unresolved" :key="issue.id" class="issue">
+            <div class="track-title">
+              {{ issue.title || t('missing.untitled') }}
+            </div>
+            <div class="track-artist">{{ issue.artist || '—' }}</div>
+            <p>{{ t(`events.del.issue.${issue.kind}`) }}</p>
           </article>
         </section>
 
-        <div class="artifacts">
-          <details>
-            <summary>
-              {{ t('events.del.xmlArtifacts') }} ·
-              {{ t('events.del.filesCount', preview.xml_artifacts.length) }}
-            </summary>
-            <div v-if="!preview.xml_artifacts.length" class="empty">—</div>
-            <div v-for="path in preview.xml_artifacts" :key="path" class="mono path-item">
-              {{ path }}
+        <details class="technical">
+          <summary>{{ t('events.del.technicalDetails') }}</summary>
+          <div v-for="track in preview.tracks" :key="track.content_id" class="technical-track">
+            <div class="track-title">
+              {{ track.title || t('missing.untitled') }}
             </div>
-          </details>
-          <details>
-            <summary>
-              {{ t('events.del.stagingArtifacts') }} ·
-              {{ t('events.del.filesCount', preview.staging_artifacts.length) }}
-            </summary>
-            <div v-if="!preview.staging_artifacts.length" class="empty">—</div>
-            <div v-for="path in preview.staging_artifacts" :key="path" class="mono path-item">
-              {{ path }}
+            <div class="mono path-item">
+              {{ track.content_id }} · {{ track.source_path || '—' }}
             </div>
-          </details>
-          <details :open="preview.expected_file_deletions.length > 0">
-            <summary>
-              {{ t('events.del.expectedDeletions') }} ·
-              {{ t('events.del.filesCount', preview.expected_file_deletions.length) }}
-            </summary>
-            <div v-if="!preview.expected_file_deletions.length" class="empty">—</div>
-            <div
-              v-for="path in preview.expected_file_deletions"
-              :key="path"
-              class="mono path-item danger"
-            >
-              {{ path }}
+            <div v-if="track.destination_path" class="mono path-item">
+              → {{ track.destination_path }}
             </div>
-          </details>
-        </div>
+            <div class="path-item">
+              {{
+                track.anlz_update_required
+                  ? t('events.del.anlzRequired')
+                  : t('events.del.anlzUnchanged')
+              }}
+            </div>
+          </div>
+          <div
+            v-for="path in preview.expected_file_deletions"
+            :key="path"
+            class="mono path-item danger"
+          >
+            {{ path }}
+          </div>
+        </details>
       </div>
       <div class="note">{{ t('events.del.note') }}</div>
       <div v-if="error" class="error-row">{{ error }}</div>
       <div class="actions">
-        <button class="btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
+        <button class="btn-secondary" @click="emit('close')">
+          {{ t('common.cancel') }}
+        </button>
         <button
           class="confirm"
-          :disabled="status.rbOpen || busy || jobs.jobRunning || !preview"
+          :disabled="status.rbOpen || busy || jobs.jobRunning || !preview || unresolved.length > 0"
           @click="confirm"
         >
-          {{ status.rbOpen ? t('rbGuard.blocked') : t('events.del.confirm') }}
+          {{
+            status.rbOpen
+              ? t('rbGuard.blocked')
+              : unresolved.length
+                ? t('events.del.resolveFirst')
+                : t('events.del.confirmCount', deleteCount)
+          }}
         </button>
       </div>
     </div>
@@ -236,8 +241,9 @@ h3 {
   gap: 12px;
 }
 .summary,
-.tracks,
-.artifacts {
+.categories,
+.issues,
+.technical {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -261,7 +267,8 @@ h3 {
 .mono.danger {
   color: var(--danger-text);
 }
-.tracks {
+.categories,
+.issues {
   padding: 13px;
 }
 h4 {
@@ -270,20 +277,6 @@ h4 {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-}
-.track {
-  border: 1px solid var(--border-subtle-2);
-  border-radius: 8px;
-  padding: 11px;
-}
-.track + .track {
-  margin-top: 8px;
-}
-.track-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
 }
 .track-title {
   color: var(--text-primary);
@@ -294,66 +287,76 @@ h4 {
   font-size: 12px;
   margin-top: 2px;
 }
-.action {
-  border: 1px solid var(--neutral-border);
-  border-radius: 6px;
-  background: var(--neutral-tint);
-  color: var(--text-secondary-bright);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 7px;
-  white-space: nowrap;
-}
-.action[data-action='migrate_to_collection'] {
-  border-color: var(--accent-border);
-  background: var(--accent-tint);
-  color: var(--accent-hover);
-}
-.action[data-action='delete_with_event'] {
-  border-color: var(--danger-border);
-  background: var(--danger-tint);
-  color: var(--danger-text);
-}
-.track-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 14px;
-  margin: 10px 0 0;
-}
-.field {
-  min-width: 0;
-}
-.field.wide {
-  grid-column: 1 / -1;
-}
-dt {
-  color: var(--text-muted);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-dd {
-  color: var(--text-secondary-bright);
-  font-size: 11.5px;
-  margin: 2px 0 0;
-}
 .path {
   overflow-wrap: anywhere;
 }
-.artifacts {
-  padding: 4px 13px;
-}
-details {
+.category {
   padding: 9px 0;
   border-bottom: 1px solid var(--border-subtle);
 }
-details:last-child {
+.category:last-child {
   border-bottom: none;
 }
-summary {
+.category summary,
+.technical summary {
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 12px;
+}
+.category summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+}
+.count {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+.category[data-action='delete_with_event'] .count {
+  color: var(--danger-text);
+}
+.category[data-action='migrate_to_collection'] .count {
+  color: var(--accent-hover);
+}
+.category-help {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  margin: 8px 0;
+}
+.compact-track {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.tags {
+  color: var(--text-muted-bright);
+  font-size: 11px;
+  text-align: right;
+}
+.issue {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-tint);
+  border-radius: 8px;
+  padding: 10px;
+}
+.issue + .issue {
+  margin-top: 8px;
+}
+.issue p {
+  color: var(--danger-text);
+  font-size: 12px;
+  margin: 7px 0 0;
+}
+.technical {
+  padding: 10px 13px;
+}
+.technical-track {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 .path-item {
   font-size: 11px;

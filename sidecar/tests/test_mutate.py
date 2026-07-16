@@ -148,7 +148,7 @@ class TestMutateSequencing:
         monkeypatch.setattr(
             mutate_mod,
             "create_backup",
-            lambda path, root, retention=15: log.append("backup"),
+            lambda path, root, retention=20, **kwargs: log.append("backup"),
         )
         handle = FakeHandle(log)
 
@@ -165,7 +165,15 @@ class TestMutateSequencing:
             assert h is handle
             log.append("body")
 
-        assert log == ["guard", "backup", "open", "body", "commit", "invalidate", "close"]
+        assert log == [
+            "guard",
+            "backup",
+            "open",
+            "body",
+            "commit",
+            "invalidate",
+            "close",
+        ]
 
     def test_guard_receives_db_path_and_runs_before_backup(
         self, db, backups_root, monkeypatch
@@ -175,7 +183,9 @@ class TestMutateSequencing:
             pass
         assert guard.calls == [db]
 
-    def test_backup_exists_before_open_db_is_called(self, db, backups_root, monkeypatch):
+    def test_backup_exists_before_open_db_is_called(
+        self, db, backups_root, monkeypatch
+    ):
         install_fake_guard(monkeypatch)
         seen = {}
 
@@ -188,11 +198,13 @@ class TestMutateSequencing:
         assert len(seen["backups_at_open"]) == 1
         assert (seen["backups_at_open"][0] / "master.db").read_bytes() == b"main-v1"
 
-    def test_retention_is_forwarded_to_create_backup(self, db, backups_root, monkeypatch):
+    def test_retention_is_forwarded_to_create_backup(
+        self, db, backups_root, monkeypatch
+    ):
         install_fake_guard(monkeypatch)
         received = {}
 
-        def fake_create_backup(path, root, retention=15):
+        def fake_create_backup(path, root, retention=20, **kwargs):
             received["retention"] = retention
 
         monkeypatch.setattr(mutate_mod, "create_backup", fake_create_backup)
@@ -210,7 +222,7 @@ class TestMutateSequencing:
         log = []
         made = backups_root / "rekordbox-db-20260711-120000"
 
-        def fake_create(path, root, retention=15, *, extra_files=()):
+        def fake_create(path, root, retention=20, *, extra_files=(), **kwargs):
             assert list(extra_files) == [anlz]
             log.append("backup")
             return made
@@ -287,7 +299,9 @@ class TestMutateFailurePaths:
         assert log == ["commit", "rollback", "close"]
         assert "invalidate" not in log
 
-    def test_rb_running_aborts_before_backup_and_open(self, db, backups_root, monkeypatch):
+    def test_rb_running_aborts_before_backup_and_open(
+        self, db, backups_root, monkeypatch
+    ):
         install_fake_guard(monkeypatch, exc=RuntimeError("Rekordbox is running"))
 
         def open_db(path):  # pragma: no cover - must never run
@@ -310,7 +324,9 @@ class TestMutateFailurePaths:
             raise AssertionError("open_db called despite stale snapshot")
 
         with pytest.raises(StaleSnapshotError, match="dry-run"):
-            with mutate(db, backups_root, expected_fingerprint=expected, open_db=open_db):
+            with mutate(
+                db, backups_root, expected_fingerprint=expected, open_db=open_db
+            ):
                 pass
         assert log == ["guard"]  # guard ran first; nothing else did
         assert backup_dirs(backups_root) == []  # and NO backup was created
@@ -331,7 +347,9 @@ class TestMutateFailurePaths:
 # --- integration: real master.db round-trip (mirrors POC 05 verification) ---
 
 
-@pytest.mark.skipif(not FIXTURE.is_file(), reason="sidecar/tests/testdata/master.db fixture absent")
+@pytest.mark.skipif(
+    not FIXTURE.is_file(), reason="sidecar/tests/testdata/master.db fixture absent"
+)
 def test_integration_soft_delete_round_trip_on_real_db(tmp_path, monkeypatch):
     install_fake_guard(monkeypatch)
     sqlcipher3 = pytest.importorskip("sqlcipher3")
@@ -464,7 +482,9 @@ def test_rollback_failure_preserves_original_error(db, backups_root, monkeypatch
     assert log == ["rollback", "close"]
 
 
-def test_close_failure_with_body_error_preserves_original(db, backups_root, monkeypatch):
+def test_close_failure_with_body_error_preserves_original(
+    db, backups_root, monkeypatch
+):
     install_fake_guard(monkeypatch)
     log = []
     handle = FlakyHandle(log, close_exc=RuntimeError("close failed"))

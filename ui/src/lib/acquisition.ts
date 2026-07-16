@@ -37,11 +37,22 @@ export interface AcquisitionItem {
   body: Record<string, unknown>
 }
 
-/** UI-driven sequential download queue over POST /api/acquisition/jobs.
-    The sidecar runs one download per (blocking) request, so the queue lives
-    here: per-row live phase + x/N batch counter, no extra backend. */
-// ponytail: la file meurt si l'app se ferme en plein lot ; passer côté
-// sidecar (jobs en arrière-plan + SSE) si les lots longs deviennent la norme
+interface AcquisitionJob {
+  id: number
+  status: string
+  error?: string | null
+  quality?: number | null
+}
+
+const TERMINAL_JOB_STATUSES = new Set([
+  'downloaded',
+  'relinked',
+  'relink_blocked',
+  'relink_failed',
+  'failed',
+])
+
+/** Persist the complete batch first, then observe the sidecar's FIFO worker. */
 export function useAcquisitionQueue() {
   const states = ref<Record<string, AcquisitionState>>({})
   const batch = ref<{ done: number; total: number } | null>(null)
@@ -53,8 +64,7 @@ export function useAcquisitionQueue() {
 
   /** Drop badges for rows that no longer need one (resolved or gone). */
   function prune(liveKeys: Set<string>) {
-    for (const key of Object.keys(states.value))
-      if (!liveKeys.has(key)) delete states.value[key]
+    for (const key of Object.keys(states.value)) if (!liveKeys.has(key)) delete states.value[key]
   }
 
   async function run(items: AcquisitionItem[], describe: (cause: unknown) => string) {
@@ -62,27 +72,53 @@ export function useAcquisitionQueue() {
     let failed = 0
     if (items.length > 1) batch.value = { done: 0, total: items.length }
     for (const item of items) states.value[item.key] = { phase: 'queued' }
+
+    const jobs: Array<{ item: AcquisitionItem; job: AcquisitionJob }> = []
     for (const item of items) {
-      states.value[item.key] = { phase: 'running' }
       try {
-        const job = await api.post<{
-          status: string
-          error?: string | null
-          quality?: number | null
-        }>('/api/acquisition/jobs', item.body)
-        if (job.status === 'downloaded' || job.status === 'relinked') {
-          states.value[item.key] = { phase: 'downloaded', quality: job.quality ?? undefined }
-          ok += 1
-        } else {
-          states.value[item.key] = { phase: 'failed', error: job.error ?? undefined }
-          failed += 1
-        }
+        const job = await api.post<AcquisitionJob>('/api/acquisition/jobs', {
+          ...item.body,
+          enqueue: true,
+        })
+        jobs.push({ item, job })
       } catch (cause) {
         states.value[item.key] = { phase: 'failed', error: describe(cause) }
         failed += 1
+        if (batch.value) batch.value = { done: ok + failed, total: batch.value.total }
       }
-      if (batch.value) batch.value = { done: ok + failed, total: batch.value.total }
     }
+
+    await Promise.all(
+      jobs.map(async ({ item, job: queued }) => {
+        let job = queued
+        try {
+          while (!TERMINAL_JOB_STATUSES.has(job.status)) {
+            states.value[item.key] = {
+              phase: job.status === 'running' ? 'running' : 'queued',
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, 500))
+            job = await api.get<AcquisitionJob>(`/api/acquisition/jobs/${job.id}`)
+          }
+          if (job.status === 'downloaded' || job.status === 'relinked') {
+            states.value[item.key] = {
+              phase: 'downloaded',
+              quality: job.quality ?? undefined,
+            }
+            ok += 1
+          } else {
+            states.value[item.key] = {
+              phase: 'failed',
+              error: job.error ?? undefined,
+            }
+            failed += 1
+          }
+        } catch (cause) {
+          states.value[item.key] = { phase: 'failed', error: describe(cause) }
+          failed += 1
+        }
+        if (batch.value) batch.value = { done: ok + failed, total: batch.value.total }
+      }),
+    )
     batch.value = null
     return { ok, failed }
   }
