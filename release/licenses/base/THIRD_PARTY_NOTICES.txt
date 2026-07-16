@@ -113,7 +113,7 @@ Dependency inventory
 - [python] send2trash 2.1.0 — BSD-3-Clause — https://files.pythonhosted.org/packages/c5/f0/184b4b5f8d00f2a92cf96eec8967a3d550b52cf94362dad1100df9e48d57/send2trash-2.1.0.tar.gz
 - [python] six 1.17.0 — MIT — https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz
 - [python] sqlalchemy 2.0.51 — MIT — https://files.pythonhosted.org/packages/02/f1/a7a892f18d4d224e6b26f706531eafccc41e37594d37d304786969ee13cb/sqlalchemy-2.0.51.tar.gz
-- [python] sqlcipher3-wheels 0.6.2+syncbox.commoncrypto.1 — Zlib — https://github.com/Adridot/syncbox/tree/v0.2.4/sidecar/vendor/sqlcipher3-commoncrypto
+- [python] sqlcipher3-wheels 0.6.2+syncbox.commoncrypto.1 — Zlib — https://github.com/Adridot/syncbox/tree/v0.3.0/sidecar/vendor/sqlcipher3-commoncrypto
 - [python] sse-starlette 3.4.5 — BSD-3-Clause — https://files.pythonhosted.org/packages/d2/1b/bc9e3e7a72dcdad7dc7888758f5d00f56f8909ed5cfdff822bd72bb4c520/sse_starlette-3.4.5.tar.gz
 - [python] starlette 1.3.1 — BSD-3-Clause — https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d854328ebfa884e62cb3f3d8549ddfd37c7814f42afa/starlette-1.3.1.tar.gz
 - [python] typing-extensions 4.16.0 — PSF-2.0 — https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz

@@ -4,7 +4,7 @@
 // (#/missing/<scope>). Library/Events rows link HERE pre-filtered instead
 // of duplicating the UI. Optional acquisition is shown only when the
 // backend reports that the separately installed component is available.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -13,6 +13,7 @@ import type { MissingEntry } from '../api/types'
 import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import MissingEntryList from '../components/MissingEntryList.vue'
+import { useRefreshOnReturn } from '../lib/refresh'
 import { MISSING_SCOPES, type MissingScope } from '../router'
 import { useHealthStore } from '../stores/health'
 
@@ -65,7 +66,9 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(() => void load())
+// keep-alive re-entry refreshes silently (loading stays false once a scope
+// is cached); the watch covers scope changes while the screen is alive
+useRefreshOnReturn(() => void load())
 watch(active, () => void load())
 
 const visibleEntries = computed<MissingEntry[]>(() => {

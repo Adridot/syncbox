@@ -11,11 +11,17 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { ApiError, api } from '../api/client'
-import type { MissingEntry } from '../api/types'
+import { ApiError, api, requestConsent } from '../api/client'
+import type { DeezerSearchResult, MissingEntry } from '../api/types'
+import {
+  acquisitionLabelKey,
+  humanizeAcquisitionError,
+  useAcquisitionQueue,
+} from '../lib/acquisition'
 import { openExternal } from '../shell'
 import { useJobsStore } from '../stores/jobs'
 import { useStatusStore } from '../stores/status'
+import DeezerSearchPanel from './DeezerSearchPanel.vue'
 import ManualRelinkModal from './ManualRelinkModal.vue'
 import ScopeBadge from './ScopeBadge.vue'
 import SelectionBar from './SelectionBar.vue'
@@ -67,8 +73,49 @@ watch(
     const keys = new Set(list.map(entryKey))
     const next = new Set([...selected.value].filter((key) => keys.has(key)))
     if (next.size !== selected.value.size) selected.value = next
+    pruneAcq(keys)
   },
 )
+
+// --- Deezer acquisition: UI-driven queue, live badge per row + x/N counter -
+const {
+  states: acqStates,
+  batch: acqBatch,
+  running: acqRunning,
+  run: runAcq,
+  prune: pruneAcq,
+} = useAcquisitionQueue()
+
+// manual search (panel with 30 s preview); a pick downloads the chosen
+// recording even when the row itself has no ISRC
+const searchFor = ref<MissingEntry | null>(null)
+const searchQuery = computed(() =>
+  searchFor.value
+    ? [searchFor.value.artist, searchFor.value.title].filter(Boolean).join(' ')
+    : '',
+)
+const searchable = (entry: MissingEntry) =>
+  Boolean(entry.acquisition?.available || entry.acquisition?.reason === 'missing_isrc')
+
+function acquisitionBody(entry: MissingEntry, deezerTrackId?: number): Record<string, unknown> {
+  return {
+    scope: entry.scope,
+    row_id: entry.scope === 'collection' ? undefined : entry.id,
+    content_id: entry.scope === 'collection' ? entry.content_id : undefined,
+    // collection: relink the Rekordbox row to the downloaded file — that is
+    // the whole point of downloading a missing collection file (owner
+    // 16/07). ANLZ consent runs through the standard 428 loop BEFORE the
+    // download starts. Requires Rekordbox closed, like every mutation.
+    relink: entry.scope === 'collection' ? true : undefined,
+    deezer_track_id: deezerTrackId,
+  }
+}
+
+async function onDeezerPick(result: DeezerSearchResult) {
+  const entry = searchFor.value
+  searchFor.value = null
+  if (entry) await acquire(entry, result.id)
+}
 
 const allSelected = computed(
   () => props.entries.length > 0 && props.entries.every((entry) => selected.value.has(entryKey(entry))),
@@ -151,28 +198,20 @@ const removeOne = (entry: MissingEntry) =>
 const removeCollection = (entry: MissingEntry) =>
   act(() => removeOne(entry), t('missing.removed', { title: entry.title ?? '' }))
 
-const acquireOne = (entry: MissingEntry) =>
-  api.post<{ status: string }>('/api/acquisition/jobs', {
-    scope: entry.scope,
-    row_id: entry.scope === 'collection' ? undefined : entry.id,
-    content_id: entry.scope === 'collection' ? entry.content_id : undefined,
-  })
-
-async function acquire(entry: MissingEntry) {
+async function acquire(entry: MissingEntry, deezerTrackId?: number) {
   banner.value = null
-  try {
-    const job = await acquireOne(entry)
-    banner.value = {
-      tone: job.status === 'downloaded' ? 'success' : 'error',
-      text: t(
-        job.status === 'downloaded' ? 'missing.acquired' : 'missing.acquisitionFailed',
-        { title: entry.title ?? '' },
-      ),
-    }
-    emit('changed')
-  } catch (cause) {
-    banner.value = { tone: 'error', text: describe(cause) }
-  }
+  const key = entryKey(entry)
+  const { ok } = await runAcq([{ key, body: acquisitionBody(entry, deezerTrackId) }], describe)
+  const reason = humanizeAcquisitionError(t, acqStates.value[key]?.error)
+  banner.value = ok
+    ? { tone: 'success', text: t('missing.acquired', { title: entry.title ?? '' }) }
+    : {
+        tone: 'error',
+        text:
+          t('missing.acquisitionFailed', { title: entry.title ?? '' }) +
+          (reason ? ` (${reason})` : ''),
+      }
+  emit('changed')
 }
 
 // --- bulk actions: sequential over the selection, one aggregate banner -----
@@ -218,22 +257,29 @@ async function bulkRemove() {
 
 async function bulkAcquire() {
   banner.value = null
-  let ok = 0
-  let failed = 0
-  for (const entry of acquirable.value) {
-    try {
-      const job = await acquireOne(entry)
-      if (job.status === 'downloaded') ok += 1
-      else failed += 1
-    } catch {
-      failed += 1
-    }
+  const targets = acquirable.value
+  // ONE ANLZ consent covers the whole selected batch (owner 16/07) — the
+  // per-call 428 loop would pop the modal once per collection file
+  let anlzGranted = false
+  if (targets.some((entry) => entry.scope === 'collection')) {
+    anlzGranted = await requestConsent('anlz')
+    if (!anlzGranted) return
   }
+  selected.value = new Set()
+  const { ok, failed } = await runAcq(
+    targets.map((entry) => ({
+      key: entryKey(entry),
+      body: {
+        ...acquisitionBody(entry),
+        ...(anlzGranted && entry.scope === 'collection' ? { anlz_consent: true } : {}),
+      },
+    })),
+    describe,
+  )
   banner.value = {
     tone: failed ? 'error' : 'success',
     text: t('missing.bulkAcquireDone', { ok, failed }),
   }
-  selected.value = new Set()
   emit('changed')
 }
 
@@ -285,6 +331,11 @@ async function markNone() {
       <button class="banner-close" :aria-label="t('common.close')" @click="banner = null">✕</button>
     </div>
 
+    <div v-if="acqBatch" class="acq-progress" role="status">
+      <span class="acq-spinner" aria-hidden="true" />
+      {{ t('missing.acqProgress', { done: acqBatch.done, total: acqBatch.total }) }}
+    </div>
+
     <div class="list">
       <div v-if="entries.length" class="list-head">
         <span class="cell-check">
@@ -324,10 +375,20 @@ async function markNone() {
             />
           </div>
           <div v-if="entry.file_path" class="row-path mono">{{ entry.file_path }}</div>
+          <div v-if="acqStates[entryKey(entry)]?.error" class="row-error">
+            {{ humanizeAcquisitionError(t, acqStates[entryKey(entry)]?.error) }}
+          </div>
         </div>
         <ScopeBadge v-if="showScope" :scope="entry.scope" />
+        <span
+          v-if="acqStates[entryKey(entry)]"
+          class="acq-badge"
+          :data-phase="acqStates[entryKey(entry)]?.phase"
+        >
+          {{ t(acquisitionLabelKey(acqStates[entryKey(entry)])) }}
+        </span>
         <StatusBadge
-          v-if="entry.scope !== 'collection' && entry.status"
+          v-else-if="entry.scope !== 'collection' && entry.status"
           :status="entry.status"
         />
         <span class="actions">
@@ -365,6 +426,7 @@ async function markNone() {
           <span class="menu-wrap">
             <button
               class="more"
+              :data-tip="t('missing.moreActions')"
               :aria-label="t('missing.moreActions')"
               :aria-expanded="rowMenu === entryKey(entry)"
               @click.stop="toggleRowMenu(entry)"
@@ -375,10 +437,18 @@ async function markNone() {
               <button
                 v-if="entry.acquisition?.available"
                 class="menu-item"
-                :disabled="jobs.jobRunning"
+                :disabled="jobs.jobRunning || acqRunning"
                 @click="acquire(entry)"
               >
                 {{ t('missing.acquireDeezer') }}
+              </button>
+              <button
+                v-if="searchable(entry)"
+                class="menu-item"
+                :disabled="jobs.jobRunning || acqRunning"
+                @click="searchFor = entry"
+              >
+                {{ t('missing.searchDeezer') }}
               </button>
               <button class="menu-item" @click="relinkEntry = entry">
                 {{ t('missing.relinkCta') }}
@@ -418,7 +488,7 @@ async function markNone() {
         <button
           v-if="acquirable.length"
           class="sel-action"
-          :disabled="jobs.jobRunning"
+          :disabled="jobs.jobRunning || acqRunning"
           @click="bulkAcquire"
         >
           {{ t('missing.bulkAcquire', { n: acquirable.length }) }}
@@ -443,6 +513,14 @@ async function markNone() {
       @close="relinkEntry = null"
       @pick="pickRelink"
       @none="markNone"
+    />
+
+    <DeezerSearchPanel
+      v-if="searchFor"
+      :initial-query="searchQuery"
+      :context-label="searchFor.title ?? ''"
+      @close="searchFor = null"
+      @pick="onDeezerPick"
     />
   </div>
 </template>
@@ -492,7 +570,17 @@ async function markNone() {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  overflow: clip;
+  /* visible (was clip): row menus and data-tip tooltips must escape the
+     card; first/last children carry the radius so corners still round */
+  overflow: visible;
+}
+.list > :first-child {
+  border-top-left-radius: var(--radius-card);
+  border-top-right-radius: var(--radius-card);
+}
+.list > :last-child {
+  border-bottom-left-radius: var(--radius-card);
+  border-bottom-right-radius: var(--radius-card);
 }
 .list-head {
   display: flex;
@@ -546,6 +634,55 @@ async function markNone() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.row-error {
+  font-size: 11.5px;
+  color: var(--danger-text);
+  margin-top: 2px;
+}
+.acq-badge {
+  font-size: var(--size-meta);
+  border-radius: 6px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  border: 1px solid var(--border-2);
+  color: var(--text-secondary);
+}
+.acq-badge[data-phase='running'] {
+  color: var(--accent-hover);
+  border-color: var(--accent-border);
+  background: var(--accent-tint);
+}
+.acq-badge[data-phase='downloaded'] {
+  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-tint);
+}
+.acq-badge[data-phase='failed'] {
+  color: var(--danger-text);
+  border-color: var(--danger-border);
+  background: var(--danger-tint);
+}
+.acq-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.acq-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-border);
+  border-top-color: var(--accent);
+  animation: acq-spin 0.8s linear infinite;
+}
+@keyframes acq-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .mono {
   font-family: var(--font-mono);

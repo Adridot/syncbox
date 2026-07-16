@@ -107,6 +107,69 @@ button {
   }
 }
 
+/* One dark field style for EVERY text input (owner feedback 16/07/2026: the
+   Deezer search field rendered browser-white) — same vocabulary as
+   .btn-secondary; component-scoped styles may still override locally. */
+input[type='text'],
+input[type='number'],
+input[type='search'],
+input[type='url'],
+input[type='password'],
+textarea,
+select {
+  background: #14171f;
+  border: 1px solid #2a3140;
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font: inherit;
+  font-size: 13px;
+}
+input[type='text']:focus-visible,
+input[type='number']:focus-visible,
+input[type='search']:focus-visible,
+input[type='url']:focus-visible,
+input[type='password']:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent-border);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* Instant tooltip for icon-only controls (owner feedback 16/07/2026): the
+   native title needs a ~1 s hover — data-tip shows right away, BELOW-right
+   of the control (above would clip under sticky heads / scroll containers
+   for the first table rows). Pair with aria-label for screen readers. */
+[data-tip] {
+  position: relative;
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-2);
+  color: var(--text-secondary-bright);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease 0.1s;
+  z-index: 40;
+}
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  opacity: 1;
+}
+
 /* Selection targets are comfortable everywhere (owner feedback 07/07/2026):
    18px boxes, accent-tinted, and the pointer shows they are clickable. */
 input[type='checkbox'] {

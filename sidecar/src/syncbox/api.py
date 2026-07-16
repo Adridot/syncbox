@@ -1076,6 +1076,16 @@ def acquisition_arl_delete(deps, request, body):
     return acquisition_status(deps, request, body)
 
 
+def acquisition_deezer_search(deps, request, body):
+    """Manual-search panel backend: public Deezer catalogue, no credentials."""
+    if not deps.settings.get("deezer_acquisition_enabled"):
+        raise ValueError("Deezer acquisition is disabled")
+    query = (request.query_params.get("q") or "").strip()
+    if not query:
+        raise ValueError("missing required query parameter 'q'")
+    return {"results": acquisition.deezer_search(query)}
+
+
 def acquisition_component_install(deps, request, body):
     if not deps.settings.get("deezer_acquisition_enabled"):
         raise ValueError("enable Deezer acquisition before installing the component")
@@ -1086,7 +1096,12 @@ def acquisition_component_install(deps, request, body):
     return {"component": component}
 
 
-def _acquisition_entry(deps, scope: str, ref: str) -> dict:
+def _acquisition_entry(deps, scope: str, ref: str, *, require_isrc: bool = True) -> dict:
+    # require_isrc=False: a manually chosen Deezer track supplies its own
+    # ISRC, so the row does not need one
+    def isrc_of(value) -> str | None:
+        return acquisition.normalize_isrc(value) if require_isrc else None
+
     if scope in ("library", "event"):
         table = {"library": "library_tracks", "event": "event_tracks"}[scope]
         row = deps.conn.execute(f"SELECT * FROM {table} WHERE id = ?", (ref,)).fetchone()
@@ -1099,7 +1114,7 @@ def _acquisition_entry(deps, scope: str, ref: str) -> dict:
             "ref": str(ref),
             "title": row["title"],
             "artist": row["artist"],
-            "isrc": acquisition.normalize_isrc(row["isrc"]),
+            "isrc": isrc_of(row["isrc"]),
         }
     if scope == "collection":
         _require_rekordbox(deps)
@@ -1114,7 +1129,7 @@ def _acquisition_entry(deps, scope: str, ref: str) -> dict:
             "ref": str(ref),
             "title": row["title"],
             "artist": row["artist"],
-            "isrc": acquisition.normalize_isrc(row["isrc"]),
+            "isrc": isrc_of(row["isrc"]),
         }
     raise ValueError(f"unknown acquisition scope {scope!r}")
 
@@ -1156,6 +1171,11 @@ def acquisition_job_get(deps, request, body):
     return _job_row(deps.conn, request.path_params["job_id"])
 
 
+def _acquisition_error_text(exc: Exception) -> str:
+    """Persist the actual failure reason, not just the exception class name."""
+    return (str(exc).strip() or type(exc).__name__)[:300]
+
+
 def acquisition_job_start(deps, request, body):
     if not deps.settings.get("deezer_acquisition_enabled"):
         raise ValueError("Deezer acquisition is disabled")
@@ -1172,7 +1192,20 @@ def acquisition_job_start(deps, request, body):
     ref = str(body.get("row_id") or body.get("content_id") or body.get("id") or "")
     if not ref:
         raise ValueError("missing required field 'row_id' or 'content_id'")
-    entry = _acquisition_entry(deps, scope, ref)
+    # manual pick from the Deezer search panel: download that exact track id
+    # (ISRC resolution can land on an unstreamable canonical entry even when
+    # the picked re-release is streamable — Martin Solveig "Hello" case)
+    deezer_track_id = body.get("deezer_track_id")
+    entry = _acquisition_entry(deps, scope, ref, require_isrc=deezer_track_id is None)
+    # relink consent is unconditional (missing_service) — gate it BEFORE the
+    # download so the client's 428 consent loop re-calls without having
+    # wasted a full download on the refused first attempt
+    if scope == "collection" and body.get("relink") and not body.get("anlz_consent"):
+        raise AnlzConsentRequired(
+            "Relinking replaces the file association; cues, beatgrid and "
+            "waveform stored in ANLZ files may desynchronize and are NOT "
+            "covered by the master.db backup. Explicit consent is required."
+        )
     cursor = deps.conn.execute(
         "INSERT INTO acquisition_jobs (scope, ref, title, artist, isrc, status) "
         "VALUES (?, ?, ?, ?, ?, 'queued')",
@@ -1185,7 +1218,13 @@ def acquisition_job_start(deps, request, body):
         progress.publish(1, 3)
         output_dir = acquisition.acquisition_output_dir(deps.storage_root, job_id)
         output_dir.mkdir(parents=True, exist_ok=True)
-        result = deps.acquisition_runner(deps.data_dir, arl, entry["isrc"], output_dir)
+        result = (
+            deps.acquisition_runner(
+                deps.data_dir, arl, None, output_dir, track_id=int(deezer_track_id)
+            )
+            if deezer_track_id is not None
+            else deps.acquisition_runner(deps.data_dir, arl, entry["isrc"], output_dir)
+        )
         arl = ""
         output_path = result["output_path"]
         progress.publish(2, 3)
@@ -1193,6 +1232,9 @@ def acquisition_job_start(deps, request, body):
         stored_path = None
         status = "downloaded"
         error = None
+        # actual quality downloaded (streamrip scale, 0 = MP3 128, 1 = MP3 320);
+        # only reported by components built with the quality fallback
+        quality = result.get("quality") if isinstance(result.get("quality"), int) else None
         if scope in ("library", "event"):
             table = {"library": "library_tracks", "event": "event_tracks"}[scope]
             deps.conn.execute(
@@ -1218,7 +1260,7 @@ def acquisition_job_start(deps, request, body):
                 error = "rekordbox_open"
             except Exception as exc:
                 status = "relink_failed"
-                error = type(exc).__name__
+                error = _acquisition_error_text(exc)
         job = _update_job(
             deps.conn,
             job_id,
@@ -1226,6 +1268,7 @@ def acquisition_job_start(deps, request, body):
             output_path=output_path,
             stored_path=stored_path,
             error=error,
+            quality=quality,
         )
         progress.publish(3, 3)
         progress.done(id=job_id, status=status, output_path=output_path)
@@ -1239,8 +1282,9 @@ def acquisition_job_start(deps, request, body):
                 "updated_at = datetime('now') WHERE id = ?",
                 (ref,),
             )
-        job = _update_job(deps.conn, job_id, status="failed", error=type(exc).__name__)
-        progress.done(id=job_id, status="failed", error=type(exc).__name__)
+        error = _acquisition_error_text(exc)
+        job = _update_job(deps.conn, job_id, status="failed", error=error)
+        progress.done(id=job_id, status="failed", error=error)
         return job
 
 
@@ -1874,6 +1918,7 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/missing/{scope}/{row_id:int}/status", missing_status, ["POST"]),
         r("/api/missing/{scope}/{row_id:int}/restore", missing_restore, ["POST"]),
         r("/api/acquisition/deezer", acquisition_status, ["GET"]),
+        r("/api/acquisition/deezer/search", acquisition_deezer_search, ["GET"]),
         r("/api/acquisition/deezer/arl", acquisition_arl_set, ["PUT"]),
         r("/api/acquisition/deezer/arl", acquisition_arl_delete, ["DELETE"]),
         r("/api/acquisition/component/install", acquisition_component_install, ["POST"]),

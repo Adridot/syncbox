@@ -30,7 +30,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <div class="main">
       <RbGuardBanner v-if="status.rbOpen" />
       <div class="content">
-        <router-view />
+        <!-- keep-alive: EVERY screen keeps its data across navigations —
+             reopening shows the last state instantly while useRefreshOnReturn
+             refreshes silently (skeleton on first load only, owner 16/07) -->
+        <router-view v-slot="{ Component }">
+          <keep-alive>
+            <component :is="Component" />
+          </keep-alive>
+        </router-view>
       </div>
       <BackendDownOverlay v-if="status.backendDown" />
     </div>

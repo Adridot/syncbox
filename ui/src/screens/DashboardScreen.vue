@@ -4,13 +4,14 @@
 // card = the §11.3 readouts ONLY (mockup extras without an API source are
 // not built); UI-local activity feed; connections panel. The deprecated
 // "Module téléchargement" row and "Tout voir → Acquisition" are not built.
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { api } from '../api/client'
 import JobRow from '../components/JobRow.vue'
 import LoadingState from '../components/LoadingState.vue'
+import { useRefreshOnReturn } from '../lib/refresh'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
 import { useHealthStore } from '../stores/health'
 import { useJobsStore } from '../stores/jobs'
@@ -39,7 +40,8 @@ const lastBackup = ref<string | null>(null)
 const sourcesCount = ref<number | null>(null)
 const loading = ref(true)
 
-onMounted(async () => {
+// skeleton on first load only; keep-alive re-entries refresh silently
+useRefreshOnReturn(async () => {
   try {
     if (!settings.loaded) await settings.load()
     if (settings.configured) {

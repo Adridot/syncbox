@@ -6,13 +6,14 @@
 // name imposed under the permanent library); retention; language; Advanced
 // options (G4 knobs, sum=1.00, locked invariants, reset), plus the explicitly
 // enabled optional Deezer component and its write-only credential field.
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, api } from '../api/client'
 import PathField from '../components/PathField.vue'
 import SpotifyClientIdHelp from '../components/SpotifyClientIdHelp.vue'
 import { replayOnboarding } from '../lib/onboarding'
+import { useRefreshOnReturn } from '../lib/refresh'
 import { MACOS_DB_DEFAULT, usePathFields } from '../lib/usePathFields'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
 import { confirmDialog, hasShell, openExternal, pickFile, pickSaveFile } from '../shell'
@@ -79,7 +80,9 @@ function syncFromStore() {
   deezerEnabled.value = values.deezer_acquisition_enabled
 }
 
-onMounted(async () => {
+// same lifecycle a remount had (re-validate paths, re-sync fields, refresh
+// Deezer status) — just without destroying the screen between visits
+useRefreshOnReturn(async () => {
   try {
     await paths.init()
   } catch (cause) {
