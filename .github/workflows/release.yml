@@ -90,6 +90,19 @@ jobs:
           SYNCBOX_RELEASE_HOST_TOOLCHAIN: unpinned
         run: pnpm bundle:macos
 
+      # The build regenerates the manifest from the archive it just froze;
+      # the workspace still holds the tagged source. Any drift means the
+      # committed pin does not describe the archive this release publishes.
+      - name: Check the committed component pin matches the rebuilt archive
+        run: |
+          diff "$GITHUB_WORKSPACE/sidecar/src/syncbox/optional_component.json" \
+               "$SRC/sidecar/src/syncbox/optional_component.json" || {
+            echo "The tagged optional_component.json does not match the rebuilt archive."
+            echo "Refresh the pin (cd shell && pnpm bundle:macos --component-only),"
+            echo "commit the manifest, and re-tag."
+            exit 1
+          }
+
       - name: Collect artifacts
         working-directory: ${{ env.SRC }}
         run: |
