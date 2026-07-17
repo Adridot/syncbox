@@ -1,15 +1,15 @@
 # Syncbox
 
-**Keep your Rekordbox collection clean, matched, and gig-ready — without ever
-putting it at risk.**
+**Keep your Rekordbox collection clean, matched, and gig-ready — with guarded
+writes and automatic backups.**
 
 Syncbox is a macOS desktop app for DJs who prepare sets with Spotify and
 perform with [Rekordbox](https://rekordbox.com). It bridges the two: it reads
 your Spotify playlists, matches them against your Rekordbox collection, writes
 MyTags and smart playlists straight into Rekordbox, and keeps the collection
 itself healthy — duplicates, missing files, untagged tracks, suspicious audio
-quality — all behind a safety model designed so that **no operation can lose
-your library**.
+quality — with guarded writes, automatic backups, and exact-payload
+confirmation.
 
 ## What it does
 
@@ -24,6 +24,12 @@ your library**.
   it is disabled by default and distributed separately from the base app.
   Events stay open after applying: add tracks later and re-apply just the
   delta — idempotent, never duplicated.
+- **Performance history** — archives Rekordbox play history locally, groups
+  plays into performances across restarts, keeps overlapping sessions
+  separate, flags likely USB-import bursts, and shows a live tracklist while
+  Rekordbox is running. Performances can be renamed or hidden. Export creates
+  an ordered plain playlist under `Historiques` through the guarded Rekordbox
+  write pipeline.
 - **Collection health** —
   - *Duplicates*: groups duplicate tracks, ranks the best copy (file presence,
     bitrate bucket, trusted audio-quality verdict), moves the losers' playlist and tag
@@ -50,7 +56,7 @@ your library**.
 ## The safety model
 
 Rekordbox's `master.db` is the one file a DJ cannot afford to corrupt. Every
-Syncbox write goes through a single guarded pipeline:
+Syncbox write to Rekordbox goes through a single guarded pipeline:
 
 1. **Rekordbox must be closed** — writes are refused while it runs.
 2. **Timestamped backup** of the database before every mutation (rotated,
@@ -69,10 +75,9 @@ Syncbox write goes through a single guarded pipeline:
 
 ## Install (macOS, Apple Silicon)
 
-1. Obtain `Syncbox-<version>-macos-arm64.zip` from the matching versioned
-   [GitHub Release](https://github.com/Adridot/syncbox/releases) only after the
-   release closure report records a successful public download-back, then
-   unzip it.
+1. Download `Syncbox-0.5.0-macos-arm64.zip` from the
+   [v0.5.0 GitHub Release](https://github.com/Adridot/syncbox/releases/tag/v0.5.0),
+   then unzip it.
 2. The current app is ad-hoc signed, not signed with an Apple Developer ID and
    not notarized. Launch it once. If macOS blocks an artifact you trust, open
    **System Settings → Privacy & Security**, select **Open Anyway**, then
@@ -83,15 +88,10 @@ Syncbox write goes through a single guarded pipeline:
    `~/Library/Pioneer/rekordbox/master.db`), a storage root, and — for
    Spotify features — a free Spotify developer client ID (guided, ~2 min).
 
-The bundle and lifecycle harnesses are validated on Apple Silicon. The ignored
-private Rekordbox 7 fixtures pass the exact 10-node harness, the retained-event
-migration node, and the Smart Fixes copied-fixture node with zero skips and
-unchanged sources. Rekordbox 7.2.16 manual checks on CommonCrypto disposable
-copies also passed for reopen, playback, cues, beatgrid, analysis, MyTags,
-playlists, Smart Fix metadata, volume-relative paths, and ANLZ PPTH
-readability. The untouched live data directory was restored exactly after the
-approved swap. App data lives in
-`~/Library/Application Support/Syncbox`; database backups under
+Release validation and historical v1 evidence for lifecycle, reproducibility,
+private Rekordbox fixtures, and disposable-copy manual checks are indexed in
+[docs/POC-EVIDENCE.md](docs/POC-EVIDENCE.md). App data lives in
+`~/Library/Application Support/Syncbox`; database backups live under
 `<storage root>/_syncbox/backups`.
 
 ## Architecture
@@ -114,31 +114,36 @@ approved swap. App data lives in
                       imported or bundled by the base application.
 ```
 
-The full functional specification lives in
-[docs/SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md). See the
-[user guide](docs/USER_GUIDE.md), [distribution contract](docs/DISTRIBUTION.md),
-and [POC evidence index](docs/POC-EVIDENCE.md) for the current implementation state.
+The current product and architecture specification lives in
+[docs/SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md). Detailed operational and
+historical material lives in the [user guide](docs/USER_GUIDE.md),
+[distribution contract](docs/DISTRIBUTION.md), and
+[POC evidence index](docs/POC-EVIDENCE.md).
 
 ## Build from source
 
-Prerequisites: [pnpm](https://pnpm.io), [Rust](https://rustup.rs),
-[uv](https://docs.astral.sh/uv/) (Python 3.14). The build uses separate locked
-Python projects for the base sidecar and optional component.
+Prerequisites: [pnpm](https://pnpm.io), [Rust](https://rustup.rs), and
+[uv](https://docs.astral.sh/uv/). The build uses separate locked Python
+projects: Python 3.14 for the base sidecar and Python 3.13 for the optional
+component.
 
 ```sh
 pnpm install --frozen-lockfile
-cd sidecar && uv sync --locked --managed-python
-cd ../shell && pnpm bundle:macos
+(cd sidecar && uv sync --locked --managed-python)
+pnpm --dir shell bundle:macos
 # → shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
 ```
 
 Dev loop and tests:
 
 ```sh
-cd shell && pnpm tauri dev                       # app against the source tree
-cd sidecar && uv run --locked pytest -q -rs      # sidecar suite
-cd ui && pnpm test && pnpm typecheck             # UI suite
-cd shell/src-tauri && cargo check --locked --target aarch64-apple-darwin
+pnpm --dir shell tauri dev                       # app against the source tree
+(cd sidecar && uv run --locked pytest -q -rs)    # sidecar suite
+pnpm --dir ui test                               # UI suite
+pnpm --dir ui typecheck
+mkdir -p sidecar/dist/syncbox-sidecar            # resource required by Tauri
+cargo check --locked --manifest-path shell/src-tauri/Cargo.toml \
+  --target aarch64-apple-darwin
 ```
 
 Packaging regression harnesses (lifecycle, single-instance, supervisor,
@@ -159,13 +164,11 @@ docstring says how to run it.
 
 ## Status & roadmap
 
-Current source version: **0.5.0**. The public macOS 14+ Apple Silicon release
-passes its strict scanner, two isolated absolute source roots produce
-byte-identical base and optional ZIPs and unpacked trees, and the exact source,
-frozen, installed, and packaged Deezer lanes embed real artwork. Both public
-assets passed download-back, scanner, installation, and runtime validation as
-recorded in the release closure report (archived in git history).
-The app is ad-hoc signed without a Developer ID or notarization.
+Current source and release version: **0.5.0**. This release adds performance
+history, live played-track monitoring, and guarded Rekordbox playlist export.
+The macOS 14+ Apple Silicon release workflow keeps the scanner, isolated-root
+reproducibility, component-pin, and test gates. The app is ad-hoc signed
+without a Developer ID or notarization.
 
 - **Signing, notarization, and Keychain** — deferred; the v1 distribution uses
   a per-install encrypted SQLCipher secret store and never exports OAuth
@@ -176,10 +179,10 @@ The app is ad-hoc signed without a Developer ID or notarization.
 - **Optional acquisition** — purchase links remain first. Deezer acquisition
   is explicit, disabled by default, requires a Premium credential stored only
   in the encrypted secret store. Local archive installation is validated; the
-  hash-pinned online component path uses the verified `v0.2.2` GitHub Release
+  hash-pinned online component path uses the matching `v0.5.0` GitHub Release
   asset. SoundCloud and ffmpeg are not exposed.
-- **Later** — in-app audio preview, fingerprint-based duplicate detection
-  (Chromaprint), ISRC enrichment.
+- **Later** — local-library audio preview, fingerprint-based duplicate
+  detection (Chromaprint), ISRC enrichment.
 
 ## License
 
