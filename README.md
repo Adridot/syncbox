@@ -159,7 +159,7 @@ docstring says how to run it.
 
 ## Status & roadmap
 
-Current source version: **0.4.0**. The public macOS 14+ Apple Silicon release
+Current source version: **0.5.0**. The public macOS 14+ Apple Silicon release
 passes its strict scanner, two isolated absolute source roots produce
 byte-identical base and optional ZIPs and unpacked trees, and the exact source,
 frozen, installed, and packaged Deezer lanes embed real artwork. Both public
