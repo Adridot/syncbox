@@ -6,6 +6,7 @@ export const en = {
     dashboard: 'Overview',
     library: 'Library',
     events: 'Events',
+    history: 'Performances',
     health: 'Collection health',
     missing: 'Missing tracks',
     settings: 'Settings',
@@ -294,6 +295,48 @@ export const en = {
       confirmCount: 'Delete event · {n} file | Delete event · {n} files',
       note: 'Required migrations complete before event cleanup. Rekordbox identity and retained metadata stay unchanged. Requires Rekordbox closed.',
       confirm: 'Delete the event',
+    },
+  },
+  history: {
+    tagline: 'Every gig rebuilt from the Rekordbox play history — crash-proof, read-only.',
+    emptyTitle: 'No performance yet',
+    emptyBody:
+      'Play something in Rekordbox and it will appear here. Everything already in your Rekordbox history is imported automatically.',
+    loadErrorTitle: 'Could not load the performance history',
+    liveBanner: 'Performance in progress — {n} tracks played, last one at {time}',
+    liveShow: 'Open the live tracklist',
+    filters: {
+      main: 'Main sets',
+      all: 'Everything',
+      hidden: 'Hidden',
+    },
+    unnamed: 'Performance of {date}',
+    tracksUnit: 'tracks',
+    sessionsUnit: '{n} Rekordbox session | {n} Rekordbox sessions',
+    cutBadge: 'cut',
+    cutRow: 'Rekordbox stopped {ended} — resumed {resumed}',
+    usbBadge: 'USB import',
+    usbNote:
+      'Imported from a USB/CDJ history: track order is real, clock times are the import moment.',
+    overlapBadge: 'parallel machine',
+    overlapNote:
+      'Another computer on this Rekordbox account was playing during the same time window.',
+    rename: 'Rename',
+    renameSave: 'Save',
+    hide: 'Hide',
+    unhide: 'Restore',
+    exportCta: 'Create Rekordbox playlist',
+    exportDone: 'Playlist “{name}” created in the “{folder}” folder — {n} tracks.',
+    exportSpotify:
+      '{n} Spotify track was restored into the collection and included. | {n} Spotify tracks were restored into the collection and included.',
+    exportRecovered:
+      '{n} locally-deleted track was recovered as a Spotify streaming reference. | {n} locally-deleted tracks were recovered as Spotify streaming references.',
+    exportSkipped:
+      '{n} track no longer in the collection was skipped. | {n} tracks no longer in the collection were skipped.',
+    spotifyPending: 'Spotify track (title pending)',
+    columns: {
+      time: 'Time',
+      title: 'Title',
     },
   },
   health: {

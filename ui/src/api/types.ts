@@ -217,6 +217,42 @@ export interface SmartFixesDryRun {
   fingerprint: Fingerprint
 }
 
+export interface PerformanceCut {
+  ended: string
+  resumed: string
+}
+
+export interface PerformanceSummary {
+  id: number
+  name: string | null
+  hidden: number
+  /** UTC 'YYYY-MM-DD HH:MM:SS' — render in local time */
+  started_at: string
+  ended_at: string
+  track_count: number
+  session_count: number
+  cuts: PerformanceCut[]
+  bulk_import: number
+  /** only on the list payload */
+  overlaps?: boolean
+}
+
+export interface PerformanceTrack {
+  uuid: string
+  content_id: string | null
+  title: string | null
+  artist: string | null
+  spotify_track_id: string | null
+  played_at: string
+  rb_history_name: string
+}
+
+export interface PerformanceLive {
+  active: boolean
+  performance: PerformanceSummary | null
+  tracks: PerformanceTrack[]
+}
+
 export interface BackupInfo {
   name: string
   files: string[]

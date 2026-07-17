@@ -17,6 +17,7 @@ const items = computed(() => [
   // ▤ : ≡ (identical-to) renders tiny in Geist next to ◎/♪ — owner 16/07
   { name: 'library', to: '/library', icon: '▤', label: t('nav.library'), badge: health.badges.library, warn: false },
   { name: 'events', to: '/events', icon: '♪', label: t('nav.events'), badge: health.badges.events, warn: false },
+  { name: 'history', to: '/history', icon: '◷', label: t('nav.history'), badge: null, warn: false },
   {
     name: 'health',
     to: '/health/duplicates',
