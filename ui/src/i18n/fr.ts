@@ -10,6 +10,7 @@ export const fr: typeof en = {
     dashboard: "Vue d'ensemble",
     library: 'Bibliothèque',
     events: 'Événements',
+    history: 'Prestations',
     health: 'Santé de collection',
     missing: 'Titres manquants',
     settings: 'Réglages',
@@ -305,6 +306,49 @@ export const fr: typeof en = {
       confirmCount: 'Supprimer l’événement · {n} fichier | Supprimer l’événement · {n} fichiers',
       note: 'Les migrations requises s’achèvent avant le nettoyage de l’événement. L’identité Rekordbox et les métadonnées conservées restent inchangées. Requiert Rekordbox fermé.',
       confirm: 'Supprimer l’événement',
+    },
+  },
+  history: {
+    tagline:
+      'Chaque prestation reconstruite depuis l’historique Rekordbox — résistant aux plantages, lecture seule.',
+    emptyTitle: 'Aucune prestation pour l’instant',
+    emptyBody:
+      'Joue un titre dans Rekordbox et il apparaîtra ici. Tout ce que ton historique Rekordbox contient déjà est importé automatiquement.',
+    loadErrorTitle: 'Impossible de charger l’historique des prestations',
+    liveBanner: 'Prestation en cours — {n} titres joués, dernier à {time}',
+    liveShow: 'Ouvrir la tracklist en direct',
+    filters: {
+      main: 'Sets principaux',
+      all: 'Tout',
+      hidden: 'Masquées',
+    },
+    unnamed: 'Prestation du {date}',
+    tracksUnit: 'titres',
+    sessionsUnit: '{n} session Rekordbox | {n} sessions Rekordbox',
+    cutBadge: 'coupure',
+    cutRow: 'Rekordbox arrêté à {ended} — reprise à {resumed}',
+    usbBadge: 'import USB',
+    usbNote:
+      'Importé d’un historique USB/CDJ : l’ordre des titres est réel, les heures sont celles de l’import.',
+    overlapBadge: 'machine en parallèle',
+    overlapNote:
+      'Un autre ordinateur du même compte Rekordbox jouait sur le même créneau.',
+    rename: 'Renommer',
+    renameSave: 'Enregistrer',
+    hide: 'Masquer',
+    unhide: 'Rétablir',
+    exportCta: 'Créer la playlist Rekordbox',
+    exportDone: 'Playlist « {name} » créée dans le dossier « {folder} » — {n} titres.',
+    exportSpotify:
+      '{n} titre Spotify a été rétabli dans la collection et inclus. | {n} titres Spotify ont été rétablis dans la collection et inclus.',
+    exportRecovered:
+      '{n} titre supprimé localement a été récupéré en version streaming Spotify. | {n} titres supprimés localement ont été récupérés en version streaming Spotify.',
+    exportSkipped:
+      '{n} titre absent de la collection a été ignoré. | {n} titres absents de la collection ont été ignorés.',
+    spotifyPending: 'Titre Spotify (en attente)',
+    columns: {
+      time: 'Heure',
+      title: 'Titre',
     },
   },
   health: {

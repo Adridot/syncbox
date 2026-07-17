@@ -14,6 +14,7 @@ import {
 import DashboardScreen from '../screens/DashboardScreen.vue'
 import EventsScreen from '../screens/EventsScreen.vue'
 import HealthHubScreen from '../screens/HealthHubScreen.vue'
+import HistoryScreen from '../screens/HistoryScreen.vue'
 import LibraryScreen from '../screens/LibraryScreen.vue'
 import MissingCenterScreen from '../screens/MissingCenterScreen.vue'
 import SettingsScreen from '../screens/SettingsScreen.vue'
@@ -37,6 +38,7 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
       { path: '/', name: 'dashboard', component: DashboardScreen },
       { path: '/library', name: 'library', component: LibraryScreen },
       { path: '/events', name: 'events', component: EventsScreen },
+      { path: '/history', name: 'history', component: HistoryScreen },
       { path: '/health/:tab?', name: 'health', component: HealthHubScreen, props: true },
       {
         path: '/missing/:scope?',

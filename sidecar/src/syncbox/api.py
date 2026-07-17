@@ -50,6 +50,7 @@ from syncbox import (
     library_service,
     matching,
     missing_service,
+    performances,
     quality,
     readouts,
     repos,
@@ -60,9 +61,17 @@ from syncbox.library_service import ConflictError
 from syncbox.missing_service import AnlzConsentRequired
 from syncbox.platform_os import PermanentDeleteConsentRequired, delete_file
 from syncbox.rb import SnapshotCache, open_readonly
-from syncbox.rb_write import open_rekordbox, reassign_memberships, soft_delete_content
+from syncbox.rb_write import (
+    add_streaming_content,
+    create_plain_playlist,
+    ensure_playlist_folder,
+    open_rekordbox,
+    reactivate_content,
+    reassign_memberships,
+    soft_delete_content,
+)
 from syncbox.safety.backup import list_backups, restore_backup
-from syncbox.safety.mutate import StaleSnapshotError, mutate
+from syncbox.safety.mutate import StaleSnapshotError, fingerprint, mutate
 from syncbox.safety.paths import (
     SYNC_DIR_NAME,
     paths_equal,
@@ -2097,6 +2106,161 @@ def readouts_get(deps, request, body):
     }
 
 
+# --- performances (historique des prestations; owner-approved 17/07/2026) -----------
+
+
+def _performances_refresh(deps) -> dict:
+    """Read-only ingest from master.db - deliberately NOT process-guarded:
+    running while Rekordbox plays is the point (crash-proof live view)."""
+    if not deps.db_path:
+        raise ValueError("configure rekordbox_db_path in Settings first")
+    return performances.refresh(deps.conn, deps.db_path, deps.spotify_client)
+
+
+def performances_list(deps, request, body):
+    refresh_info = _performances_refresh(deps)
+    include_hidden = request.query_params.get("hidden") == "1"
+    return {
+        "performances": performances.list_performances(deps.conn, include_hidden),
+        **refresh_info,
+    }
+
+
+def performances_live(deps, request, body):
+    _performances_refresh(deps)
+    return performances.live_status(deps.conn)
+
+
+def performances_get(deps, request, body):
+    return performances.get_performance(
+        deps.conn, request.path_params["performance_id"]
+    )
+
+
+def performances_update(deps, request, body):
+    performance_id = request.path_params["performance_id"]
+    updates = {}
+    if "name" in body:
+        name = body["name"]
+        if name is not None and not isinstance(name, str):
+            raise ValueError("name must be a string or null")
+        updates["name"] = (name or "").strip() or None
+    if "hidden" in body:
+        if not isinstance(body["hidden"], bool):
+            raise ValueError("hidden must be a boolean")
+        updates["hidden"] = int(body["hidden"])
+    if not updates:
+        raise ValueError("nothing to update: send name and/or hidden")
+    assignments = ", ".join(f"{column} = ?" for column in updates)
+    cursor = deps.conn.execute(
+        f"UPDATE performances SET {assignments} WHERE id = ?",
+        (*updates.values(), performance_id),
+    )
+    if cursor.rowcount == 0:
+        raise KeyError(f"performance {performance_id} not found")
+    return performances.get_performance(deps.conn, performance_id)
+
+
+def performances_export_playlist(deps, request, body):
+    """Export a prestation as an ordered PLAIN playlist under the
+    'Historique' folder (owner request 17/07/2026) - the keep-this-set
+    archive. Standard write path: mutate guard, so Rekordbox must be
+    closed; the fingerprint comes from the live snapshot cache."""
+    _require_rekordbox(deps)
+    performance = performances.get_performance(
+        deps.conn, request.path_params["performance_id"]
+    )
+    # "YYYY-MM-DD - Name": the owner's existing convention inside the
+    # Historiques folder (e.g. "2024-01-13 - Rallye Fontainebleau #1"),
+    # which also keeps the folder chronologically sorted.
+    custom = (body.get("name") or "").strip() or performance["name"]
+    name = f"{performance['started_at'][:10]} - {custom or 'Prestation'}"
+    # Content states read directly (fingerprint taken FIRST, re-asserted by
+    # mutate): soft-deleted Spotify contents are revived into the playlist,
+    # soft-deleted local files stay out.
+    expected = fingerprint(deps.db_path)
+    content_ids = [t["content_id"] for t in performance["tracks"] if t["content_id"]]
+    states = {}
+    ro = open_readonly(deps.db_path)
+    try:
+        for chunk_start in range(0, len(content_ids), 500):
+            chunk = content_ids[chunk_start : chunk_start + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            for row_id, deleted, path in ro.execute(
+                f"SELECT ID, rb_local_deleted, FolderPath FROM djmdContent"
+                f" WHERE ID IN ({placeholders})",
+                chunk,
+            ):
+                states[str(row_id)] = {
+                    "deleted": bool(deleted),
+                    "spotify": str(path or "").startswith("spotify:track:"),
+                }
+    finally:
+        ro.close()
+    slots, duplicates = performances.export_plan(performance["tracks"], states)
+    # A missing local play may still be recoverable as a STREAMING reference
+    # (owner request 17/07: no audio, just the Spotify link) when Syncbox's
+    # own event/library mappings remember which Spotify track the deleted
+    # file came from.
+    links = performances.spotify_links(
+        deps.conn,
+        [s["content_id"] for s in slots if s["action"] == "missing" and s["content_id"]],
+    )
+    if not any(
+        s["action"] in ("keep", "revive")
+        or (s["action"] == "missing" and s["content_id"] in links)
+        for s in slots
+    ):
+        raise ConflictError(
+            "none of this performance's tracks are still in the collection"
+        )
+    cache = deps.cache()
+    revived = recovered = missing = 0
+    with mutate(
+        deps.db_path,
+        deps.backups_root,
+        retention=deps.retention,
+        expected_fingerprint=expected,
+        open_db=open_rekordbox,
+        invalidate_cache=cache.invalidate,
+        app_db_path=deps.app_db_path,
+        backup_reason="performance_export",
+    ) as db:
+        ordered = []
+        for slot in slots:
+            content_id = slot["content_id"]
+            if slot["action"] == "revive":
+                reactivate_content(db, content_id)
+                revived += 1
+            elif slot["action"] == "missing":
+                link = links.get(content_id)
+                if link is None:
+                    missing += 1
+                    continue
+                track_id, duration_ms = link
+                row = add_streaming_content(
+                    db, track_id, (duration_ms or 0) / 1000 or None
+                )
+                content_id = str(row.ID)
+                recovered += 1
+            if content_id in ordered:
+                duplicates += 1  # two deleted files mapping to one track
+                continue
+            ordered.append(content_id)
+        folder = ensure_playlist_folder(db, performances.EXPORT_FOLDER)
+        playlist = create_plain_playlist(db, name, folder.ID, ordered)
+        playlist_name = playlist.Name
+    return {
+        "playlist": playlist_name,
+        "folder": performances.EXPORT_FOLDER,
+        "tracks": len(ordered),
+        "spotify_revived": revived,
+        "spotify_recovered": recovered,
+        "skipped_duplicates": duplicates,
+        "skipped_missing": missing,
+    }
+
+
 # --- doctor (5.10/F9) ----------------------------------------------------------------
 
 
@@ -2359,6 +2523,15 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/events/{event_id:int}/apply", events_apply, ["POST"]),
         r("/api/events/{event_id:int}/reapply", events_reapply, ["POST"]),
         r("/api/events/{event_id:int}/delete", events_delete, ["POST"]),
+        r("/api/performances", performances_list, ["GET"]),
+        r("/api/performances/live", performances_live, ["GET"]),
+        r("/api/performances/{performance_id:int}", performances_get, ["GET"]),
+        r("/api/performances/{performance_id:int}", performances_update, ["PATCH"]),
+        r(
+            "/api/performances/{performance_id:int}/export-playlist",
+            performances_export_playlist,
+            ["POST"],
+        ),
         r("/api/missing/collection/{content_id}/relink", missing_relink, ["POST"]),
         r("/api/missing/collection/{content_id}/remove", missing_remove, ["POST"]),
         r("/api/missing/{scope}", missing_list, ["GET"]),

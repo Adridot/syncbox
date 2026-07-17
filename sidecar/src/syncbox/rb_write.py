@@ -271,6 +271,104 @@ def create_or_repair_smart_playlist(db, name: str, parent_id: str, tag_id: str):
     return row
 
 
+def create_plain_playlist(db, name: str, parent_id: str, content_ids):
+    """Ordered PLAIN playlist (Attribute=0) - the performance export
+    (owner-approved 17/07/2026). Unlike the event smart playlist, a name
+    collision is ' (n)'-suffixed, never repaired in place: two exports are
+    two snapshots of two gigs."""
+    from datetime import datetime
+
+    taken = {
+        row.Name
+        for row in db.query(tables.DjmdPlaylist).filter_by(ParentID=parent_id).all()
+        if not int(row.rb_local_deleted or 0)
+    }
+    final_name = name
+    suffix = 2
+    while final_name in taken:
+        final_name = f"{name} ({suffix})"
+        suffix += 1
+    now = datetime.now()
+    playlist_id = _new_id(db, tables.DjmdPlaylist)
+    row = tables.DjmdPlaylist.create(
+        ID=playlist_id,
+        Seq=db.get_playlist(ParentID=parent_id).count() + 1,
+        Name=final_name,
+        Attribute=0,
+        ParentID=parent_id,
+        SmartList=None,
+        UUID=str(uuid.uuid4()),
+        created_at=now,
+        updated_at=now,
+        **NEW_ROW_STATUS,
+    )
+    db.add(row)
+    if db.playlist_xml is not None:
+        db.playlist_xml.add(playlist_id, parent_id, 0, now)
+    for track_no, content_id in enumerate(content_ids, start=1):
+        db.add(
+            tables.DjmdSongPlaylist.create(
+                ID=_new_id(db, tables.DjmdSongPlaylist),
+                PlaylistID=playlist_id,
+                ContentID=str(content_id),
+                TrackNo=track_no,
+                UUID=str(uuid.uuid4()),
+                **NEW_ROW_STATUS,
+            )
+        )
+    db.flush()
+    return row
+
+
+def add_streaming_content(db, spotify_track_id: str, length_seconds=None):
+    """Spotify streaming content row (owner request 17/07/2026: recover a
+    locally-deleted play as a streaming reference, never audio). Modeled
+    byte-for-byte on the MINIMAL rows Rekordbox 7 itself writes for a
+    queued-but-never-analyzed Spotify track (observed on the real DB:
+    URI in FolderPath/FileNameL, FileType 25, DeliveryControl/HotCueAutoLoad
+    on, empty StreamingInfo, rb_data_status 262, NULL Title - Rekordbox
+    fills metadata from the service). An existing row for the same URI is
+    reused/reactivated, never duplicated."""
+    from datetime import datetime
+
+    uri = f"spotify:track:{spotify_track_id}"
+    existing = (
+        db.query(tables.DjmdContent).filter_by(FolderPath=uri).one_or_none()
+    )
+    if existing is not None:
+        if int(existing.rb_local_deleted or 0):
+            _apply(existing, reactivate_values())
+            db.flush()
+        return existing
+    prop = db.query(tables.DjmdProperty).first()
+    now = datetime.now()
+    content_id = _new_id(db, tables.DjmdContent)
+    row = tables.DjmdContent.create(
+        ID=content_id,
+        FolderPath=uri,
+        FileNameL=uri,
+        Length=int(length_seconds) if length_seconds else None,
+        FileType=25,
+        StockDate=now.strftime("%Y-%m-%d"),
+        MasterDBID=prop.DBID if prop else None,
+        MasterSongID=content_id,
+        HotCueAutoLoad="on",
+        DeliveryControl="on",
+        ExtInfo='{"StreamingInfo": {}}',
+        DeviceID=prop.DeviceID if prop else None,
+        UUID=str(uuid.uuid4()),
+        created_at=now,
+        updated_at=now,
+        rb_data_status=262,  # observed on every RB-written streaming row
+        rb_local_data_status=0,
+        rb_local_deleted=0,
+        rb_local_synced=0,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
 # --- content -----------------------------------------------------------------------
 
 _FILE_TYPE_BY_EXT = {
