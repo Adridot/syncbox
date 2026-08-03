@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
-from syncbox import api, appdb, repos
+from syncbox import api, appdb, repos, spotify
 from syncbox.platform_os import PermanentDeleteConsentRequired
 from syncbox.quality import QualityResult
 from syncbox.safety import backup, process_guard
@@ -462,7 +462,7 @@ def test_events_list_reports_pending_delta_badge(tmp_path):
     assert listing[0]["pending_delta"] == 1  # failed acquisition remains actionable
 
 
-def test_event_create_add_manual_track_and_detail(tmp_path):
+def test_event_create_add_manual_track_and_detail(tmp_path, monkeypatch):
     env = make_env(tmp_path)
     created = env.client.post("/api/events", json={"name": "Wedding Bash"})
     assert created.status_code == 201
@@ -476,29 +476,44 @@ def test_event_create_add_manual_track_and_detail(tmp_path):
     assert track.status_code == 201
     assert track.json()["status"] == "missing"
 
-    # Spotify-link addition without a connected client -> actionable 409.
+    # Spotify-link addition without a connected client: the shared resolver
+    # falls back to the anonymous oEmbed title instead of a 409.
+    monkeypatch.setattr(
+        spotify,
+        "_default_transport",
+        lambda url, data=None, headers=None, method="GET": (
+            200,
+            {},
+            b'{"title": "Anonymous Title"}',
+        ),
+    )
     no_client = env.client.post(
         f"/api/events/{event['id']}/tracks", json={"spotify_track_id": "x1"}
     )
-    assert no_client.status_code == 409
-    assert no_client.json()["error"] == "spotify_not_connected"
+    assert no_client.status_code == 201
+    assert no_client.json()["title"] == "Anonymous Title"
+    assert no_client.json()["artist"] is None  # oEmbed has no artist field
 
     detail = env.client.get(f"/api/events/{event['id']}").json()
-    assert len(detail["tracks"]) == 1
+    assert len(detail["tracks"]) == 2
     listing = env.client.get("/api/events").json()["events"]
-    assert listing[0]["n_tracks"] == 1
+    assert listing[0]["n_tracks"] == 2
     assert listing[0]["pending_delta"] == 0
 
 
 def test_event_add_track_via_spotify_metadata_d20(tmp_path):
     payloads = {
-        "/tracks/x1": {
-            "id": "x1",
-            "name": "Linked",
-            "artists": [{"name": "B"}],
-            "duration_ms": 111_000,
-            # D20: barcode must NEVER be used as an ISRC stand-in.
-            "external_ids": {"barcode": "0000", "isrc": "GBXXX7654321"},
+        "/tracks?ids=x1": {
+            "tracks": [
+                {
+                    "id": "x1",
+                    "name": "Linked",
+                    "artists": [{"name": "B"}],
+                    "duration_ms": 111_000,
+                    # D20: barcode must NEVER be used as an ISRC stand-in.
+                    "external_ids": {"barcode": "0000", "isrc": "GBXXX7654321"},
+                }
+            ]
         }
     }
     env = make_env(tmp_path, spotify_client=SimpleNamespace(get=lambda p: payloads[p]))
@@ -740,6 +755,25 @@ def test_duplicates_scan_verdicts_keeper_and_dismiss(tmp_path):
 
     env.client.post("/api/duplicates/dismiss", json={"group_key": group["key"]})
     assert env.client.post("/api/duplicates/scan").json()["groups"] == []
+
+
+def test_duplicates_scan_excludes_streaming_rows(tmp_path):
+    """An ISRC twin that is a streaming reference never joins a duplicate
+    group - there is no file to deduplicate."""
+    rows = _isrc_pair_rows() + [
+        rb_row(
+            "S",
+            isrc="USDUP0000001",
+            title=None,
+            artist=None,
+            file_path="spotify:track:190jyVPH",
+            spotify_track_id="190jyVPH",
+        )
+    ]
+    env = make_env(tmp_path, rows=rows)
+    scan = env.client.post("/api/duplicates/scan").json()
+    (group,) = scan["groups"]
+    assert sorted(m["content_id"] for m in group["members"]) == ["1", "2"]
 
 
 def test_duplicates_resolve_order_and_reentry(tmp_path, monkeypatch):
@@ -1754,6 +1788,29 @@ def test_missing_remove_blocked_is_423(tmp_path, monkeypatch):
     response = env.client.post("/api/missing/collection/1/remove")
     assert response.status_code == 423
     assert not env.deps.backups_root.exists()
+
+
+def test_streaming_rows_never_missing_removable_or_acquirable(tmp_path):
+    """A Spotify streaming row (file_missing=False from the snapshot) is
+    invisible to the collection Missing scope: absent from the list (so
+    the UI count self-corrects), remove refuses it, acquisition lookup
+    treats it as not found among missing entries."""
+    rows = [
+        rb_row("1", file_missing=True),
+        rb_row(
+            "S",
+            title=None,
+            artist=None,
+            file_path="spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+            spotify_track_id="4uLU6hMCjMI75M1A2tKUQC",
+        ),
+    ]
+    env = make_env(tmp_path, rows=rows)
+    entries = env.client.get("/api/missing/collection").json()["entries"]
+    assert [e["content_id"] for e in entries] == ["1"]
+    assert env.client.post("/api/missing/collection/S/remove").status_code == 409
+    with pytest.raises(KeyError, match="not found"):
+        api._acquisition_entry(env.deps, "collection", "S")
 
 
 def test_settings_g4_validation(tmp_path):

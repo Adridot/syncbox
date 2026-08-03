@@ -135,7 +135,8 @@ def sync_one_source(conn, spotify_client, cache, storage_root, source, **thresho
     rows = sync_source(
         previous,
         spotify_tracks,
-        cache.get(storage_root),
+        # streaming references can never be the local file a track needs
+        [r for r in cache.get(storage_root) if not r.get("spotify_track_id")],
         source["tags"],
         **thresholds,
     )

@@ -85,8 +85,10 @@ from syncbox.settings import DEFAULTS as SETTINGS_DEFAULTS
 from syncbox.settings import Settings, validate_directory
 from syncbox.spotify import (
     AUTHORIZATION_TIMEOUT_SECONDS,
+    SPOTIFY_TRACK_PREFIX,
     NotConnectedError,
     SpotifyApiError,
+    resolve_track_meta,
 )
 
 # Statuses a single-track re-match refuses to clobber: 'ignored' would
@@ -501,16 +503,25 @@ def _matching_thresholds(deps: Deps) -> dict:
 
 
 def _track_resolver(deps: Deps):
-    """Spotify metadata resolver for event track additions (11.1)."""
-    client = deps.spotify_client
-    if client is None:
-        raise NotConnectedError("no Spotify client configured")
+    """Spotify metadata resolver for event track additions (11.1), on the
+    shared spotify.resolve_track_meta ladder: without a session the add
+    still succeeds with the anonymous oEmbed title instead of a 409."""
 
     def resolve(spotify_track_id: str):
-        payload = client.get(f"/tracks/{spotify_track_id}")
-        # Reuse the library mapper so D20 (external_ids.isrc ONLY, never the
-        # barcode tag) lives in exactly one place.
-        return library_service._spotify_track({"track": payload})
+        meta = resolve_track_meta([spotify_track_id], deps.spotify_client).get(
+            spotify_track_id
+        )
+        if meta is None:
+            return None
+        # library_service._spotify_track shape; duration/isrc are absent
+        # from oEmbed results and stay nullable (add_track tolerates that).
+        return {
+            "spotify_track_id": spotify_track_id,
+            "title": meta.get("title"),
+            "artist": meta.get("artist"),
+            "duration_ms": meta.get("duration_ms"),
+            "isrc": meta.get("isrc"),
+        }
 
     return resolve
 
@@ -705,7 +716,12 @@ def track_candidates(deps, request, body):
             "duration_ms": track["duration_ms"],
             "isrc": track["isrc"],
         },
-        deps.cache().get(deps.storage_root),
+        # streaming references can never be the local file a track needs
+        [
+            r
+            for r in deps.cache().get(deps.storage_root)
+            if not r.get("spotify_track_id")
+        ],
         weights=thresholds["weights"],
         isrc_collision_policy=thresholds["isrc_collision_policy"],
     )
@@ -765,7 +781,12 @@ def track_rematch(deps, request, body):
             "duration_ms": track["duration_ms"],
             "isrc": track["isrc"],
         },
-        deps.cache().get(deps.storage_root),
+        # streaming references can never be the local file a track needs
+        [
+            r
+            for r in deps.cache().get(deps.storage_root)
+            if not r.get("spotify_track_id")
+        ],
         **_matching_thresholds(deps),
     )
     deps.conn.execute(
@@ -1725,7 +1746,8 @@ def duplicates_scan(deps, request, body):
     suggested with its D6 reason. Progress = members analyzed (real units)."""
     _require_rekordbox(deps)
     cache = deps.cache()
-    rows = cache.get(deps.storage_root)
+    # streaming references have no file: never duplicate-group members
+    rows = [r for r in cache.get(deps.storage_root) if not r.get("spotify_track_id")]
     groups = dedup.find_duplicate_groups(rows, repos.list_dismissed_groups(deps.conn))
     by_id = {row["content_id"]: row for row in rows}
     progress = _Progress(deps.bus, "duplicates.scan")
@@ -2193,7 +2215,7 @@ def performances_export_playlist(deps, request, body):
             ):
                 states[str(row_id)] = {
                     "deleted": bool(deleted),
-                    "spotify": str(path or "").startswith("spotify:track:"),
+                    "spotify": str(path or "").startswith(SPOTIFY_TRACK_PREFIX),
                 }
     finally:
         ro.close()

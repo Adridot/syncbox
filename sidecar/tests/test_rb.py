@@ -179,6 +179,55 @@ def test_snapshot_exposes_ownership_without_legacy_protection(monkeypatch, tmp_p
     assert conn.closed
 
 
+def test_snapshot_recognizes_spotify_streaming_rows(monkeypatch, tmp_path):
+    """A spotify:track: row is streaming: id extracted, never file-missing,
+    no resolved path, obfuscated $A metadata scrubbed to NULL. A plain
+    absent-file row keeps today's missing semantics untouched."""
+
+    def content_row(content_id, title, artist, remixer, path):
+        return (
+            content_id, title, artist, remixer, 200, None, 320, path,
+            "8A", "House", 0, None, "2026-07-11 12:00:00", 0, 1,
+            44_100, 16, 0, 1,
+        )
+
+    class Connection:
+        def execute(self, sql):
+            if sql == rb._CONTENT_SQL:
+                return [
+                    content_row(
+                        "stream",
+                        "$A7:v1:gC6c4LVN1cg==:VlwFYF4A",
+                        "$A7:v1:aXrtIsT==:x",
+                        "$A7:v1:reMix==:y",
+                        "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+                    ),
+                    content_row(
+                        "gone", "Local Title", "Local Artist", None,
+                        str(tmp_path / "absent.aiff"),
+                    ),
+                ]
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rb, "open_readonly", lambda _db: Connection())
+    rows = {r["content_id"]: r for r in rb.load_snapshot(tmp_path / "m.db", tmp_path)}
+
+    stream = rows["stream"]
+    assert stream["spotify_track_id"] == "4uLU6hMCjMI75M1A2tKUQC"
+    assert stream["file_missing"] is False
+    assert stream["resolved_path"] is None
+    assert stream["title"] is None and stream["artist"] is None
+    assert stream["remixer"] is None
+
+    gone = rows["gone"]  # regression: plain absent file stays missing
+    assert gone["spotify_track_id"] is None
+    assert gone["file_missing"] is True
+    assert gone["title"] == "Local Title" and gone["artist"] == "Local Artist"
+
+
 # --- integration on the real fixture -------------------------------------------
 
 

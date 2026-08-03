@@ -24,6 +24,7 @@ from pyrekordbox.db6.smartlist import LogicalOperator, Operator, SmartList
 
 from syncbox.safety.paths import stored_form
 from syncbox.safety.statuses import reactivate_values, soft_delete_values
+from syncbox.spotify import SPOTIFY_TRACK_PREFIX
 
 NEW_ROW_STATUS = {
     "rb_data_status": 256,
@@ -382,7 +383,7 @@ def add_streaming_content(db, spotify_track_id: str, length_seconds=None):
     reused/reactivated, never duplicated."""
     from datetime import datetime
 
-    uri = f"spotify:track:{spotify_track_id}"
+    uri = SPOTIFY_TRACK_PREFIX + spotify_track_id
     existing = (
         db.query(tables.DjmdContent).filter_by(FolderPath=uri).one_or_none()
     )
