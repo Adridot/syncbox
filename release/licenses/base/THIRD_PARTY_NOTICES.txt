@@ -43,6 +43,8 @@ Dependency inventory
 - [javascript] @intlify/message-compiler 11.4.6 — MIT — https://registry.npmjs.org/@intlify/message-compiler/-/message-compiler-11.4.6.tgz
 - [javascript] @intlify/shared 11.4.6 — MIT — https://registry.npmjs.org/@intlify/shared/-/shared-11.4.6.tgz
 - [javascript] @jridgewell/sourcemap-codec 1.5.5 — MIT — https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz
+- [javascript] @tanstack/virtual-core 3.17.7 — MIT — https://registry.npmjs.org/@tanstack/virtual-core/-/virtual-core-3.17.7.tgz
+- [javascript] @tanstack/vue-virtual 3.13.35 — MIT — https://registry.npmjs.org/@tanstack/vue-virtual/-/vue-virtual-3.13.35.tgz
 - [javascript] @tauri-apps/api 2.11.1 — Apache-2.0 OR MIT — https://registry.npmjs.org/@tauri-apps/api/-/api-2.11.1.tgz
 - [javascript] @tauri-apps/plugin-dialog 2.7.1 — MIT OR Apache-2.0 — https://registry.npmjs.org/@tauri-apps/plugin-dialog/-/plugin-dialog-2.7.1.tgz
 - [javascript] @tauri-apps/plugin-opener 2.5.4 — MIT OR Apache-2.0 — https://registry.npmjs.org/@tauri-apps/plugin-opener/-/plugin-opener-2.5.4.tgz

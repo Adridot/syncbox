@@ -214,7 +214,7 @@ def test_frozen_distributions_must_match_locked_and_inventoried_versions(tmp_pat
 
 def test_license_bundles_are_complete_and_policy_reviewed():
     scanner = _load_scanner()
-    expected = {"base": (321, 588), "optional": (47, 87)}
+    expected = {"base": (323, 590), "optional": (47, 87)}
     for target, (entries, files) in expected.items():
         result = scanner.validate_license_bundle(
             REPO / f"release/licenses/{target}", target

@@ -28,7 +28,8 @@ import {
   isRematchable,
   isReview,
 } from '../lib/library'
-import { sameData, useRefreshOnReturn } from '../lib/refresh'
+import { useRefreshOnReturn } from '../lib/refresh'
+import { useVirtualRows } from '../lib/virtualRows'
 import { useSpotifyConnect } from '../lib/useSpotifyConnect'
 import { useHealthStore } from '../stores/health'
 import { useJobsStore } from '../stores/jobs'
@@ -86,15 +87,13 @@ async function load() {
     list.forEach((source, index) => {
       nextTracks[source.id] = results[index].tracks
     })
-    // unchanged payload → no ref swap: a silent refresh must not re-render
-    // the whole (large) table just to show identical rows (owner 16/07:
-    // visible lag when reopening the screen)
-    if (!sameData([list, nextTracks], [sources.value, tracksBySource])) {
-      sources.value = list
-      for (const key of Object.keys(tracksBySource))
-        if (!(key in nextTracks)) delete tracksBySource[key as unknown as number]
-      Object.assign(tracksBySource, nextTracks)
-    }
+    // windowed table: swapping the refs re-patches only the ~viewport rows,
+    // keyed by stable ids — an identical payload causes zero DOM mutation,
+    // so no whole-payload compare is needed (design Decision 2)
+    sources.value = list
+    for (const key of Object.keys(tracksBySource))
+      if (!(key in nextTracks)) delete tracksBySource[key as unknown as number]
+    Object.assign(tracksBySource, nextTracks)
     health.setLibraryReviewCount(allTracks.value.filter(isReview).length)
     if (firstLoad) {
       firstLoad = false
@@ -120,6 +119,13 @@ const scopedTracks = computed(() =>
   selectedSource.value === 'all' ? allTracks.value : (tracksBySource[selectedSource.value] ?? []),
 )
 const visibleTracks = computed(() => filterByChip(scopedTracks.value, filter.value))
+
+// windowed table body: only ~viewport rows are in the DOM (ui-performance)
+const tableBodyEl = ref<HTMLElement | null>(null)
+const { rowItems, totalSize, measure, rowStyle } = useVirtualRows(
+  () => visibleTracks.value,
+  tableBodyEl,
+)
 
 const reviewCounts = computed(() => {
   const counts: Record<number, number> = {}
@@ -469,12 +475,16 @@ async function onSourceAdded(source: Source) {
             <span>{{ t('library.columns.status') }}</span>
             <span class="cell-actions" />
           </div>
-          <div class="table-body">
+          <div ref="tableBodyEl" class="table-body">
+            <div v-if="visibleTracks.length" class="v-rows" :style="{ height: `${totalSize}px` }">
             <div
-              v-for="track in visibleTracks"
+              v-for="{ item, row: track } in rowItems"
               :key="track.id"
+              :ref="measure"
+              :data-index="item.index"
               class="row hover-reveal"
               :data-selected="selection.has(track.id)"
+              :style="rowStyle(item)"
             >
               <span class="cell-check">
                 <input
@@ -565,7 +575,8 @@ async function onSourceAdded(source: Source) {
                 </button>
               </span>
             </div>
-            <div v-if="!visibleTracks.length" class="table-empty">
+            </div>
+            <div v-else class="table-empty">
               <div class="empty-glyph">✓</div>
               <div class="empty-title">{{ t('library.tableEmptyTitle') }}</div>
               <p class="empty-body">{{ t('library.tableEmptyBody') }}</p>
@@ -1007,6 +1018,17 @@ h1 {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+/* windowing: rows are absolutely positioned inside a wrapper sized to the
+   full list — the row markup and classes themselves are untouched */
+.v-rows {
+  position: relative;
+}
+.v-rows > .row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 .cell-check {
   width: 26px;
