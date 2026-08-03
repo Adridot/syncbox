@@ -392,36 +392,38 @@ async function toggleHidden() {
               <span class="cell-time">{{ t('history.columns.time') }}</span>
               <span class="cell-title">{{ t('history.columns.title') }}</span>
             </div>
-            <template v-for="(row, index) in displayRows" :key="row.track.uuid">
-              <div v-if="row.cut" class="cut-row">
-                ⚡
-                {{
-                  t('history.cutRow', {
-                    ended: fmtTime(row.cut.ended),
-                    resumed: fmtTime(row.cut.resumed),
-                  })
-                }}
-              </div>
-              <div class="row">
-                <span class="cell-time mono">
-                  <span class="track-no">{{ index + 1 }}</span>
-                  {{ selected.bulk_import ? '—' : fmtTime(row.track.played_at) }}
-                </span>
-                <div class="cell-title">
-                  <div class="row-title-line">
-                    <span class="row-title" :data-pending="!row.track.title">
-                      {{ row.track.title ?? t('history.spotifyPending') }}
-                    </span>
-                    <SpotifyAttributionLink
-                      v-if="row.track.spotify_track_id"
-                      kind="track"
-                      :spotify-id="row.track.spotify_track_id"
-                    />
-                  </div>
-                  <div class="row-artist">{{ row.track.artist }}</div>
+            <div class="table-body">
+              <template v-for="(row, index) in displayRows" :key="row.track.uuid">
+                <div v-if="row.cut" class="cut-row">
+                  ⚡
+                  {{
+                    t('history.cutRow', {
+                      ended: fmtTime(row.cut.ended),
+                      resumed: fmtTime(row.cut.resumed),
+                    })
+                  }}
                 </div>
-              </div>
-            </template>
+                <div class="row">
+                  <span class="cell-time mono">
+                    <span class="track-no">{{ index + 1 }}</span>
+                    {{ selected.bulk_import ? '—' : fmtTime(row.track.played_at) }}
+                  </span>
+                  <div class="cell-title">
+                    <div class="row-title-line">
+                      <span class="row-title" :data-pending="!row.track.title">
+                        {{ row.track.title ?? t('history.spotifyPending') }}
+                      </span>
+                      <SpotifyAttributionLink
+                        v-if="row.track.spotify_track_id"
+                        kind="track"
+                        :spotify-id="row.track.spotify_track_id"
+                      />
+                    </div>
+                    <div class="row-artist">{{ row.track.artist }}</div>
+                  </div>
+                </div>
+              </template>
+            </div>
           </div>
         </section>
       </div>
@@ -434,8 +436,14 @@ async function toggleHidden() {
   padding: var(--screen-padding);
   max-width: var(--content-max-width);
   margin: 0 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
 }
 .head {
+  flex: none;
   margin-bottom: 22px;
 }
 h1 {
@@ -452,6 +460,7 @@ h1 {
   font-family: var(--font-mono);
 }
 .live-banner {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -488,6 +497,7 @@ h1 {
   }
 }
 .toolbar {
+  flex: none;
   display: flex;
   gap: 7px;
   margin-bottom: 14px;
@@ -517,12 +527,13 @@ h1 {
 .split {
   display: flex;
   gap: 14px;
-  align-items: flex-start;
+  flex: 1;
+  min-height: 0;
 }
 .list {
   flex: none;
   width: 300px;
-  max-height: 70vh;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -594,6 +605,9 @@ h1 {
 .workspace {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -603,6 +617,7 @@ h1 {
   border-color: rgba(52, 211, 153, 0.4);
 }
 .ws-head {
+  flex: none;
   display: flex;
   align-items: flex-start;
   gap: 11px;
@@ -661,6 +676,7 @@ h1 {
   color: var(--accent-hover);
 }
 .banner {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -705,7 +721,14 @@ h1 {
   cursor: pointer;
   padding: 0 2px;
 }
+.table {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .table-head {
+  flex: none;
   display: flex;
   gap: 14px;
   padding: 9px 18px;
@@ -715,6 +738,11 @@ h1 {
   letter-spacing: 0.06em;
   color: var(--text-muted);
   font-weight: 600;
+}
+.table-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .row {
   display: flex;
