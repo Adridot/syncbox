@@ -1,10 +1,10 @@
 {
   "architecture": "arm64",
-  "archive": "syncbox-deezer-component-0.5.0-macos-arm64.zip",
+  "archive": "syncbox-deezer-component-0.6.0-macos-arm64.zip",
   "certifi_version": "2026.6.17",
   "component": "syncbox-deezer-component",
-  "component_version": "0.5.0",
-  "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.5.0/syncbox-deezer-component-0.5.0-macos-arm64.zip",
+  "component_version": "0.6.0",
+  "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.6.0/syncbox-deezer-component-0.6.0-macos-arm64.zip",
   "executable": "syncbox-deezer-component",
   "pillow_version": "10.4.0",
   "pillow_wheel": "pillow-10.4.0-cp313-cp313-macosx_11_0_arm64.whl",
@@ -13,8 +13,8 @@
   "python_version": "3.13.11",
   "root": "syncbox-deezer-component",
   "schema": 1,
-  "sha256": "fdec1abff70395cb4947f7e667f5a5a9f0aaa759799418a5ef67d6757e80d020",
-  "size": 17465922,
+  "sha256": "ab9c8c8488dc9924b0bb4e9318792f79e70f8199e6581d55e282318b336b7465",
+  "size": 17342497,
   "streamrip_commit": "189acda489927719aa8591f6acdd7d67aecf929b",
   "streamrip_version": "2.2.0"
 }

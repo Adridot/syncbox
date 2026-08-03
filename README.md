@@ -3,7 +3,7 @@
 **Keep your Rekordbox collection clean, matched, and gig-ready — with guarded
 writes and automatic backups.**
 
-Current source version: **0.5.0**
+Current source version: **0.6.0**
 
 Syncbox is a macOS desktop app for DJs who prepare sets with Spotify and
 perform with [Rekordbox](https://rekordbox.com). It bridges the two: it reads
@@ -77,8 +77,8 @@ Syncbox write to Rekordbox goes through a single guarded pipeline:
 
 ## Install (macOS, Apple Silicon)
 
-1. Download `Syncbox-0.5.0-macos-arm64.zip` from the
-   [v0.5.0 GitHub Release](https://github.com/Adridot/syncbox/releases/tag/v0.5.0),
+1. Download `Syncbox-0.6.0-macos-arm64.zip` from the
+   [v0.6.0 GitHub Release](https://github.com/Adridot/syncbox/releases/tag/v0.6.0),
    then unzip it.
 2. The current app is ad-hoc signed, not signed with an Apple Developer ID and
    not notarized. Launch it once. If macOS blocks an artifact you trust, open
@@ -166,8 +166,10 @@ docstring says how to run it.
 
 ## Status & roadmap
 
-Current source and release version: **0.5.0**. This release adds performance
-history, live played-track monitoring, and guarded Rekordbox playlist export.
+Current source and release version: **0.6.0**. This release integrates native
+macOS window chrome with the dark application shell, adds reliable top-edge
+window dragging and selective text selection, and preserves download filenames
+plus embedded and Rekordbox metadata.
 The macOS 14+ Apple Silicon release workflow keeps the scanner, isolated-root
 reproducibility, component-pin, and test gates. The app is ad-hoc signed
 without a Developer ID or notarization.
@@ -181,7 +183,7 @@ without a Developer ID or notarization.
 - **Optional acquisition** — purchase links remain first. Deezer acquisition
   is explicit, disabled by default, requires a Premium credential stored only
   in the encrypted secret store. Local archive installation is validated; the
-  hash-pinned online component path uses the matching `v0.5.0` GitHub Release
+  hash-pinned online component path uses the matching `v0.6.0` GitHub Release
   asset. SoundCloud and ffmpeg are not exposed.
 - **Later** — local-library audio preview, fingerprint-based duplicate
   detection (Chromaprint), ISRC enrichment.
