@@ -41,6 +41,5 @@ sidecar/tests/testdata/**
 /opencode.jsonc
 
 # Local work-in-progress artifacts
-/openspec/changes/optimize-memory-and-navigation/
 /openspec/changes/unify-history-split-layout/
 /poc/

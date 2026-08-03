@@ -33,6 +33,7 @@ import {
 } from '../lib/acquisition'
 import { useRefreshOnReturn } from '../lib/refresh'
 import { extractTrackId } from '../lib/spotify'
+import { useVirtualRows } from '../lib/virtualRows'
 import { revealInFolder } from '../shell'
 import { useHealthStore } from '../stores/health'
 import { useJobsStore } from '../stores/jobs'
@@ -107,6 +108,14 @@ const selectedTracks = computed(() =>
 const baseApplied = computed(() => (selected.value ? isBaseApplied(selected.value.status) : false))
 const counts = computed(() => eventCounts(selectedTracks.value, baseApplied.value))
 const visibleTracks = computed(() => filterEventTracks(selectedTracks.value, filter.value))
+
+// windowed tracklist: the page scrolls in App's .main (nearest scrollable
+// ancestor), resolved by the wrapper; only ~viewport rows are in the DOM
+const rowsEl = ref<HTMLElement | null>(null)
+const { rowItems, totalSize, measure, rowStyle } = useVirtualRows(
+  () => visibleTracks.value,
+  rowsEl,
+)
 const showApply = computed(() => selected.value && (!baseApplied.value || counts.value.pending > 0))
 
 const cardMeta = computed(() => {
@@ -597,11 +606,15 @@ async function onWriteDone() {
             <span class="cell-conf">{{ t('events.columns.conf') }}</span>
             <span class="cell-actions">{{ t('events.columns.action') }}</span>
           </div>
+          <div v-if="visibleTracks.length" ref="rowsEl" class="v-rows" :style="{ height: `${totalSize}px` }">
           <div
-            v-for="track in visibleTracks"
+            v-for="{ item, row: track } in rowItems"
             :key="track.id"
+            :ref="measure"
+            :data-index="item.index"
             class="row hover-reveal"
             :data-pending="track.added_after_apply === 1"
+            :style="rowStyle(item)"
           >
             <div class="cell-title">
               <div class="row-title-line">
@@ -674,7 +687,8 @@ async function onWriteDone() {
               </button>
             </span>
           </div>
-          <div v-if="!visibleTracks.length" class="table-empty">
+          </div>
+          <div v-else class="table-empty">
             {{ t('events.filterEmpty') }}
           </div>
         </div>
@@ -1125,6 +1139,17 @@ h1 {
   letter-spacing: 0.06em;
   color: var(--text-muted);
   font-weight: 600;
+}
+/* windowing: rows are absolutely positioned inside a wrapper sized to the
+   full list — the row markup and classes themselves are untouched */
+.v-rows {
+  position: relative;
+}
+.v-rows > .row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 .row {
   display: flex;
