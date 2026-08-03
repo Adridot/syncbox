@@ -1,5 +1,15 @@
 /* Minimal app-wide base — everything else is component-scoped. */
 
+:root {
+  color-scheme: dark;
+}
+
+@supports (scrollbar-color: auto) {
+  :root {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -27,6 +37,23 @@ body {
 
 button {
   font: inherit;
+}
+
+/* Desktop chrome and action controls should behave like native controls: a
+   pointer drag must not highlight their labels. Keep this selective rather
+   than applying it to the application root so useful content remains
+   copyable. The prefixed property covers the WKWebView compatibility alias. */
+.sidebar,
+button,
+a,
+label,
+select,
+[role='button'],
+[role='tab'],
+[role='menuitem'],
+[role='option'] {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Shared control vocabulary (SPEC-DESIGN §7.3) — one definition per tone,
@@ -124,6 +151,15 @@ select {
   padding: 8px 11px;
   font: inherit;
   font-size: 13px;
+}
+input[type='text'],
+input[type='number'],
+input[type='search'],
+input[type='url'],
+input[type='password'],
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 input[type='text']:focus-visible,
 input[type='number']:focus-visible,

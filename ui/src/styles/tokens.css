@@ -17,6 +17,7 @@
   --text-secondary-bright: #cdd5e1;
   --text-muted: #5f6b7d;
   --text-muted-bright: #7a8699;
+  --scrollbar-thumb: var(--text-muted);
 
   --accent: #4da3ff; /* azure: primary actions, active nav, matched */
   --accent-hover: #7cc0ff;
@@ -64,6 +65,8 @@
   --content-max-width-narrow: 760px;
   --row-padding-y: 11px;
   --control-min-height: 28px;
+  --top-chrome-height: 52px;
+  --traffic-light-clearance: 80px;
   --shadow-overlay: 0 8px 28px rgba(0, 0, 0, 0.5);
 
   /* §7.4 motion — no purely decorative animation */

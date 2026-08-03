@@ -82,7 +82,7 @@ const isActive = (name: string) => route.name === name
   border-right: 1px solid var(--border-subtle-2);
   display: flex;
   flex-direction: column;
-  padding: 14px 12px;
+  padding: var(--top-chrome-height) 12px 14px;
   flex: none;
   height: 100vh;
   position: sticky;
