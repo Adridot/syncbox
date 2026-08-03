@@ -315,6 +315,7 @@ async def _download(
     config.session.downloads.max_connections = 1
     config.session.downloads.verify_ssl = True
     config.session.filepaths.add_singles_to_folder = False
+    config.session.filepaths.track_format = "{artist} - {title}"
     config.session.artwork.embed = True
     config.session.artwork.embed_size = "large"
     config.session.artwork.embed_max_width = -1
@@ -371,6 +372,8 @@ async def _download(
     audio = component["MutagenFile"](output_path)
     if audio is None or getattr(audio, "info", None) is None:
         raise PocFailed("downloaded_file_scan_failed")
+    easy_audio = component["MutagenFile"](output_path, easy=True)
+    metadata = _embedded_metadata(easy_audio, track.meta)
     measured_duration = float(getattr(audio.info, "length", 0.0))
     # "full track" means NOT the 30 s preview — nothing more. Deezer's
     # catalogue duration routinely disagrees with the delivered audio
@@ -402,7 +405,40 @@ async def _download(
         "quality": int(track.downloadable.quality),
         "output_filename": output_path.name,
         "output_path_source": "track.download_path",
+        **metadata,
         **artwork,
+    }
+
+
+def _embedded_metadata(audio, expected) -> dict[str, object]:
+    tags = getattr(audio, "tags", None)
+    if not tags:
+        raise PocFailed("downloaded_file_metadata_missing")
+
+    def first(key: str) -> str | None:
+        values = tags.get(key) or ()
+        value = str(values[0]).strip() if values else ""
+        return value or None
+
+    required = {
+        "title": expected.title,
+        "artist": expected.artist,
+        "album": expected.album.album,
+        "albumartist": expected.album.albumartist,
+        "isrc": expected.isrc,
+    }
+    for key, value in required.items():
+        if value is not None and first(key) != str(value):
+            raise PocFailed(f"downloaded_file_metadata_{key}_missing")
+    for key, value in (
+        ("tracknumber", expected.tracknumber),
+        ("discnumber", expected.discnumber),
+    ):
+        if (first(key) or "").split("/", 1)[0] != str(value):
+            raise PocFailed(f"downloaded_file_metadata_{key}_missing")
+    return {
+        "metadata_embedded": True,
+        "metadata_fields": sorted(key for key in tags if tags.get(key)),
     }
 
 

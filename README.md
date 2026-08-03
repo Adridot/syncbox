@@ -3,6 +3,8 @@
 **Keep your Rekordbox collection clean, matched, and gig-ready — with guarded
 writes and automatic backups.**
 
+Current source version: **0.5.0**
+
 Syncbox is a macOS desktop app for DJs who prepare sets with Spotify and
 perform with [Rekordbox](https://rekordbox.com). It bridges the two: it reads
 your Spotify playlists, matches them against your Rekordbox collection, writes
