@@ -30,3 +30,17 @@ sidecar/tests/testdata/**
 
 # Local agent tooling artifacts
 .playwright-mcp/
+# Added by code-review-graph
+.code-review-graph/
+/.claude/
+/.codex/
+/.github/code-review-graph.instruction.md
+/.mcp.json
+/AGENTS.md
+/CLAUDE.md
+/opencode.jsonc
+
+# Local work-in-progress artifacts
+/openspec/changes/optimize-memory-and-navigation/
+/openspec/changes/unify-history-split-layout/
+/poc/
