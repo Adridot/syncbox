@@ -1,6 +1,6 @@
 {
   "artifact": "optional",
-  "artifact_version": "0.5.0",
+  "artifact_version": "0.6.0",
   "entries": [
     {
       "ecosystem": "bundled-native",
@@ -1182,8 +1182,8 @@
   "inputs": {
     "cargo_lock_sha256": null,
     "pnpm_lock_sha256": null,
-    "python_lock_sha256": "595d6f477c6e74be259be656d7a00dd7047bf3b3e609cce6543e35c59b3b3360",
-    "release_build_sha256": "28c0b151d343e5dab6563175f8eb3f51ab382482966c22a19783efe8e5b5a653"
+    "python_lock_sha256": "249da100f2fc7d44c5982c781afd0ddbc56b4d80718b7ff9a118ddb781fb5b19",
+    "release_build_sha256": "31ef1d674b984c614ea116255f48a3c8a2727219d5bc191282d97b8a64294d10"
   },
   "project": {
     "assets": [],

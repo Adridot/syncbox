@@ -127,7 +127,7 @@ def _fixture(root: Path, mtime: int) -> Path:
 
 
 def test_tree_archives_are_identical_across_roots_and_metadata(monkeypatch, tmp_path):
-    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1784246400")
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1785715200")
     first_tree = _fixture(tmp_path / "first-root", 1_700_000_000)
     second_tree = _fixture(tmp_path / "second-root-with-a-longer-name", 1_750_000_000)
     first_archive = tmp_path / "first.zip"
@@ -149,7 +149,7 @@ def test_tree_archives_are_identical_across_roots_and_metadata(monkeypatch, tmp_
             "payload/empty/",
             "payload/link",
         ]
-        assert {info.date_time for info in infos} == {(2026, 7, 17, 0, 0, 0)}
+        assert {info.date_time for info in infos} == {(2026, 8, 3, 0, 0, 0)}
         modes = {
             info.filename: stat.S_IMODE(info.external_attr >> 16) for info in infos
         }
@@ -217,11 +217,11 @@ def test_release_environment_uses_stable_source_metadata(monkeypatch):
         monkeypatch.setenv(name, value)
     metadata = json.loads((REPO / "release-build.json").read_text())
     assert metadata["schema"] == 1
-    assert metadata["source_date_epoch"] == 1784246400
+    assert metadata["source_date_epoch"] == 1785715200
     assert metadata["release"] == {
         "source_date_epoch_basis": "versioned-release-metadata",
-        "source_date_epoch_utc": "2026-07-17T00:00:00Z",
-        "version": "0.5.0",
+        "source_date_epoch_utc": "2026-08-03T00:00:00Z",
+        "version": "0.6.0",
     }
     assert metadata["toolchain"]["rustc"].startswith("rustc 1.96.1 ")
     assert metadata["toolchain"]["node"] == "v24.13.0"
@@ -230,7 +230,7 @@ def test_release_environment_uses_stable_source_metadata(monkeypatch):
     )
 
     environment = _load_release_builder()._release_environment()
-    assert environment["SOURCE_DATE_EPOCH"] == "1784246400"
+    assert environment["SOURCE_DATE_EPOCH"] == "1785715200"
     assert environment["PYTHONDONTWRITEBYTECODE"] == "1"
     assert environment["PYTHONHASHSEED"] == "0"
     assert environment["PYTHONNOUSERSITE"] == "1"
@@ -424,7 +424,7 @@ def test_architecture_gate_accepts_only_arm64(monkeypatch):
 
 
 def test_artifact_comparator_reports_entry_level_mismatch(monkeypatch, tmp_path):
-    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1784246400")
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1785715200")
     comparator = _load_artifact_comparator()
     first_tree = _fixture(tmp_path / "first", 1_700_000_000)
     second_tree = _fixture(tmp_path / "second", 1_700_000_000)
