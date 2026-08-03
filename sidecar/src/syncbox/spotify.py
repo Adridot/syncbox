@@ -41,6 +41,30 @@ AUTHORIZATION_TIMEOUT_SECONDS = 120
 ACCESS_TOKEN = "spotify.access_token"
 REFRESH_TOKEN = "spotify.refresh_token"
 
+# THE canonical streaming-reference prefix: every site that detects or
+# parses a Rekordbox Spotify reference goes through these two names.
+SPOTIFY_TRACK_PREFIX = "spotify:track:"
+
+# Anonymous title fallback when no Spotify session exists: the public oEmbed
+# endpoint returns the track title (no artist field) without any token.
+_OEMBED_URL = "https://open.spotify.com/oembed?url=https://open.spotify.com/track/"
+_OEMBED_BATCH = 50  # per call; leftovers retry on the caller's next pass
+
+
+def spotify_id_from_path(path) -> str | None:
+    """'spotify:track:<id>' -> '<id>'; None for anything else (incl. None)."""
+    text = str(path) if path is not None else ""
+    if not text.startswith(SPOTIFY_TRACK_PREFIX):
+        return None
+    return text[len(SPOTIFY_TRACK_PREFIX):] or None
+
+
+def scrub_obfuscated(text):
+    """Rekordbox obfuscates streaming metadata as '$A7:v1:...' - store NULL."""
+    if not text or str(text).startswith("$A"):
+        return None
+    return text
+
 
 class SpotifyApiError(RuntimeError):
     def __init__(self, status_code: int, message: str, error_code: str | None = None):
@@ -261,3 +285,50 @@ class SpotifyClient:
                 raise SpotifyApiError(status, f"Spotify API error {status}")
             return json.loads(body)
         raise SpotifyApiError(429, "rate limited after retries")
+
+
+def resolve_track_meta(ids, client, transport=None) -> dict:
+    """Spotify track ids -> {id: {"title", "artist", ...}}, the one shared
+    resolution ladder (Prestations history, event track additions):
+    - a session -> batched GET /tracks (API cap: 50 ids/call), title AND
+      artist, plus duration_ms/isrc for consumers that keep them;
+    - no session, or the API ladder failing -> the anonymous oEmbed
+      endpoint, title only, at most _OEMBED_BATCH ids; a network error
+      stops that loop silently.
+    Best-effort: never raises, unresolved ids are absent from the result
+    (partial API batches keep their resolved prefix), callers retry later."""
+    ids = [track_id for track_id in ids if track_id]
+    out = {}
+    if client is not None:
+        try:
+            for start in range(0, len(ids), 50):
+                chunk = ids[start : start + 50]
+                payload = client.get("/tracks?ids=" + ",".join(chunk))
+                for track in payload.get("tracks") or []:
+                    if not track:
+                        continue
+                    out[track.get("id")] = {
+                        "title": track.get("name"),
+                        "artist": ", ".join(
+                            a.get("name", "") for a in track.get("artists", [])
+                        )
+                        or None,
+                        "duration_ms": track.get("duration_ms"),
+                        # D20: external_ids.isrc ONLY - never the barcode tag.
+                        "isrc": (track.get("external_ids") or {}).get("isrc"),
+                    }
+            return out
+        except (NotConnectedError, SpotifyApiError):
+            pass  # fall through to the anonymous title-only ladder
+    transport = transport or _default_transport
+    for track_id in [i for i in ids if i not in out][:_OEMBED_BATCH]:
+        try:
+            status, _headers, body = transport(_OEMBED_URL + track_id)
+            if status != 200:
+                continue
+            title = json.loads(body).get("title")
+        except Exception:
+            break  # offline: stop trying, the caller retries later
+        if title:
+            out[track_id] = {"title": title, "artist": None}
+    return out

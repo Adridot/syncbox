@@ -20,6 +20,7 @@ from pyrekordbox.utils import deobfuscate
 
 from syncbox.safety.mutate import StaleSnapshotError, fingerprint
 from syncbox.safety.paths import classify_ownership, resolve_stored_path, tcc_exists
+from syncbox.spotify import scrub_obfuscated, spotify_id_from_path
 
 
 def rekordbox_key() -> str:
@@ -73,21 +74,31 @@ def load_snapshot(db_path, storage_root) -> list[dict]:
             scale_name, genre, play_count, stock_date, created_at, rating,
             file_size, sample_rate, bit_depth, file_type, analysed,
         ) in conn.execute(_CONTENT_SQL):
+            # A Spotify streaming reference has NO local file: no resolved
+            # path, and by definition never a missing file.
+            spotify_track_id = spotify_id_from_path(folder_path)
             resolved = (
-                resolve_stored_path(folder_path, storage_root) if folder_path else None
+                resolve_stored_path(folder_path, storage_root)
+                if folder_path and spotify_track_id is None
+                else None
             )
             rows.append(
                 {
                     "content_id": str(content_id),
-                    "title": title,
-                    "artist": artist,
-                    "remixer": remixer,
+                    "title": scrub_obfuscated(title),
+                    "artist": scrub_obfuscated(artist),
+                    "remixer": scrub_obfuscated(remixer),
                     "duration_ms": int(length * 1000) if length else 0,
                     "isrc": isrc,
                     "bit_rate": bit_rate,
                     "file_path": folder_path,
+                    "spotify_track_id": spotify_track_id,
                     "resolved_path": str(resolved) if resolved else None,
-                    "file_missing": not tcc_exists(resolved) if resolved else True,
+                    "file_missing": (
+                        not tcc_exists(resolved)
+                        if resolved
+                        else spotify_track_id is None
+                    ),
                     "ownership": (
                         classify_ownership(folder_path, storage_root)
                         if folder_path

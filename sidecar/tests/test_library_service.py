@@ -160,6 +160,33 @@ def test_sync_paginates_matches_and_persists(conn, source, tmp_path):
     assert runs[0]["stats"]["missing"] == 1
 
 
+def test_sync_never_matches_a_streaming_twin(conn, source, tmp_path):
+    """A streaming reference sharing the track's ISRC/title is NOT a local
+    file: the synced track stays 'missing' instead of matching it."""
+    streaming_twin = [
+        {
+            "content_id": "C9",
+            "title": "Strobe",
+            "artist": "deadmau5",
+            "duration_ms": 200_000,
+            "isrc": "USUS11100310",
+            "spotify_track_id": "190jyVPH",
+            "file_missing": False,
+        }
+    ]
+    client, _ = make_client(
+        api_ok(
+            playlist_payload([item("t1", "Strobe", "deadmau5", isrc="USUS11100310")])
+        )
+    )
+    sync_one_source(
+        conn, client, FakeCache(streaming_twin), tmp_path / "storage", source
+    )
+    (track,) = repos.list_source_tracks(conn, source["id"])
+    assert track["status"] == "missing"
+    assert track["content_id"] is None
+
+
 def test_sync_skips_when_snapshot_unchanged_but_records_a_run(conn, source, tmp_path):
     client, _ = make_client(
         api_ok(playlist_payload([item("t1", "Strobe", "deadmau5")], snapshot="snap-1"))

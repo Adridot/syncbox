@@ -8,7 +8,6 @@ import pytest
 
 from syncbox import appdb, performances
 from syncbox.performances import (
-    _clean,
     _norm_ts,
     export_plan,
     ingest,
@@ -40,13 +39,10 @@ def play(uuid, session, played_at, **kw):
     }
 
 
-def test_norm_ts_and_obfuscated_metadata():
+def test_norm_ts():
     assert _norm_ts("2026-07-05 00:31:54.802 +00:00") == "2026-07-05 00:31:54"
     assert _norm_ts("garbage") is None
-    # Rekordbox obfuscates streaming metadata; store NULL, resolve via API
-    assert _clean("$A7:v1:gC6c4LVN1cg==:VlwFYF4A") is None
-    assert _clean("") is None
-    assert _clean("Freed From Desire") == "Freed From Desire"
+    # the '$A' scrub moved to spotify.scrub_obfuscated (tested there)
 
 
 def test_ingest_is_append_only_and_deduped(conn):

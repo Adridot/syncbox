@@ -31,7 +31,15 @@ from datetime import datetime, timedelta, timezone
 
 from syncbox.rb import open_readonly
 from syncbox.safety.mutate import fingerprint
-from syncbox.spotify import NotConnectedError, SpotifyApiError, _default_transport
+
+# NotConnectedError stays re-exported: refresh() callers and tests raise it
+# through this module when simulating a disconnected Spotify client.
+from syncbox.spotify import (
+    NotConnectedError,
+    resolve_track_meta,
+    scrub_obfuscated,
+    spotify_id_from_path,
+)
 
 # One knob on purpose: intra-session gaps above it split a gig, inter-session
 # gaps at or below it re-join one (the 9-minute crash/restart measured on the
@@ -53,13 +61,6 @@ BULK_SECONDS_PER_TRACK = 30
 # of that exact name for archived gig playlists - exports join it instead
 # of creating a near-twin; ensure_playlist_folder creates it when absent.
 EXPORT_FOLDER = "Historiques"
-
-_SPOTIFY_PREFIX = "spotify:track:"
-
-# Anonymous title fallback when no Spotify session exists: the public oEmbed
-# endpoint returns the track title (no artist field) without any token.
-_OEMBED_URL = "https://open.spotify.com/oembed?url=https://open.spotify.com/track/"
-_OEMBED_BATCH = 50  # per refresh; leftovers retry next time
 
 _PLAYS_SQL = """
 SELECT s.UUID, s.HistoryID, h.Name, s.ContentID, s.TrackNo, s.created_at,
@@ -92,13 +93,6 @@ def _parse(ts: str) -> datetime:
     return datetime.fromisoformat(ts)
 
 
-def _clean(text):
-    """Rekordbox obfuscates streaming metadata as '$A7:v1:...' - store NULL."""
-    if not text or str(text).startswith("$A"):
-        return None
-    return text
-
-
 def read_rb_plays(db_path) -> list[dict]:
     """Every active play of every leaf history session, normalized."""
     conn = open_readonly(db_path)
@@ -117,13 +111,9 @@ def read_rb_plays(db_path) -> list[dict]:
                     "rb_history_name": hname or "",
                     "content_id": str(cid) if cid else None,
                     "track_no": track_no,
-                    "title": _clean(title),
-                    "artist": _clean(artist),
-                    "spotify_track_id": (
-                        str(path)[len(_SPOTIFY_PREFIX):]
-                        if path and str(path).startswith(_SPOTIFY_PREFIX)
-                        else None
-                    ),
+                    "title": scrub_obfuscated(title),
+                    "artist": scrub_obfuscated(artist),
+                    "spotify_track_id": spotify_id_from_path(path),
                     "played_at": played_at,
                 }
             )
@@ -152,54 +142,11 @@ def ingest(conn, rb_rows) -> int:
 
 
 def resolve_spotify_titles(conn, client, transport=None) -> int:
-    """Fill title/artist of Spotify-in-Rekordbox plays. Two ladders:
-    - a Spotify session -> GET /tracks (cleartext IDs, no extra scope):
-      title AND artist, and it completes artist-less oEmbed rows later;
-    - no session -> the anonymous oEmbed endpoint: title only (the payload
-      has no artist field), so the history stays readable regardless.
+    """Fill title/artist of Spotify-in-Rekordbox plays through the shared
+    spotify.resolve_track_meta ladder: an API result carries an artist and
+    fills both fields (completing artist-less oEmbed rows later); a
+    title-only oEmbed result fills title-less rows and nothing else.
     Best-effort throughout; unresolved rows retry on a later refresh."""
-    pending = [
-        row[0]
-        for row in conn.execute(
-            "SELECT DISTINCT spotify_track_id FROM plays"
-            " WHERE spotify_track_id IS NOT NULL"
-            " AND (title IS NULL OR artist IS NULL)"
-        )
-    ]
-    if not pending:
-        return 0
-    resolved = 0
-    if client is not None:
-        try:
-            for start in range(0, len(pending), 50):  # API cap: 50 ids/call
-                chunk = pending[start : start + 50]
-                payload = client.get("/tracks?ids=" + ",".join(chunk))
-                conn.execute("BEGIN")
-                try:
-                    for track in payload.get("tracks") or []:
-                        if not track:
-                            continue
-                        conn.execute(
-                            "UPDATE plays SET title = ?, artist = ?"
-                            " WHERE spotify_track_id = ?",
-                            (
-                                track.get("name"),
-                                ", ".join(
-                                    a.get("name", "")
-                                    for a in track.get("artists", [])
-                                ) or None,
-                                track.get("id"),
-                            ),
-                        )
-                        resolved += 1
-                    conn.execute("COMMIT")
-                except BaseException:
-                    conn.execute("ROLLBACK")
-                    raise
-            return resolved
-        except (NotConnectedError, SpotifyApiError):
-            pass  # fall through to the anonymous title-only ladder
-    transport = transport or _default_transport
     titleless = [
         row[0]
         for row in conn.execute(
@@ -207,21 +154,40 @@ def resolve_spotify_titles(conn, client, transport=None) -> int:
             " WHERE spotify_track_id IS NOT NULL AND title IS NULL"
         )
     ]
-    for track_id in titleless[:_OEMBED_BATCH]:
-        try:
-            status, _headers, body = transport(_OEMBED_URL + track_id)
-            if status != 200:
-                continue
-            title = json.loads(body).get("title")
-        except Exception:
-            break  # offline: stop trying, the next refresh retries
-        if title:
-            conn.execute(
+    artistless = [
+        row[0]
+        for row in conn.execute(
+            "SELECT DISTINCT spotify_track_id FROM plays"
+            " WHERE spotify_track_id IS NOT NULL"
+            " AND title IS NOT NULL AND artist IS NULL"
+        )
+    ]
+    # titleless first: only they can benefit from the capped oEmbed fallback
+    pending = titleless + artistless
+    if not pending:
+        return 0
+    resolved = 0
+    meta = resolve_track_meta(pending, client, transport=transport)
+    conn.execute("BEGIN")
+    try:
+        for track_id, fields in meta.items():
+            if fields.get("artist") is not None:
+                conn.execute(
+                    "UPDATE plays SET title = ?, artist = ?"
+                    " WHERE spotify_track_id = ?",
+                    (fields.get("title"), fields["artist"], track_id),
+                )
+                resolved += 1
+            elif conn.execute(
                 "UPDATE plays SET title = ?"
                 " WHERE spotify_track_id = ? AND title IS NULL",
-                (title, track_id),
-            )
-            resolved += 1
+                (fields.get("title"), track_id),
+            ).rowcount:
+                resolved += 1
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
     return resolved
 
 

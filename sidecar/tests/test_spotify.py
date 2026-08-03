@@ -313,3 +313,117 @@ def test_500_preserves_status_code():
     with pytest.raises(SpotifyApiError) as info:
         client.get("/x")
     assert info.value.status_code == 500
+
+
+# --- shared streaming primitives + resolution ladder --------------------------------
+
+
+def test_spotify_id_from_path_extracts_only_streaming_references():
+    assert (
+        spotify.spotify_id_from_path("spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+        == "4uLU6hMCjMI75M1A2tKUQC"
+    )
+    assert spotify.spotify_id_from_path("/Users/dj/track.aiff") is None
+    assert spotify.spotify_id_from_path(None) is None
+    assert spotify.spotify_id_from_path("spotify:track:") is None
+
+
+def test_scrub_obfuscated_nulls_rekordbox_streaming_metadata():
+    assert spotify.scrub_obfuscated("$A7:v1:gC6c4LVN1cg==:VlwFYF4A") is None
+    assert spotify.scrub_obfuscated("") is None
+    assert spotify.scrub_obfuscated(None) is None
+    assert spotify.scrub_obfuscated("Freed From Desire") == "Freed From Desire"
+
+
+def test_resolve_track_meta_batches_api_calls_by_50():
+    calls = []
+
+    class FakeClient:
+        def get(self, path):
+            calls.append(path)
+            ids = path.split("=", 1)[1].split(",")
+            return {
+                "tracks": [
+                    {
+                        "id": i,
+                        "name": f"T {i}",
+                        "artists": [{"name": "A"}, {"name": "B"}],
+                        "duration_ms": 111_000,
+                        # D20: barcode must NEVER be used as an ISRC stand-in.
+                        "external_ids": {"barcode": "0000", "isrc": f"ISRC{i}"},
+                    }
+                    for i in ids
+                ]
+            }
+
+    ids = [f"id{n}" for n in range(120)]
+    meta = spotify.resolve_track_meta(ids, FakeClient())
+    assert len(calls) == 3  # 50 + 50 + 20
+    assert len(meta) == 120
+    assert meta["id0"] == {
+        "title": "T id0",
+        "artist": "A, B",
+        "duration_ms": 111_000,
+        "isrc": "ISRCid0",
+    }
+
+
+def test_resolve_track_meta_oembed_without_session_title_only():
+    urls = []
+
+    def transport(url, data=None, headers=None, method="GET"):
+        urls.append(url)
+        return 200, {}, json.dumps({"title": "Beauty And A Beat"}).encode()
+
+    meta = spotify.resolve_track_meta(["190jyVPH"], None, transport=transport)
+    assert urls[0].endswith("/track/190jyVPH")
+    assert meta == {"190jyVPH": {"title": "Beauty And A Beat", "artist": None}}
+
+
+def test_resolve_track_meta_disconnected_client_falls_back_to_oembed():
+    class Disconnected:
+        def get(self, path):
+            raise NotConnectedError("no session")
+
+    def transport(url, data=None, headers=None, method="GET"):
+        return 200, {}, b'{"title": "T"}'
+
+    meta = spotify.resolve_track_meta(["x"], Disconnected(), transport=transport)
+    assert meta == {"x": {"title": "T", "artist": None}}
+
+
+def test_resolve_track_meta_oembed_caps_the_batch():
+    def transport(url, data=None, headers=None, method="GET"):
+        return 200, {}, b'{"title": "T"}'
+
+    meta = spotify.resolve_track_meta(
+        [f"i{n}" for n in range(60)], None, transport=transport
+    )
+    assert len(meta) == 50  # leftovers retry on the caller's next pass
+
+
+def test_resolve_track_meta_offline_returns_partial_without_raising():
+    def transport(url, data=None, headers=None, method="GET"):
+        raise OSError("network unreachable")
+
+    assert spotify.resolve_track_meta(["a", "b"], None, transport=transport) == {}
+
+
+def test_resolve_track_meta_partial_api_batch_falls_back_to_oembed():
+    calls = []
+
+    class Flaky:
+        def get(self, path):
+            calls.append(path)
+            if len(calls) > 1:
+                raise SpotifyApiError(500, "boom")
+            ids = path.split("=", 1)[1].split(",")
+            return {"tracks": [{"id": i, "name": i.upper(), "artists": []} for i in ids]}
+
+    def transport(url, data=None, headers=None, method="GET"):
+        return 200, {}, b'{"title": "via-oembed"}'
+
+    ids = [f"i{n}" for n in range(51)]  # two API chunks; the second fails
+    meta = spotify.resolve_track_meta(ids, Flaky(), transport=transport)
+    assert meta["i0"]["title"] == "I0"  # resolved prefix kept
+    assert meta["i50"] == {"title": "via-oembed", "artist": None}
