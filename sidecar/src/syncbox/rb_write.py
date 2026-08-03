@@ -18,6 +18,7 @@ import stat
 import uuid
 from pathlib import Path
 
+from mutagen import File as MutagenFile
 from pyrekordbox.db6 import Rekordbox6Database, tables
 from pyrekordbox.db6.smartlist import LogicalOperator, Operator, SmartList
 
@@ -70,6 +71,56 @@ def find_or_create_artist(db, name: str):
         ID=_new_id(db, tables.DjmdArtist),
         Name=name,
         SearchStr=None,
+        UUID=str(uuid.uuid4()),
+        **NEW_ROW_STATUS,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def find_or_create_album(db, name: str, album_artist=None):
+    """Album by exact name and album artist; self-heals a deleted match."""
+    rows = db.query(tables.DjmdAlbum).filter_by(Name=name).all()
+    album_artist_id = album_artist.ID if album_artist else None
+    for row in rows:
+        if (
+            row.AlbumArtistID == album_artist_id
+            and not int(row.rb_local_deleted or 0)
+        ):
+            return row
+    for row in rows:
+        if row.AlbumArtistID == album_artist_id:
+            _apply(row, reactivate_values())
+            return row
+    row = tables.DjmdAlbum.create(
+        ID=_new_id(db, tables.DjmdAlbum),
+        Name=name,
+        AlbumArtistID=album_artist_id,
+        ImagePath=None,
+        Compilation=int(bool(album_artist and album_artist.Name == "Various Artists")),
+        SearchStr=None,
+        UUID=str(uuid.uuid4()),
+        **NEW_ROW_STATUS,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def find_or_create_genre(db, name: str):
+    """Active genre by exact name; self-heals a soft-deleted one."""
+    rows = db.query(tables.DjmdGenre).filter_by(Name=name).all()
+    for row in rows:
+        if not int(row.rb_local_deleted or 0):
+            return row
+    if rows:
+        row = rows[0]
+        _apply(row, reactivate_values())
+        return row
+    row = tables.DjmdGenre.create(
+        ID=_new_id(db, tables.DjmdGenre),
+        Name=name,
         UUID=str(uuid.uuid4()),
         **NEW_ROW_STATUS,
     )
@@ -381,6 +432,89 @@ _FILE_TYPE_BY_EXT = {
 }
 
 
+def _audio_metadata(path: Path) -> dict:
+    """Read standard audio tags and stream properties without ever blocking import."""
+    try:
+        audio = MutagenFile(str(path), easy=True)
+    except Exception:
+        return {}
+    if audio is None:
+        return {}
+    tags = getattr(audio, "tags", None) or {}
+
+    def first(key: str):
+        values = tags.get(key) or ()
+        value = str(values[0]).strip() if values else ""
+        return value or None
+
+    def number(key: str):
+        value = first(key)
+        head = value.split("/", 1)[0].strip() if value else ""
+        return int(head) if head.isdigit() else None
+
+    date = first("date")
+    year = int(date[:4]) if date and date[:4].isdigit() else None
+    info = getattr(audio, "info", None)
+    bitrate = getattr(info, "bitrate", None)
+    length = getattr(info, "length", None)
+    return {
+        "title": first("title"),
+        "artist": first("artist"),
+        "album": first("album"),
+        "album_artist": first("albumartist"),
+        "genre": first("genre"),
+        "composer": first("composer"),
+        "comment": first("comment"),
+        "isrc": first("isrc"),
+        "track_number": number("tracknumber"),
+        "disc_number": number("discnumber"),
+        "release_date": date,
+        "release_year": year,
+        "duration_ms": round(float(length) * 1000) if length else None,
+        "bit_rate": round(float(bitrate) / 1000) if bitrate else None,
+        "bit_depth": getattr(info, "bits_per_sample", None),
+        "sample_rate": getattr(info, "sample_rate", None),
+    }
+
+
+def _content_metadata(db, path: Path, metadata: dict) -> dict:
+    audio = _audio_metadata(path)
+
+    def value(key: str):
+        supplied = metadata.get(key)
+        return supplied if supplied not in (None, "") else audio.get(key)
+
+    artist = find_or_create_artist(db, value("artist") or "Unknown Artist")
+    album_artist_name = audio.get("album_artist")
+    album_artist = (
+        find_or_create_artist(db, album_artist_name) if album_artist_name else None
+    )
+    album_name = audio.get("album")
+    album = find_or_create_album(db, album_name, album_artist) if album_name else None
+    genre_name = audio.get("genre")
+    genre = find_or_create_genre(db, genre_name) if genre_name else None
+    composer_name = audio.get("composer")
+    composer = find_or_create_artist(db, composer_name) if composer_name else None
+    duration_ms = value("duration_ms") or 0
+    return {
+        "Title": value("title"),
+        "ArtistID": artist.ID,
+        "AlbumID": album.ID if album else None,
+        "GenreID": genre.ID if genre else None,
+        "Length": duration_ms // 1000 if duration_ms else None,
+        "TrackNo": audio.get("track_number"),
+        "BitRate": audio.get("bit_rate"),
+        "BitDepth": audio.get("bit_depth"),
+        "Commnt": audio.get("comment"),
+        "ReleaseYear": audio.get("release_year"),
+        "ISRC": value("isrc"),
+        "DiscNo": audio.get("disc_number"),
+        "ComposerID": composer.ID if composer else None,
+        "SampleRate": audio.get("sample_rate"),
+        "ReleaseDate": audio.get("release_date"),
+    }
+
+
 def add_content(db, staging_path, metadata: dict, *, storage_root):
     """New content row for a staged event file (SPEC-01 1.6, the POC 05
     phase-4 pattern verified on a real RB 7.x master.db).
@@ -401,19 +535,14 @@ def add_content(db, staging_path, metadata: dict, *, storage_root):
     if not stat.S_ISREG(file_stat.st_mode):
         raise ValueError(f"staged audio path is not a regular file: {path}")
     content_id = _new_id(db, tables.DjmdContent)
-    artist = find_or_create_artist(db, metadata.get("artist") or "Unknown Artist")
     device = db.get_device().first()
     now = datetime.now()
-    duration_ms = metadata.get("duration_ms") or 0
+    content_metadata = _content_metadata(db, path, metadata)
     row = tables.DjmdContent.create(
         ID=content_id,
         MasterSongID=content_id,
         rb_file_id=content_id,  # SPEC-01 1.6: ID = MasterSongID = rb_file_id
         UUID=str(uuid.uuid4()),
-        Title=metadata.get("title"),
-        ArtistID=artist.ID,
-        ISRC=metadata.get("isrc"),
-        Length=duration_ms // 1000 if duration_ms else None,
         FolderPath=stored_form(path, storage_root),
         FileNameL=path.name,
         # Unrecognized extensions land as FileType 0 (unknown); Rekordbox
@@ -426,6 +555,7 @@ def add_content(db, staging_path, metadata: dict, *, storage_root):
         StockDate=now.strftime("%Y-%m-%d"),
         DateCreated=now.strftime("%Y-%m-%d"),
         HotCueAutoLoad="on",
+        **content_metadata,
         **NEW_ROW_STATUS,
     )
     db.add(row)

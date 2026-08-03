@@ -10,7 +10,14 @@ from pathlib import Path
 import pytest
 
 from syncbox import rb
-from syncbox.rb_write import add_content, migrate_content_path, signed32, smartlist_payload
+from syncbox.rb_write import (
+    _audio_metadata,
+    add_content,
+    find_or_create_album,
+    migrate_content_path,
+    signed32,
+    smartlist_payload,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTDATA = REPO_ROOT / "sidecar" / "tests" / "testdata"
@@ -49,6 +56,81 @@ def test_smartlist_payload_shape():
 def test_add_content_rejects_a_missing_staged_file_before_writing(tmp_path):
     with pytest.raises(FileNotFoundError, match="staged audio file is unavailable"):
         add_content(object(), tmp_path / "gone.mp3", {}, storage_root=tmp_path)
+
+
+def test_audio_metadata_reads_standard_tags_and_stream_properties(
+    monkeypatch, tmp_path
+):
+    class Info:
+        length = 123.456
+        bitrate = 320_000
+        bits_per_sample = 24
+        sample_rate = 48_000
+
+    class Audio:
+        info = Info()
+        tags = {
+            "title": ["Title"],
+            "artist": ["Artist"],
+            "album": ["Album"],
+            "albumartist": ["Album Artist"],
+            "genre": ["House"],
+            "composer": ["Composer"],
+            "date": ["2026-08-03"],
+            "tracknumber": ["7/12"],
+            "discnumber": ["2/2"],
+            "isrc": ["FRABC2600001"],
+        }
+
+    monkeypatch.setattr("syncbox.rb_write.MutagenFile", lambda *args, **kwargs: Audio())
+
+    assert _audio_metadata(tmp_path / "track.mp3") == {
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
+        "album_artist": "Album Artist",
+        "genre": "House",
+        "composer": "Composer",
+        "comment": None,
+        "isrc": "FRABC2600001",
+        "track_number": 7,
+        "disc_number": 2,
+        "release_date": "2026-08-03",
+        "release_year": 2026,
+        "duration_ms": 123456,
+        "bit_rate": 320,
+        "bit_depth": 24,
+        "sample_rate": 48000,
+    }
+
+
+def test_album_identity_includes_album_artist():
+    class Artist:
+        ID = "artist-wanted"
+
+    class Album:
+        ID = "album-wanted"
+        AlbumArtistID = "artist-wanted"
+        rb_local_deleted = 0
+
+    class SameTitleDifferentArtist:
+        ID = "album-other"
+        AlbumArtistID = "artist-other"
+        rb_local_deleted = 0
+
+    class Query:
+        def filter_by(self, **values):
+            assert values == {"Name": "Greatest Hits"}
+            return self
+
+        def all(self):
+            return [SameTitleDifferentArtist(), Album()]
+
+    class Database:
+        def query(self, table):
+            return Query()
+
+    assert find_or_create_album(Database(), "Greatest Hits", Artist()).ID == "album-wanted"
 
 
 def test_migrate_content_path_delegates_anlz_without_committing():
