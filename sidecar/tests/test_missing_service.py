@@ -116,6 +116,11 @@ def test_collection_scope_reads_snapshot_file_missing_rows(conn, tmp_path):
              "isrc": None, "file_missing": True, "file_path": "/gone.mp3"},
             {"content_id": "C2", "title": "Here", "artist": "x",
              "isrc": None, "file_missing": False, "file_path": "/here.mp3"},
+            # streaming reference: the snapshot reports file_missing=False
+            # (no file to miss), so it never reaches the Missing center
+            {"content_id": "C3", "title": None, "artist": None, "isrc": None,
+             "file_missing": False, "spotify_track_id": "4uLU6hMCjMI75M1A2tKUQC",
+             "file_path": "spotify:track:4uLU6hMCjMI75M1A2tKUQC"},
         ]
     )
     entries = list_missing(

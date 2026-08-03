@@ -11,6 +11,7 @@ clause is cut non-greedily (fix B7).
 import re
 
 from syncbox.matching import normalize
+from syncbox.spotify import SPOTIFY_TRACK_PREFIX
 
 CATEGORY_RANK = {"junk": 0, "dup_of_tagged": 1, "alt_version": 2, "review": 3}
 
@@ -35,7 +36,7 @@ def is_junk(track, user_patterns=()) -> bool:
     artist = (track.get("artist") or "").strip()
     if not title:
         return True
-    if title.startswith("spotify:track:"):
+    if title.startswith(SPOTIFY_TRACK_PREFIX):
         return True
     if artist.lower() == "rekordbox":
         return True

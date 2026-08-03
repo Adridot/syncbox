@@ -195,7 +195,10 @@ def match_event_tracks(conn, event, cache, storage_root, **thresholds) -> list[d
     is applied to CONTENT at apply time only. ``thresholds`` are the G4
     matching knobs, forwarded verbatim to matching.match.
     """
-    candidates = cache.get(storage_root)
+    # streaming references can never be the local file a track needs
+    candidates = [
+        r for r in cache.get(storage_root) if not r.get("spotify_track_id")
+    ]
     now = _now()
     out = []
     for track in list_event_tracks(conn, event["id"]):
