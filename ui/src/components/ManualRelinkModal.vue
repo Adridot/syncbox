@@ -122,6 +122,11 @@ h3 {
   background: var(--surface);
   cursor: pointer;
 }
+.cand-text,
+.score {
+  -webkit-user-select: text;
+  user-select: text;
+}
 .candidate[data-active='true'] {
   border-color: var(--accent-border);
   background: rgba(77, 163, 255, 0.06);

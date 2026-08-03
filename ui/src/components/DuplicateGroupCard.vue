@@ -195,6 +195,13 @@ const confTone = computed(() =>
   cursor: pointer;
   display: block;
 }
+.member-title,
+.member-artist,
+.attrs,
+.quality-line {
+  -webkit-user-select: text;
+  user-select: text;
+}
 .member:hover {
   border-color: #2a3242;
 }

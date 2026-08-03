@@ -26,6 +26,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <div class="app">
+    <div class="window-drag-region" data-tauri-drag-region aria-hidden="true"></div>
     <AppSidebar />
     <div class="main">
       <RbGuardBanner v-if="status.rbOpen" />
@@ -51,6 +52,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   height: 100vh;
   overflow: hidden;
+  position: relative;
+}
+.window-drag-region {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--traffic-light-clearance);
+  height: var(--top-chrome-height);
+  z-index: 1;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .main {
   flex: 1;
@@ -59,6 +71,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   flex-direction: column;
   position: relative;
   height: 100vh;
+  padding-top: var(--top-chrome-height);
+  background: var(--bg-base);
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
