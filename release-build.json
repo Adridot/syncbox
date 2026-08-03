@@ -35,7 +35,7 @@
   "release": {
     "source_date_epoch_basis": "versioned-release-metadata",
     "source_date_epoch_utc": "2026-08-03T00:00:00Z",
-    "version": "0.6.0"
+    "version": "0.7.0"
   },
   "schema": 1,
   "source_date_epoch": 1785715200,
