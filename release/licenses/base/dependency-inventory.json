@@ -369,6 +369,36 @@
     },
     {
       "ecosystem": "javascript",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/javascript/@tanstack/virtual-core-3.17.7/00-LICENSE",
+          "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
+        }
+      ],
+      "name": "@tanstack/virtual-core",
+      "scope": "base-production",
+      "source": "https://registry.npmjs.org/@tanstack/virtual-core/-/virtual-core-3.17.7.tgz",
+      "source_integrity": "sha512-bp+v10y65sp2H7WpWfIMyxTNfl8ZVfxFTLRjPIFRryi6FV/J33z4IS53WO4pTk36KlvJ4iLiQz+oaydDC1xbcA==",
+      "version": "3.17.7"
+    },
+    {
+      "ecosystem": "javascript",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "texts/javascript/@tanstack/vue-virtual-3.13.35/00-LICENSE",
+          "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
+        }
+      ],
+      "name": "@tanstack/vue-virtual",
+      "scope": "base-production",
+      "source": "https://registry.npmjs.org/@tanstack/vue-virtual/-/vue-virtual-3.13.35.tgz",
+      "source_integrity": "sha512-lOfSPvgPdlaH6Qy+CyIc3XpycitaSQ9GECndGpTuDiu+uDA1am+90yWXwzDSd/20ZM196ggWJLS+Qb6WjVd/OA==",
+      "version": "3.13.35"
+    },
+    {
+      "ecosystem": "javascript",
       "license": "Apache-2.0 OR MIT",
       "license_files": [
         {
@@ -6790,7 +6820,7 @@
   ],
   "inputs": {
     "cargo_lock_sha256": "f4c7cc6da10f81e43c70d213713fbd5267742a5e68a67c7e33779d2a53d74100",
-    "pnpm_lock_sha256": "a3c1a106a5ad6fdf914bc84c5a54a645e4dcda3d94a2367d5d2c7df760b8753d",
+    "pnpm_lock_sha256": "9167ad4c2062672bcbf637e48f05ff963f68bcd387b3d429f358e5da5e016c47",
     "python_lock_sha256": "a7b136b8eb046ad6d8d6a4efa8bba95c2238235dd73f4e71f534a01da03c9b35",
     "release_build_sha256": "31ef1d674b984c614ea116255f48a3c8a2727219d5bc191282d97b8a64294d10"
   },
