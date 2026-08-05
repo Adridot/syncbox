@@ -1,6 +1,6 @@
 """Tests for library sync diffing (SPEC-UNIFIED 5.6)."""
 
-from syncbox.sync import diff_tracks, sync_source
+from syncbox.sync import diff_tracks, reconcile_links, sync_source
 
 TAGS = ["House", "2026"]
 
@@ -61,6 +61,162 @@ def test_imported_and_matched_reconciled_not_rematched():
     assert keyed["t1"][0]["content_id"] == "c1"
     assert keyed["t2"][0]["status"] == "matched"
     assert keyed["t2"][0]["confidence"] == 91
+
+
+def test_reconciliation_preserves_valid_automatic_and_manual_links_exactly():
+    automatic = prior(
+        "t1", "matched", content_id="c1", match_method="isrc", confidence=100
+    )
+    manual = prior(
+        "t2", "imported", content_id="c2", match_method="manual", confidence=73
+    )
+    candidates = [
+        {"content_id": "c1"},
+        {"content_id": "c2"},
+    ]
+
+    rows, changed = reconcile_links([automatic, manual], candidates)
+
+    assert changed == 0
+    assert rows == [automatic, manual]
+    assert rows[0] is automatic
+    assert rows[1] is manual
+
+
+def test_reconciliation_rematches_stale_link_with_fresh_spotify_metadata():
+    stale = prior(
+        "t1",
+        "imported",
+        content_id="gone",
+        title="Stored title",
+        artist="Stored artist",
+        isrc="OLD",
+        spotify=sp("t1", title="Fresh title", artist="Fresh artist", isrc="NEW"),
+    )
+    replacement = {
+        "content_id": "replacement",
+        "title": "Fresh title",
+        "artist": "Fresh artist",
+        "duration_ms": 200_000,
+        "isrc": "NEW",
+    }
+
+    rows, changed = reconcile_links([stale], [replacement])
+
+    assert changed == 1
+    assert rows[0]["status"] == "matched"
+    assert rows[0]["content_id"] == "replacement"
+    assert rows[0]["match_method"] == "isrc"
+    assert rows[0]["confidence"] == 100
+
+
+def test_reconciliation_maps_ambiguous_stale_link_to_conflict():
+    stale = prior(
+        "t1",
+        "matched",
+        content_id="gone",
+        title="Strobe",
+        artist="deadmau5",
+        duration_ms=200_000,
+        isrc=None,
+    )
+    twins = [
+        {
+            "content_id": "c1",
+            "title": "Strobe",
+            "artist": "deadmau5",
+            "duration_ms": 200_000,
+            "isrc": None,
+        },
+        {
+            "content_id": "c2",
+            "title": "Strobe",
+            "artist": "deadmau5",
+            "duration_ms": 200_050,
+            "isrc": None,
+        },
+    ]
+
+    rows, changed = reconcile_links([stale], twins)
+
+    assert changed == 1
+    assert rows[0]["status"] == "conflict"
+    assert rows[0]["content_id"] == "c1"
+    assert rows[0]["match_method"] == "fuzzy"
+
+
+def test_reconciliation_treats_streaming_only_target_as_stale_and_missing():
+    stale = prior(
+        "t1",
+        "matched",
+        content_id="stream",
+        title="Strobe",
+        artist="deadmau5",
+        duration_ms=200_000,
+        isrc="X1",
+    )
+    streaming_reference = {
+        "content_id": "stream",
+        "title": "Strobe",
+        "artist": "deadmau5",
+        "duration_ms": 200_000,
+        "isrc": "X1",
+        "spotify_track_id": "spotify-reference",
+    }
+
+    rows, changed = reconcile_links([stale], [streaming_reference])
+
+    assert changed == 1
+    assert rows[0]["status"] == "missing"
+    assert rows[0]["content_id"] is None
+    assert rows[0]["match_method"] is None
+    assert rows[0]["confidence"] == 0
+
+
+def test_reconciliation_leaves_unrelated_lifecycle_states_unchanged():
+    rows = [
+        prior("t1", "ready", content_id="gone"),
+        prior("t2", "ignored", content_id="gone"),
+        prior("t3", "removed_from_source", content_id="gone"),
+    ]
+
+    reconciled, changed = reconcile_links(rows, [])
+
+    assert changed == 0
+    assert reconciled == rows
+    assert all(after is before for after, before in zip(reconciled, rows))
+
+
+def test_full_sync_reconciles_carried_link_and_matches_fresh_row():
+    previous = [prior("t1", "matched", content_id="gone")]
+    spotify_tracks = [
+        sp("t1", title="Replacement", isrc="REPLACED"),
+        sp("t2", title="Fresh", isrc="FRESH"),
+    ]
+    candidates = [
+        {
+            "content_id": "c1",
+            "title": "Replacement",
+            "artist": "deadmau5",
+            "duration_ms": 200_000,
+            "isrc": "REPLACED",
+        },
+        {
+            "content_id": "c2",
+            "title": "Fresh",
+            "artist": "deadmau5",
+            "duration_ms": 200_000,
+            "isrc": "FRESH",
+        },
+    ]
+
+    rows = sync_source(previous, spotify_tracks, candidates, TAGS)
+
+    keyed = by_id(rows)
+    assert keyed["t1"][0]["content_id"] == "c1"
+    assert keyed["t1"][0]["status"] == "matched"
+    assert keyed["t2"][0]["content_id"] == "c2"
+    assert keyed["t2"][0]["status"] == "matched"
 
 
 def test_conflict_missing_and_new_are_rematched():
