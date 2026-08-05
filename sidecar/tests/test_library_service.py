@@ -187,7 +187,9 @@ def test_sync_never_matches_a_streaming_twin(conn, source, tmp_path):
     assert track["content_id"] is None
 
 
-def test_sync_skips_when_snapshot_unchanged_but_records_a_run(conn, source, tmp_path):
+def test_sync_skips_when_snapshot_unchanged_but_records_a_run(
+    conn, source, tmp_path, monkeypatch
+):
     client, _ = make_client(
         api_ok(playlist_payload([item("t1", "Strobe", "deadmau5")], snapshot="snap-1"))
     )
@@ -198,6 +200,11 @@ def test_sync_skips_when_snapshot_unchanged_but_records_a_run(conn, source, tmp_
     payload = playlist_payload([], snapshot="snap-1")
     payload["images"] = [{"url": "https://i.scdn.co/cover.jpg"}]
     client2, transport2 = make_client(api_ok(payload))
+
+    def fail_if_tracks_are_rewritten(*_args, **_kwargs):
+        pytest.fail("valid links must not rewrite library tracks")
+
+    monkeypatch.setattr(repos, "replace_source_tracks", fail_if_tracks_are_rewritten)
     result = sync_one_source(conn, client2, FakeCache(CANDIDATES), tmp_path, source)
     assert result["skipped"] is True
     assert len(transport2.calls) == 1  # meta fetch only, no pagination
@@ -207,6 +214,119 @@ def test_sync_skips_when_snapshot_unchanged_but_records_a_run(conn, source, tmp_
     assert runs[0]["stats"] == {"skipped": True}
     # cover backfill: a pre-0003 source gets its cover even on the skip path
     assert repos.get_source(conn, source["id"])["cover_url"] == "https://i.scdn.co/cover.jpg"
+
+
+def test_unchanged_snapshot_repairs_stale_link_without_playlist_pagination(
+    conn, source, tmp_path
+):
+    client, _ = make_client(
+        api_ok(
+            playlist_payload(
+                [item("t1", "Strobe", "deadmau5", isrc="USUS11100310")],
+                snapshot="snap-1",
+            )
+        )
+    )
+    sync_one_source(conn, client, FakeCache(CANDIDATES), tmp_path, source)
+    source = repos.get_source(conn, source["id"])
+
+    replacement = [
+        {
+            "content_id": "C2",
+            "title": "Strobe",
+            "artist": "deadmau5",
+            "duration_ms": 200_000,
+            "isrc": "USUS11100310",
+        }
+    ]
+    # C1 is absent from this active snapshot, simulating a soft-deleted target.
+    payload = playlist_payload([], snapshot="snap-1", next_url="unused-next-page")
+    client2, transport2 = make_client(api_ok(payload))
+
+    result = sync_one_source(conn, client2, FakeCache(replacement), tmp_path, source)
+
+    assert result == {
+        "skipped": False,
+        "snapshot_id": "snap-1",
+        "stats": {"total": 1, "matched": 1, "reconciled": 1},
+    }
+    assert len(transport2.calls) == 1
+    (track,) = repos.list_source_tracks(conn, source["id"])
+    assert track["status"] == "matched"
+    assert track["content_id"] == "C2"
+    assert track["match_method"] == "isrc"
+    runs = repos.list_sync_runs(conn, source["id"])
+    assert len(runs) == 2
+    assert runs[0]["stats"] == {"total": 1, "matched": 1, "reconciled": 1}
+
+
+def test_changed_snapshot_diffs_fresh_track_and_reconciles_carried_link(
+    conn, source, tmp_path
+):
+    client, _ = make_client(
+        api_ok(
+            playlist_payload(
+                [item("t1", "Old title", "Artist", isrc="OLD")], snapshot="snap-1"
+            )
+        )
+    )
+    original = [
+        {
+            "content_id": "C1",
+            "title": "Old title",
+            "artist": "Artist",
+            "duration_ms": 200_000,
+            "isrc": "OLD",
+        }
+    ]
+    sync_one_source(conn, client, FakeCache(original), tmp_path, source)
+    source = repos.get_source(conn, source["id"])
+
+    candidates = [
+        {
+            "content_id": "C2",
+            "title": "Fresh title",
+            "artist": "Artist",
+            "duration_ms": 200_000,
+            "isrc": "NEW",
+        },
+        {
+            "content_id": "C3",
+            "title": "Fresh addition",
+            "artist": "Other",
+            "duration_ms": 210_000,
+            "isrc": "ADDED",
+        },
+    ]
+    client2, _ = make_client(
+        api_ok(
+            playlist_payload(
+                [
+                    item("t1", "Fresh title", "Artist", isrc="NEW"),
+                    item(
+                        "t2",
+                        "Fresh addition",
+                        "Other",
+                        duration_ms=210_000,
+                        isrc="ADDED",
+                    ),
+                ],
+                snapshot="snap-2",
+            )
+        )
+    )
+
+    result = sync_one_source(conn, client2, FakeCache(candidates), tmp_path, source)
+
+    tracks = {
+        row["spotify_track_id"]: row
+        for row in repos.list_source_tracks(conn, source["id"])
+    }
+    assert tracks["t1"]["content_id"] == "C2"
+    assert tracks["t1"]["status"] == "matched"
+    assert tracks["t2"]["content_id"] == "C3"
+    assert tracks["t2"]["status"] == "matched"
+    assert result["stats"] == {"total": 2, "matched": 2, "reconciled": 1}
 
 
 def test_playlist_duplicate_is_ignored_and_absent_becomes_removed(conn, source, tmp_path):

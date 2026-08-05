@@ -34,11 +34,11 @@
   },
   "release": {
     "source_date_epoch_basis": "versioned-release-metadata",
-    "source_date_epoch_utc": "2026-08-03T00:00:00Z",
-    "version": "0.7.0"
+    "source_date_epoch_utc": "2026-08-05T00:00:00Z",
+    "version": "0.7.1"
   },
   "schema": 1,
-  "source_date_epoch": 1785715200,
+  "source_date_epoch": 1785888000,
   "toolchain": {
     "apple_clang": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
     "apple_ld": "@(#)PROGRAM:ld PROJECT:ld-1266.8",

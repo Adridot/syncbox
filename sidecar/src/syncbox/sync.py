@@ -1,22 +1,25 @@
 """Library sync diffing: Spotify playlist -> library track states
 (SPEC-UNIFIED 5.6, statuses per section 4).
 
-Two composable steps, both pure (no I/O):
+Three composable steps, all pure (no I/O):
 - diff_tracks(): status bookkeeping against the previous sync state;
   fresh rows land as 'new';
+- reconcile_links(): preserves eligible persisted links and rematches only
+  links whose Rekordbox target is no longer a local candidate;
 - apply_matching(): runs the 5.3 matcher on rows still 'new', mapping
   matched -> matched, ambiguous -> conflict (library vocabulary; events
   use 'ambiguous', 5.7), no match -> missing.
 
 Rules carried exactly (5.6): a Spotify duplicate inside one playlist ->
 'ignored'; prior 'ignored'/'ready' carried as-is; prior 'imported'/
-'matched' reconciled (linkage preserved, no re-match); everything else is
-re-matched fresh; absent from the playlist -> 'removed_from_source'
+'matched' carried into reconciliation (valid linkage is preserved without
+re-matching); everything else is re-matched fresh; absent from the playlist ->
+'removed_from_source'
 (Rekordbox tracks and MyTags are never touched by that transition).
 Fresh rows inherit the source's default tags.
 """
 
-from syncbox.matching import match
+from syncbox.matching import MatchResult, match
 
 CARRIED_AS_IS = frozenset({"ignored", "ready"})
 RECONCILED = frozenset({"imported", "matched"})
@@ -73,6 +76,58 @@ def diff_tracks(
     return result
 
 
+def _apply_match_result(row: dict, result: MatchResult) -> dict:
+    updated = dict(row)
+    updated["confidence"] = result.confidence
+    updated["match_method"] = result.method
+    updated["content_id"] = result.content_id
+    if result.status == "matched":
+        updated["status"] = "matched"
+    elif result.status == "ambiguous":
+        updated["status"] = "conflict"  # library vocabulary (5.6)
+    else:
+        updated["status"] = "missing"
+    return updated
+
+
+def reconcile_links(
+    rows: list[dict], candidates: list[dict], **thresholds
+) -> tuple[list[dict], int]:
+    """Revalidate persisted Rekordbox links against eligible local content.
+
+    Valid ``matched`` and ``imported`` links are preserved exactly. Only a
+    linked row whose target is absent is rematched, using fresh Spotify
+    metadata from a playlist diff when present or its stored metadata on the
+    unchanged-snapshot path. Spotify streaming references are not eligible
+    local targets.
+    """
+    eligible = [
+        candidate for candidate in candidates if not candidate.get("spotify_track_id")
+    ]
+    active_ids = {candidate["content_id"] for candidate in eligible}
+    reconciled: list[dict] = []
+    changed = 0
+
+    for row in rows:
+        content_id = row.get("content_id")
+        if (
+            row.get("status") not in RECONCILED
+            or content_id is None
+            or content_id in active_ids
+        ):
+            reconciled.append(row)
+            continue
+
+        spotify = row.get("spotify") or {
+            key: row.get(key) for key in ("title", "artist", "duration_ms", "isrc")
+        }
+        result = match(spotify, eligible, **thresholds)
+        reconciled.append(_apply_match_result(row, result))
+        changed += 1
+
+    return reconciled, changed
+
+
 def apply_matching(rows: list[dict], candidates: list[dict], **thresholds) -> list[dict]:
     """Match every 'new' row against the Rekordbox snapshot candidates."""
     out = []
@@ -81,17 +136,7 @@ def apply_matching(rows: list[dict], candidates: list[dict], **thresholds) -> li
             out.append(row)
             continue
         result = match(row["spotify"], candidates, **thresholds)
-        updated = dict(row)
-        updated["confidence"] = result.confidence
-        updated["match_method"] = result.method
-        updated["content_id"] = result.content_id
-        if result.status == "matched":
-            updated["status"] = "matched"
-        elif result.status == "ambiguous":
-            updated["status"] = "conflict"  # library vocabulary (5.6)
-        else:
-            updated["status"] = "missing"
-        out.append(updated)
+        out.append(_apply_match_result(row, result))
     return out
 
 
@@ -102,7 +147,10 @@ def sync_source(
     source_tags: list[str],
     **thresholds,
 ) -> list[dict]:
-    """Full sync pass for one source: diff then match."""
-    return apply_matching(
-        diff_tracks(previous, spotify_tracks, source_tags), candidates, **thresholds
-    )
+    """Full sync pass for one source: diff, reconcile persisted links, match new."""
+    eligible = [
+        candidate for candidate in candidates if not candidate.get("spotify_track_id")
+    ]
+    rows = diff_tracks(previous, spotify_tracks, source_tags)
+    rows, _ = reconcile_links(rows, eligible, **thresholds)
+    return apply_matching(rows, eligible, **thresholds)

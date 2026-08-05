@@ -1,10 +1,11 @@
 """Library sync orchestration: Spotify playlist sources -> app DB ->
 Rekordbox import (SPEC-UNIFIED 5.6, statuses per section 4).
 
-sync_one_source() drives the pure sync.sync_source diff/match pipeline with
-real I/O around it: paginated playlist fetch through the 5.9-retrying
-SpotifyClient, snapshot_id short-circuit (a run is recorded either way),
-persistence through repos.
+sync_one_source() drives the pure sync diff/reconcile/match pipeline with real
+I/O around it: paginated playlist fetch through the 5.9-retrying SpotifyClient,
+snapshot_id playlist-diff optimization (a run is recorded either way), and
+persistence through repos. An unchanged Spotify snapshot still reconciles
+persisted links against the independently changing Rekordbox snapshot.
 
 apply_to_rekordbox() is the ONLY bridge from library rows into master.db:
 - rows must be 'matched'/'ready' (5.6) - anything else is a ConflictError
@@ -30,7 +31,7 @@ from syncbox.rb_write import (
 )
 from syncbox.safety.mutate import mutate
 from syncbox.safety.paths import stored_form
-from syncbox.sync import sync_source
+from syncbox.sync import apply_matching, diff_tracks, reconcile_links
 
 IMPORTABLE_STATUSES = frozenset({"matched", "ready"})
 
@@ -110,36 +111,55 @@ def _to_db_row(row: dict) -> dict:
     return out
 
 
+def _sync_stats(rows: list[dict], reconciled: int = 0) -> dict:
+    stats = {"total": len(rows)}
+    for row in rows:
+        stats[row["status"]] = stats.get(row["status"], 0) + 1
+    if reconciled:
+        stats["reconciled"] = reconciled
+    return stats
+
+
 def sync_one_source(conn, spotify_client, cache, storage_root, source, **thresholds):
     """Sync one followed playlist; returns {skipped, snapshot_id, stats}.
 
-    A sync_run row is recorded EVEN when the snapshot_id is unchanged and
-    the diff is skipped (5.6 history contract).
+    Spotify's snapshot_id skips only playlist pagination and diffing. Persisted
+    Rekordbox links are reconciled on every run, and a sync_run row is recorded
+    even when neither source changed (5.6 history contract).
     """
     started = _now()
     payload = spotify_client.get(f"/playlists/{source['spotify_playlist_id']}")
     snapshot_id = payload.get("snapshot_id")
+    previous = repos.list_source_tracks(conn, source["id"])
+    # Spotify references in master.db are metadata, never eligible local files.
+    candidates = [
+        row for row in cache.get(storage_root) if not row.get("spotify_track_id")
+    ]
 
     if snapshot_id and snapshot_id == source.get("snapshot_id"):
+        rows, reconciled = reconcile_links(previous, candidates, **thresholds)
+        if reconciled:
+            repos.replace_source_tracks(
+                conn, source["id"], [_to_db_row(row) for row in rows]
+            )
         # cover backfill: sources followed before covers existed (0003) would
-        # otherwise never get one — the skip path never reaches update_source
+        # otherwise never get one — this fast path never reaches update_source
         images = payload.get("images") or []
         if images and not source.get("cover_url"):
             repos.update_source(conn, source["id"], cover_url=images[0].get("url"))
-        stats = {"skipped": True}
+        if reconciled:
+            stats = _sync_stats(rows, reconciled)
+            skipped = False
+        else:
+            stats = {"skipped": True}
+            skipped = True
         repos.record_sync_run(conn, source["id"], started, _now(), snapshot_id, stats)
-        return {"skipped": True, "snapshot_id": snapshot_id, "stats": stats}
+        return {"skipped": skipped, "snapshot_id": snapshot_id, "stats": stats}
 
     spotify_tracks = _collect_tracks(spotify_client, payload)
-    previous = repos.list_source_tracks(conn, source["id"])
-    rows = sync_source(
-        previous,
-        spotify_tracks,
-        # streaming references can never be the local file a track needs
-        [r for r in cache.get(storage_root) if not r.get("spotify_track_id")],
-        source["tags"],
-        **thresholds,
-    )
+    rows = diff_tracks(previous, spotify_tracks, source["tags"])
+    rows, reconciled = reconcile_links(rows, candidates, **thresholds)
+    rows = apply_matching(rows, candidates, **thresholds)
     # One DB row per (source, spotify_track_id) - section 4. diff_tracks
     # emits a trailing 'ignored' marker for a duplicate playlist OCCURRENCE
     # (5.6: the occurrence is ignored, never the track itself), so the FIRST
@@ -160,9 +180,7 @@ def sync_one_source(conn, spotify_client, cache, storage_root, source, **thresho
         status="synced",
         cover_url=(images[0].get("url") if images else None) or source.get("cover_url"),
     )
-    stats = {"total": len(rows)}
-    for row in rows:
-        stats[row["status"]] = stats.get(row["status"], 0) + 1
+    stats = _sync_stats(rows, reconciled)
     repos.record_sync_run(conn, source["id"], started, _now(), snapshot_id, stats)
     return {"skipped": False, "snapshot_id": snapshot_id, "stats": stats}
 
