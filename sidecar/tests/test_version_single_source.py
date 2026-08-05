@@ -18,6 +18,17 @@ APP_IDENTIFIER = "io.github.adridot.syncbox"
 CANONICAL = json.loads((REPO / "ui" / "package.json").read_text())["version"]
 
 
+def locked_package_version(path: Path, package_name: str) -> str:
+    lock = tomllib.loads(path.read_text())
+    matches = [
+        package["version"]
+        for package in lock["package"]
+        if package["name"] == package_name
+    ]
+    assert len(matches) == 1, (path, package_name, matches)
+    return matches[0]
+
+
 def test_canonical_is_semver():
     assert re.fullmatch(r"\d+\.\d+\.\d+", CANONICAL), CANONICAL
 
@@ -56,6 +67,34 @@ def test_optional_component_and_manifest_are_pinned_to_canonical():
     ]
 
 
+def test_release_metadata_and_lockfiles_are_pinned_to_canonical():
+    release_build = json.loads((REPO / "release-build.json").read_text())
+    assert release_build["release"]["version"] == CANONICAL
+    assert locked_package_version(REPO / "sidecar" / "uv.lock", "syncbox") == CANONICAL
+    assert (
+        locked_package_version(
+            REPO / "optional-component" / "uv.lock",
+            "syncbox-deezer-component",
+        )
+        == CANONICAL
+    )
+    assert (
+        locked_package_version(
+            REPO / "shell" / "src-tauri" / "Cargo.lock",
+            "syncbox-shell",
+        )
+        == CANONICAL
+    )
+
+
+def test_release_license_inventories_are_pinned_to_canonical():
+    for lane in ("base", "optional"):
+        inventory = json.loads(
+            (REPO / "release" / "licenses" / lane / "dependency-inventory.json").read_text()
+        )
+        assert inventory["artifact_version"] == CANONICAL
+
+
 def test_tauri_conf_derives_from_package_json():
     conf = json.loads((REPO / "shell" / "src-tauri" / "tauri.conf.json").read_text())
     # Native derivation (tauri-utils: version may be a path to a package.json).
@@ -66,6 +105,10 @@ def test_tauri_conf_derives_from_package_json():
 def test_readme_source_version_matches_canonical():
     readme = (REPO / "README.md").read_text()
     assert f"Current source version: **{CANONICAL}**" in readme
+    assert f"Syncbox-{CANONICAL}-macos-arm64.zip" in readme
+    assert f"[v{CANONICAL} GitHub Release]" in readme
+    assert f"Current source and release version: **{CANONICAL}**" in readme
+    assert f"matching `v{CANONICAL}` GitHub Release" in readme
 
 
 def test_vite_injects_the_version():

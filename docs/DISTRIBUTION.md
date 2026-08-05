@@ -1,12 +1,12 @@
 # Distribution
 
-This is the release contract for Syncbox 0.2.2. The supported v1 target is
-macOS 14 or later on Apple Silicon. The published release consists of two
+This is the release contract for Syncbox. The supported v1 target is macOS 14
+or later on Apple Silicon. Each published release consists of two
 independent artifacts:
 
-- `Syncbox-0.2.2-macos-arm64.zip`, containing the Tauri application and its
+- `Syncbox-X.Y.Z-macos-arm64.zip`, containing the Tauri application and its
   base PyInstaller onedir sidecar;
-- `syncbox-deezer-component-0.2.2-macos-arm64.zip`, a separately distributed
+- `syncbox-deezer-component-X.Y.Z-macos-arm64.zip`, a separately distributed
   optional PyInstaller onedir component.
 
 The base application is complete without the optional component. It neither
@@ -82,9 +82,9 @@ Build outputs:
 
 ```text
 optional-component/dist/syncbox-deezer-component/
-optional-component/dist/syncbox-deezer-component-0.2.2-macos-arm64.zip
+optional-component/dist/syncbox-deezer-component-X.Y.Z-macos-arm64.zip
 shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
-shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.2-macos-arm64.zip
+shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-X.Y.Z-macos-arm64.zip
 ```
 
 `scripts/package_base_app.py` creates the base ZIP as the final step of
@@ -96,38 +96,68 @@ Build artifacts are ignored and must not be committed.
 
 ## Automated release (GitHub Actions)
 
-Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`, which rebuilds
-the artifacts on a hosted Apple Silicon runner through the same
-`pnpm bundle:macos` entry point and publishes the GitHub release with both
-ZIPs, the convenience DMG, and a `SHA256SUMS.txt`. The tag must match
-`ui/package.json` and `release-build.json`; the sidecar and UI test suites
-must pass; and two isolated absolute source roots are built in parallel —
-the release is blocked unless their ZIPs are byte-identical.
+`.github/workflows/release-pin.yml` is the authoritative preparation step for
+the optional-component manifest. It runs on the same `macos-15` class as the
+release, exports `optional-component-manifest`, and blocks a release PR when
+the committed manifest differs. A manual preparation run reports drift but
+stays successful so its artifact can be downloaded and committed.
 
-The workflow also diffs the committed
-`sidecar/src/syncbox/optional_component.json` against the manifest the build
-just regenerated and refuses to publish on any mismatch, so a stale component
-pin cannot ship again. The component archive changes with every version bump
-(its pyproject version is baked in), so refresh the pin as part of release
-preparation, before tagging:
+Do not use a local component build as the release pin. The archive contains
+Mach-O binaries whose bytes depend on the Apple host image. GitHub-hosted
+runner images and a developer Mac can therefore produce different valid
+archives even with identical application, Python, Rust, Node, pnpm, uv, and
+dependency pins. The release and pin workflows set
+`SYNCBOX_RELEASE_HOST_TOOLCHAIN=unpinned`; Apple host fields are logged for
+provenance while every project-controlled pin remains fail-closed.
 
-```sh
-cd shell && pnpm bundle:macos --component-only
-```
+### Release checklist
 
-and commit the rewritten manifest. This runs the same pinned-toolchain
-reproducible build as the workflow, so the locally written sha256/size match
-what CI rebuilds from the tag.
+1. Create a release branch from the latest `master`. Confirm that the target
+   `vX.Y.Z` tag and GitHub Release do not already exist.
+2. Update the canonical version in `ui/package.json`, then align
+   `sidecar/pyproject.toml`, `sidecar/uv.lock`,
+   `optional-component/pyproject.toml`, `optional-component/uv.lock`,
+   `shell/package.json`, `shell/src-tauri/Cargo.toml`,
+   `shell/src-tauri/Cargo.lock`, `release-build.json`, the README release
+   links, and versioned reproducibility expectations. Regenerate the release
+   license inventories. Do not edit any field in
+   `sidecar/src/syncbox/optional_component.json`; the hosted workflow replaces
+   the whole file in step 4.
+3. Run the dependency lock checks, release-license check, Cargo metadata
+   check, and `git diff --check`. Commit and push this initial release
+   preparation. The full sidecar suite is expected to fail its version guard
+   until the hosted manifest is committed.
+4. Before opening or merging the release PR, generate the hosted-runner pin:
 
-Hosted runners cannot match the pinned Apple host toolchain, so the workflow
-sets `SYNCBOX_RELEASE_HOST_TOOLCHAIN=unpinned`: the six Apple host fields
-(`apple_clang`, `apple_ld`, `developer_dir`, `macos_build`, `macos_sdk`,
-`macos_sdk_path`) are logged for provenance instead of enforced, and
-`SDKROOT` is resolved from the runner's `xcrun`. Every other pin — rustc,
-cargo, node, pnpm, uv, the Tauri CLI, both managed Python runtimes, locks,
-licenses, and the full artifact scanner — remains fail-closed. CI artifacts
-are therefore reproducible against themselves on the runner image, not
-byte-identical to a build from the pinned local host.
+   ```sh
+   release_branch="$(git branch --show-current)"
+   gh workflow run release-pin.yml --ref "$release_branch"
+   gh run list --workflow release-pin.yml --branch "$release_branch" --limit 1
+   gh run watch RUN_ID --exit-status
+   release_pin_dir="$(mktemp -d)"
+   gh run download RUN_ID -n optional-component-manifest -D "$release_pin_dir"
+   cp "$release_pin_dir/optional_component.json" \
+      sidecar/src/syncbox/optional_component.json
+   ```
+
+5. Review the manifest diff and commit it with the release branch. Run the
+   complete locked sidecar suite, UI typecheck/tests, release-license check,
+   Cargo metadata check, and `git diff --check`, then push. Open or update the
+   PR. Do not merge until CI, CodeQL, and
+   `Release Pin / component manifest` are green. If the hosted runner image
+   changed, repeat step 4 on the same branch; never solve pin drift by creating
+   a tag first.
+6. Review and merge the PR. Fetch `master`, recheck every version from the
+   merged commit, then create and push one annotated `vX.Y.Z` tag on that exact
+   commit. Never move or replace a published release tag.
+7. Watch `.github/workflows/release.yml` through completion. It rebuilds two
+   isolated absolute source roots, checks both manifests against the tagged
+   source, requires byte-identical ZIPs, and publishes the GitHub Release with
+   the application ZIP, convenience DMG, optional component, and
+   `SHA256SUMS.txt`.
+8. Verify that the Release is public, non-draft, non-prerelease, points to the
+   merged commit, and exposes uploaded assets whose size and SHA-256 match the
+   committed manifest and `SHA256SUMS.txt`.
 
 ## Verification
 
@@ -135,8 +165,8 @@ From the repository root:
 
 ```sh
 APP=shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
-APP_ZIP=shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-0.2.2-macos-arm64.zip
-COMPONENT_ZIP=optional-component/dist/syncbox-deezer-component-0.2.2-macos-arm64.zip
+APP_ZIP=shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-X.Y.Z-macos-arm64.zip
+COMPONENT_ZIP=optional-component/dist/syncbox-deezer-component-X.Y.Z-macos-arm64.zip
 
 codesign --verify --deep --strict "$APP"
 PYI_ARCHIVE_VIEWER=sidecar/.venv/bin/pyi-archive_viewer \
@@ -178,34 +208,17 @@ listeners on either port.
 
 ## Release publication
 
-The base manifest for 0.2.2 pins the optional asset to:
+The manifest embedded in each base application pins the matching optional
+asset name, URL, byte size, and SHA-256. The release workflow publishes that
+exact byte stream and a `SHA256SUMS.txt` generated from all final assets. A
+differently rebuilt asset requires a new version, manifest, base application,
+tag, and GitHub Release; never replace an asset behind an existing manifest or
+move an existing release tag.
 
-```text
-Name:   syncbox-deezer-component-0.2.2-macos-arm64.zip
-Bytes:  17,340,644
-SHA-256: 13976d4b49c345e241e0cac9a9465a06eeebafb97c36f246214b653785a7b9dd
-URL:    https://github.com/Adridot/syncbox/releases/download/v0.2.2/syncbox-deezer-component-0.2.2-macos-arm64.zip
-```
-
-That exact byte stream is published in GitHub Release `v0.2.2`. Its public
-HTTPS download passed byte equality, size/hash, scanner, and live packaged
-installation checks. A differently rebuilt asset must receive a new version,
-manifest, and rebuilt base application; never replace the published asset
-while retaining the old manifest.
-
-The published base ZIP is 29,296,019 bytes with SHA-256
-`296fbece128497c8eb21a4000843805bf0ec858b3d250a3da8e7d3654346663c`.
-Its strict scanner passes. The base contains 30 arm64 Mach-O files, has an
-effective macOS 14.0 minimum, uses CommonCrypto for SQLCipher, and contains no
-streamrip. The optional artifact contains 28 arm64 Mach-O files, has an
-effective macOS 11.0 minimum, includes artwork-capable Pillow payloads, and
-exposes only the Deezer provider. Real source, frozen, installed, and packaged
-lanes embedded the artwork in a full-length audio file produced by these exact
-optional bytes. Two isolated absolute source roots produced byte-identical
-ZIPs and unpacked trees for both artifacts. The public downloads are
-byte-identical to those validated streams and pass the downloaded scanner and
-runtime matrix. The authoritative evidence is
-`docs/_handoffs/final-release-closure.md` (archived in git history).
+Version-specific sizes, hashes, test results, and build provenance belong to
+the immutable GitHub Release and its workflow run, not this long-lived
+document. Keeping the contract version-neutral prevents stale release values
+from being copied into the next preparation branch.
 
 ## Trust boundary and completed release gates
 
