@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from syncbox import appdb, event_delete, events_service
+from syncbox import appdb, event_delete, events_service, missing_service
 from syncbox.events_service import (
     add_track,
     apply_event,
@@ -581,6 +581,66 @@ def test_apply_restores_xml_byte_identical_after_commit(conn, tmp_path, monkeypa
     assert xml_path.read_bytes() == original  # byte-identical restore (1.6)
     bak = Path(event["staging_dir"]) / "masterPlaylists6.xml.bak"
     assert bak.read_bytes() == original  # covers the commit->restore window
+
+
+def test_apply_reclassifies_ready_track_with_vanished_staged_file(
+    conn, tmp_path, monkeypatch
+):
+    """staged-file-integrity: a 'ready' event track whose staged file is gone
+    is reclassified 'missing' + excluded BEFORE the Rekordbox write; the rest
+    applies normally (no FileNotFoundError, no rollback)."""
+    storage = tmp_path / "storage"
+    event = create_event(conn, storage, "Ghost File Gig")
+    matched = add_track(conn, event, title="Fine")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'matched', content_id = 'C1' WHERE id = ?",
+        (matched["id"],),
+    )
+    stale = add_track(conn, event, title="Gone")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'ready', staging_file_path = ? WHERE id = ?",
+        (str(Path(event["staging_dir"]) / "gone.mp3"), stale["id"]),
+    )
+
+    @contextmanager
+    def fake_mutate(
+        db_path,
+        backups_root,
+        *,
+        retention=20,
+        expected_fingerprint=None,
+        open_db,
+        invalidate_cache=None,
+        **kwargs,
+    ):
+        yield "db"
+
+    _fake_apply_helpers(monkeypatch, fake_mutate)
+    monkeypatch.setattr(
+        events_service,
+        "add_content",
+        lambda *args, **kwargs: pytest.fail(
+            "a vanished staged file must never reach add_content"
+        ),
+    )
+    monkeypatch.setattr(
+        events_service, "find_active_content_by_path", lambda *args: None
+    )
+
+    result = apply_event(
+        conn, tmp_path / "master.db", tmp_path / "b", FakeCache([]), storage, event
+    )
+
+    assert result["noop"] is False and result["applied"] == 1
+    assert result["reclassified_missing"] == [stale["id"]]
+    assert result["event_status"] == "partially_applied"
+    rows = {t["title"]: t for t in list_event_tracks(conn, event["id"])}
+    assert rows["Fine"]["status"] == "applied"
+    assert rows["Gone"]["status"] == "missing"
+    assert rows["Gone"]["staging_file_path"] is None
+    # actionable again in the Missing center
+    missing_ids = {e["id"] for e in missing_service.list_missing(conn, "event")}
+    assert stale["id"] in missing_ids
 
 
 def test_delete_event_forwards_exact_plan_and_consent(conn, tmp_path, monkeypatch):

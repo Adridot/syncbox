@@ -24,6 +24,7 @@ const spotifyClientIdHelpSource = readSource('src/components/SpotifyClientIdHelp
 const duplicateGroupSource = readSource('src/components/DuplicateGroupCard.vue')
 const manualRelinkSource = readSource('src/components/ManualRelinkModal.vue')
 const rematchSource = readSource('src/components/ReMatchModal.vue')
+const spotifyAttributionSource = readSource('src/components/SpotifyAttributionLink.vue')
 const settingsSource = readSource('src/screens/SettingsScreen.vue')
 const allAuthoredStyles = collectAuthoredStyles(resolve(process.cwd(), 'src')).join('\n')
 
@@ -85,4 +86,15 @@ test('useful technical values remain explicitly selectable', () => {
   expect(duplicateGroupSource).toMatch(/\.member-title,[^{]*\{[^}]*user-select:\s*text\s*;/s)
   expect(manualRelinkSource).toMatch(/\.cand-text,[^{]*\{[^}]*user-select:\s*text\s*;/s)
   expect(rematchSource).toMatch(/\.cand-text,[^{]*\{[^}]*user-select:\s*text\s*;/s)
+})
+
+test('the spotify attribution reveal never relies on :hover or opacity', () => {
+  // WKWebView keeps stale hover chains during scroll AND orphans
+  // opacity-animation compositing layers of virtualized rows (ghost
+  // arrows): the reveal is structural (v-if on the icon) driven by
+  // explicit pointer/focus state — no :hover reveal, no opacity fade.
+  expect(spotifyAttributionSource).not.toMatch(/\.hover-reveal:hover/)
+  expect(spotifyAttributionSource).not.toMatch(/opacity\s*:/)
+  expect(spotifyAttributionSource).toMatch(/<svg\s[^>]*v-if="shown"/s)
+  expect(allAuthoredStyles).not.toMatch(/\.hover-reveal:hover/)
 })

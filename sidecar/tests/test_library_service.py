@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from syncbox import appdb, library_service, repos, spotify
+from syncbox import appdb, library_service, missing_service, repos, spotify
 from syncbox.library_service import ConflictError, apply_to_rekordbox, sync_one_source
 from syncbox.spotify import SpotifyAuth, SpotifyClient
 
@@ -448,6 +448,137 @@ def test_sync_carries_ignored_prior_status(conn, source, tmp_path):
     assert repos.restore_track(conn, row["id"])["status"] == "missing"
 
 
+def test_sync_reclassifies_ready_rows_with_vanished_staged_file(conn, source, tmp_path):
+    """staged-file-integrity: a prior 'ready' whose staged file is gone (or
+    is not a regular file) is reclassified 'missing' with a cleared path at
+    sync; a ready row whose file is present carries unchanged; acquisition
+    jobs are kept as history."""
+    staged_ok = tmp_path / "kept.mp3"
+    staged_ok.write_bytes(b"x")
+    staged_dir = tmp_path / "a-directory"
+    staged_dir.mkdir()
+    vanished = str(tmp_path / "vanished.mp3")
+    repos.replace_source_tracks(
+        conn,
+        source["id"],
+        [
+            {"spotify_track_id": "t1", "status": "ready", "staging_file_path": vanished},
+            {"spotify_track_id": "t2", "status": "ready",
+             "staging_file_path": str(staged_dir)},
+            {"spotify_track_id": "t3", "status": "ready",
+             "staging_file_path": str(staged_ok)},
+        ],
+    )
+    rows = {r["spotify_track_id"]: r for r in repos.list_source_tracks(conn, source["id"])}
+    conn.execute(
+        "INSERT INTO acquisition_jobs (scope, ref, status, output_path) "
+        "VALUES ('library', ?, 'downloaded', ?)",
+        (str(rows["t1"]["id"]), vanished),
+    )
+    client, _ = make_client(
+        api_ok(
+            playlist_payload(
+                [item("t1", "Gone", "A"), item("t2", "Dir", "B"), item("t3", "Kept", "C")]
+            )
+        )
+    )
+    sync_one_source(conn, client, FakeCache([]), tmp_path, source)
+
+    tracks = {t["spotify_track_id"]: t for t in repos.list_source_tracks(conn, source["id"])}
+    assert tracks["t1"]["status"] == "missing"
+    assert tracks["t1"]["staging_file_path"] is None
+    assert tracks["t2"]["status"] == "missing"  # a directory is not a staged file
+    assert tracks["t2"]["staging_file_path"] is None
+    assert tracks["t3"]["status"] == "ready"  # file present: carried unchanged
+    assert tracks["t3"]["staging_file_path"] == str(staged_ok)
+    job = conn.execute("SELECT status, output_path FROM acquisition_jobs").fetchone()
+    assert tuple(job) == ("downloaded", vanished)  # jobs stay as history
+    # actionable again: the reclassified rows surface in the Missing center
+    missing_ids = {
+        e["spotify_track_id"] for e in missing_service.list_missing(conn, "library")
+    }
+    assert {"t1", "t2"} <= missing_ids
+
+
+def test_sync_reclassifies_on_the_snapshot_fast_path(conn, source, tmp_path):
+    """A stuck 'ready' row must come back actionable even when the Spotify
+    snapshot is unchanged (the snapshot_id skip must not hide it)."""
+    client, _ = make_client(api_ok(playlist_payload([item("t1", "Strobe", "deadmau5")])))
+    sync_one_source(conn, client, FakeCache([]), tmp_path, source)
+    row = repos.list_source_tracks(conn, source["id"])[0]
+    conn.execute(
+        "UPDATE library_tracks SET status = 'ready', staging_file_path = ? WHERE id = ?",
+        (str(tmp_path / "gone.mp3"), row["id"]),
+    )
+    source = repos.get_source(conn, source["id"])  # snapshot_id now snap-1
+    client2, transport2 = make_client(api_ok(playlist_payload([], snapshot="snap-1")))
+
+    result = sync_one_source(conn, client2, FakeCache([]), tmp_path, source)
+
+    assert result["skipped"] is False
+    assert len(transport2.calls) == 1  # meta fetch only, no pagination
+    updated = repos.get_track(conn, row["id"])
+    assert updated["status"] == "missing"
+    assert updated["staging_file_path"] is None
+
+
+def test_apply_imports_valid_rows_and_reclassifies_vanished_staged_file(
+    conn, source, tmp_path, monkeypatch
+):
+    """Mixed import: valid rows import normally, the vanished-file row is
+    reclassified + reported, and rb_write never sees the vanished path (no
+    FileNotFoundError, no rollback)."""
+    staged = tmp_path / "storage" / "ok.mp3"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b"audio")
+    repos.replace_source_tracks(
+        conn,
+        source["id"],
+        [
+            {"spotify_track_id": "t1", "status": "ready", "title": "Ok",
+             "staging_file_path": str(staged)},
+            {"spotify_track_id": "t2", "status": "ready", "title": "Gone",
+             "staging_file_path": str(tmp_path / "storage" / "gone.mp3")},
+        ],
+    )
+    rows = {r["spotify_track_id"]: r for r in repos.list_source_tracks(conn, source["id"])}
+    added = []
+
+    @contextmanager
+    def fake_mutate(*args, **kwargs):
+        yield "db"
+
+    monkeypatch.setattr(library_service, "mutate", fake_mutate)
+    monkeypatch.setattr(library_service, "_library_tag_ids", lambda *args: ["T1"])
+    monkeypatch.setattr(
+        library_service, "find_active_content_by_path", lambda *args: None
+    )
+    monkeypatch.setattr(
+        library_service,
+        "add_content",
+        lambda db, path, meta, **kwargs: added.append(str(path))
+        or SimpleNamespace(ID="C-new"),
+    )
+    monkeypatch.setattr(library_service, "apply_tag_delta", lambda *args, **kwargs: None)
+
+    result = apply_to_rekordbox(
+        conn, tmp_path / "master.db", tmp_path / "b", FakeCache([]),
+        tmp_path / "storage", source["id"], [rows["t1"]["id"], rows["t2"]["id"]],
+    )
+
+    assert result == {
+        "imported": 1,
+        "tags_per_track": 1,
+        "reclassified_missing": [rows["t2"]["id"]],
+    }
+    assert added == [str(staged)]  # the vanished path never reached rb_write
+    ok = repos.get_track(conn, rows["t1"]["id"])
+    gone = repos.get_track(conn, rows["t2"]["id"])
+    assert (ok["status"], ok["content_id"]) == ("imported", "C-new")
+    assert gone["status"] == "missing"
+    assert gone["staging_file_path"] is None
+
+
 def test_library_tag_ids_conflict_without_fixture(monkeypatch, tmp_path):
     """5.6 binding invariant, fixture-less: library MyTags must pre-exist -
     a missing one is a ConflictError naming it; categories never match."""
@@ -493,9 +624,33 @@ def test_apply_refuses_non_importable_statuses_with_409_conflict(conn, source, t
     assert statuses == {"t1": "missing", "t2": "matched"}
 
 
-def test_apply_refuses_rows_without_content_link(conn, source, tmp_path):
+def test_apply_reclassifies_ready_without_staged_file_instead_of_conflicting(
+    conn, source, tmp_path
+):
+    """staged-file-integrity: a 'ready' row with no usable staged file is no
+    longer a 409 — it is reclassified 'missing' (path cleared) and reported,
+    before any master.db access."""
     repos.replace_source_tracks(
         conn, source["id"], [{"spotify_track_id": "t1", "status": "ready"}]
+    )
+    row = repos.list_source_tracks(conn, source["id"])[0]
+    result = apply_to_rekordbox(
+        conn, tmp_path / "no.db", tmp_path / "b", FakeCache([]), tmp_path,
+        source["id"], [row["id"]],
+    )
+    assert result == {
+        "imported": 0,
+        "tags_per_track": 0,
+        "reclassified_missing": [row["id"]],
+    }
+    updated = repos.get_track(conn, row["id"])
+    assert updated["status"] == "missing"
+    assert updated["staging_file_path"] is None
+
+
+def test_apply_refuses_matched_rows_without_content_link(conn, source, tmp_path):
+    repos.replace_source_tracks(
+        conn, source["id"], [{"spotify_track_id": "t1", "status": "matched"}]
     )
     row = repos.list_source_tracks(conn, source["id"])[0]
     with pytest.raises(ConflictError, match="without a Rekordbox link"):
@@ -559,7 +714,11 @@ def test_apply_imports_ready_staged_file_and_persists_content_link(
     )
 
     updated = repos.get_track(conn, row["id"])
-    assert result == {"imported": 1, "tags_per_track": 1}
+    assert result == {
+        "imported": 1,
+        "tags_per_track": 1,
+        "reclassified_missing": [],
+    }
     assert (updated["status"], updated["content_id"]) == ("imported", "C-new")
     assert calls == [(db, "C-new", {"add_tag_ids": ["T1"]})]
 
@@ -617,7 +776,11 @@ def test_apply_to_rekordbox_tags_and_imports(conn, source, tmp_path):
     result = apply_to_rekordbox(
         conn, db_path, backups, cache, storage, src["id"], [row["id"]]
     )
-    assert result == {"imported": 1, "tags_per_track": 1}
+    assert result == {
+        "imported": 1,
+        "tags_per_track": 1,
+        "reclassified_missing": [],
+    }
     assert repos.get_track(conn, row["id"])["status"] == "imported"
 
     # on-disk verification through an independent read-only connection
