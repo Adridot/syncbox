@@ -98,8 +98,9 @@ jobs:
           diff "$GITHUB_WORKSPACE/sidecar/src/syncbox/optional_component.json" \
                "$SRC/sidecar/src/syncbox/optional_component.json" || {
             echo "The tagged optional_component.json does not match the rebuilt archive."
-            echo "Refresh the pin (cd shell && pnpm bundle:macos --component-only),"
-            echo "commit the manifest, and re-tag."
+            echo "Run the Release Pin workflow on the release branch, download and"
+            echo "commit its optional-component-manifest artifact before tagging."
+            echo "Do not move or replace a release tag to refresh this pin."
             exit 1
           }
 

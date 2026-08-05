@@ -33,3 +33,18 @@ def test_release_workflow_diffs_the_committed_pin():
     workflow = (REPO / ".github" / "workflows" / "release.yml").read_text()
     assert '"$GITHUB_WORKSPACE/sidecar/src/syncbox/optional_component.json"' in workflow
     assert '"$SRC/sidecar/src/syncbox/optional_component.json"' in workflow
+    assert "Run the Release Pin workflow on the release branch" in workflow
+    assert "Do not move or replace a release tag" in workflow
+
+
+def test_release_pin_workflow_exports_and_checks_the_hosted_manifest():
+    workflow = (REPO / ".github" / "workflows" / "release-pin.yml").read_text()
+    assert "workflow_dispatch:" in workflow
+    assert "pull_request:" in workflow
+    assert "runs-on: macos-15" in workflow
+    assert "SYNCBOX_RELEASE_HOST_TOOLCHAIN: unpinned" in workflow
+    assert "pnpm bundle:macos --component-only" in workflow
+    assert "name: optional-component-manifest" in workflow
+    assert "path: sidecar/src/syncbox/optional_component.json" in workflow
+    assert 'git diff --quiet -- "$MANIFEST"' in workflow
+    assert 'if [ "$GITHUB_EVENT_NAME" = "pull_request" ]' in workflow
