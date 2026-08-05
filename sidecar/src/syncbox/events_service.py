@@ -32,6 +32,7 @@ from syncbox.rb_write import (
 )
 from syncbox.safety.mutate import mutate
 from syncbox.safety.paths import SYNC_DIR_NAME, stored_form
+from syncbox.staging import reclassify_stale_ready
 
 EVENT_FOLDER_NAME = "Event Imports"
 SITUATION_CATEGORY = "Situation"
@@ -352,8 +353,20 @@ def apply_event(
     db_path = Path(db_path)
     tracks = list_event_tracks(conn, event["id"])
     applicable = [t for t in tracks if t["status"] in ("matched", "ready")]
+    # staged-file-integrity: a 'ready' track whose staged file vanished is
+    # reclassified 'missing' + excluded BEFORE any Rekordbox write; the rest
+    # applies normally (no FileNotFoundError, no rollback). Event status is
+    # unaffected by the reclassification itself: ready and missing are both
+    # pending (11.2).
+    reclassified = [t["id"] for t in reclassify_stale_ready(conn, "event_tracks", applicable)]
+    applicable = [t for t in applicable if t["status"] in ("matched", "ready")]
     if not applicable and (only_delta or event["status"] in APPLIED_EVENT_STATUSES):
-        return {"noop": True, "applied": 0, "event_status": event["status"]}
+        return {
+            "noop": True,
+            "applied": 0,
+            "event_status": event["status"],
+            "reclassified_missing": reclassified,
+        }
 
     xml_path, xml_bytes = _xml_snapshot(db_path, event["staging_dir"])
     applied: list[tuple[int, str]] = []
@@ -434,6 +447,7 @@ def apply_event(
         "event_status": event_status,
         "tag_id": tag_id,
         "playlist_id": playlist_id,
+        "reclassified_missing": reclassified,
     }
 
 

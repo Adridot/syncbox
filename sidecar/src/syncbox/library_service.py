@@ -31,6 +31,7 @@ from syncbox.rb_write import (
 )
 from syncbox.safety.mutate import mutate
 from syncbox.safety.paths import stored_form
+from syncbox.staging import reclassify_stale_ready
 from syncbox.sync import apply_matching, diff_tracks, reconcile_links
 
 IMPORTABLE_STATUSES = frozenset({"matched", "ready"})
@@ -131,6 +132,10 @@ def sync_one_source(conn, spotify_client, cache, storage_root, source, **thresho
     payload = spotify_client.get(f"/playlists/{source['spotify_playlist_id']}")
     snapshot_id = payload.get("snapshot_id")
     previous = repos.list_source_tracks(conn, source["id"])
+    # staged-file-integrity: a prior 'ready' whose staged file vanished must
+    # come back actionable. Persisted + patched BEFORE the diff so both the
+    # snapshot fast path and the full carry see the corrected state.
+    stale = reclassify_stale_ready(conn, "library_tracks", previous)
     # Spotify references in master.db are metadata, never eligible local files.
     candidates = [
         row for row in cache.get(storage_root) if not row.get("spotify_track_id")
@@ -147,7 +152,7 @@ def sync_one_source(conn, spotify_client, cache, storage_root, source, **thresho
         images = payload.get("images") or []
         if images and not source.get("cover_url"):
             repos.update_source(conn, source["id"], cover_url=images[0].get("url"))
-        if reconciled:
+        if reconciled or stale:
             stats = _sync_stats(rows, reconciled)
             skipped = False
         else:
@@ -244,17 +249,19 @@ def apply_to_rekordbox(
             "only matched/ready rows can be imported (5.6); refused: "
             + ", ".join(f"{t['id']}={t['status']}" for t in wrong_status)
         )
-    unlinked = [
-        t
-        for t in tracks
-        if not t["content_id"]
-        and not (t["status"] == "ready" and t["staging_file_path"])
-    ]
+    # staged-file-integrity: verify staged files BEFORE mutate() so no
+    # Rekordbox write is attempted for a vanished file. Invalid rows are
+    # reclassified 'missing' + excluded; the valid rows import normally.
+    reclassified = [t["id"] for t in reclassify_stale_ready(conn, "library_tracks", tracks)]
+    tracks = [t for t in tracks if t["status"] in IMPORTABLE_STATUSES]
+    unlinked = [t for t in tracks if not t["content_id"] and t["status"] != "ready"]
     if unlinked:
         raise ConflictError(
             "rows without a Rekordbox link or staged file cannot be imported: "
             + ", ".join(str(t["id"]) for t in unlinked)
         )
+    if not tracks:
+        return {"imported": 0, "tags_per_track": 0, "reclassified_missing": reclassified}
 
     tag_ids = _library_tag_ids(db_path, source["tags"])
 
@@ -309,4 +316,8 @@ def apply_to_rekordbox(
     except BaseException:
         conn.execute("ROLLBACK")
         raise
-    return {"imported": len(tracks), "tags_per_track": len(tag_ids)}
+    return {
+        "imported": len(tracks),
+        "tags_per_track": len(tag_ids),
+        "reclassified_missing": reclassified,
+    }
