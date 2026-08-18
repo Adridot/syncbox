@@ -3,6 +3,8 @@
 **Keep your Rekordbox collection clean, matched, and gig-ready — with guarded
 writes and automatic backups.**
 
+<img width="2904" height="1912" alt="94380" src="https://github.com/user-attachments/assets/07fad7c4-c432-47b9-ae1b-7a5e342c572f" />
+
 Current source version: **0.7.2**
 
 Syncbox is a macOS desktop app for DJs who prepare sets with Spotify and
