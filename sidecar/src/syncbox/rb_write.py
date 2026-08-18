@@ -516,6 +516,45 @@ def _content_metadata(db, path: Path, metadata: dict) -> dict:
     }
 
 
+def _blank_metadata_value(value) -> bool:
+    return value in (None, "", 0, "0")
+
+
+def backfill_content_metadata(db, content_id: str, source: dict) -> tuple[str, ...]:
+    """Fill only the six supported blank fields on one existing content row."""
+    row = db.query(tables.DjmdContent).filter_by(ID=str(content_id)).one()
+    changed = []
+
+    if _blank_metadata_value(row.AlbumID) and source.get("album"):
+        album_artist_name = source.get("album_artist")
+        album_artist = (
+            find_or_create_artist(db, album_artist_name) if album_artist_name else None
+        )
+        row.AlbumID = find_or_create_album(db, source["album"], album_artist).ID
+        changed.append("album")
+
+    if _blank_metadata_value(row.GenreID) and source.get("genre"):
+        row.GenreID = find_or_create_genre(db, source["genre"]).ID
+        changed.append("genre")
+
+    direct_fields = {
+        "track_number": "TrackNo",
+        "disc_number": "DiscNo",
+        "release_date": "ReleaseDate",
+        "release_year": "ReleaseYear",
+    }
+    for source_name, column_name in direct_fields.items():
+        value = source.get(source_name)
+        if _blank_metadata_value(
+            getattr(row, column_name)
+        ) and not _blank_metadata_value(value):
+            setattr(row, column_name, value)
+            changed.append(source_name)
+
+    db.flush()
+    return tuple(changed)
+
+
 def add_content(db, staging_path, metadata: dict, *, storage_root):
     """New content row for a staged event file (SPEC-01 1.6, the POC 05
     phase-4 pattern verified on a real RB 7.x master.db).

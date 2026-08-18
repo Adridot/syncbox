@@ -158,6 +158,21 @@ def test_packaging_check_rejects_extra_arguments(capsys):
     assert "--packaging-check" in capsys.readouterr().err
 
 
+def test_legacy_backfill_cli_skips_app_composition(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        "syncbox.__main__.compose",
+        lambda: (_ for _ in ()).throw(AssertionError("compose must not run")),
+    )
+    monkeypatch.setattr(
+        "syncbox.legacy_metadata_backfill.main",
+        lambda argv: seen.append(argv) or 0,
+    )
+
+    assert main(["--legacy-metadata-backfill", "preview", "--manifest", "x"]) == 0
+    assert seen == [["preview", "--manifest", "x"]]
+
+
 def test_second_sidecar_fails_before_touching_the_first_instances_queue(
     tmp_path, monkeypatch
 ):

@@ -7,6 +7,7 @@ import { router } from '../../router'
 import { useHealthStore } from '../../stores/health'
 import { useStatusStore } from '../../stores/status'
 import DuplicatesTab from '../health/DuplicatesTab.vue'
+import BackupsTab from '../health/BackupsTab.vue'
 import SmartFixesTab from '../health/SmartFixesTab.vue'
 import UntaggedTab from '../health/UntaggedTab.vue'
 
@@ -114,6 +115,78 @@ function mountSmartFixes() {
     global: { plugins: [i18n, pinia, router], stubs: { teleport: true } },
   })
 }
+
+function mountBackups() {
+  return mount(BackupsTab, { global: { plugins: [i18n, pinia, router] } })
+}
+
+test('a cleanup-only storage plan is visible and executable', async () => {
+  const plan = {
+    dry_run: true,
+    plan_version: 2,
+    fingerprint: [['db', 1]],
+    items: [],
+    cleanup_directories: [
+      {
+        job_id: 7,
+        scope: 'event',
+        title: 'Residual track',
+        artist: 'Artist',
+        directory_path: '/storage/_syncbox/acquisition/job-7',
+      },
+    ],
+    ignored: [],
+  }
+  const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    const path = new URL(url).pathname
+    const method = init?.method ?? 'GET'
+    const payload =
+      path === '/api/doctor/backups'
+        ? { backups: [] }
+        : path === '/api/acquisition/storage-migration' && method === 'POST'
+          ? { migrated_files: 0, cleaned_directories: 1 }
+          : path === '/api/acquisition/storage-migration'
+            ? plan
+            : path === '/api/doctor/logs'
+              ? { configured: false, lines: [] }
+              : path === '/api/settings'
+                ? {
+                    spotify_client_id: '',
+                    rekordbox_db_path: '/master.db',
+                    storage_root: '/storage',
+                    backup_retention: 20,
+                    language: 'fr',
+                    match_confidence_threshold: 0.9,
+                    match_ambiguity_margin: 0.1,
+                    match_weights: { title: 1, artist: 1, duration: 1 },
+                    isrc_collision_policy: 'guarded',
+                    deezer_acquisition_enabled: false,
+                  }
+                : {}
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(payload) })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  const wrapper = mountBackups()
+  await flushPromises()
+
+  expect(wrapper.text()).toContain('1 dossier de job à nettoyer')
+  expect(wrapper.text()).toContain('/storage/_syncbox/acquisition/job-7')
+  const action = wrapper.get('.card.full .restore')
+  expect((action.element as HTMLButtonElement).disabled).toBe(false)
+  await action.trigger('click')
+  await flushPromises()
+
+  const executeCall = fetchMock.mock.calls.find(
+    ([url, init]) =>
+      new URL(String(url)).pathname === '/api/acquisition/storage-migration' &&
+      init?.method === 'POST',
+  )
+  expect(JSON.parse(executeCall![1].body as string).plan).toEqual(plan)
+  expect(wrapper.get('.banner[data-tone="success"]').text()).toContain(
+    '1 dossier de job nettoyé',
+  )
+})
 
 test('B1: a failed scan click surfaces the backend message — never a silent no-op', async () => {
   stubScan({ fail: true })

@@ -29,6 +29,15 @@ def audio(tmp_path):
     return f
 
 
+@pytest.fixture
+def job_dir(tmp_path):
+    directory = tmp_path / "job-7"
+    (directory / "artwork").mkdir(parents=True)
+    (directory / "track.aiff").write_bytes(b"audio")
+    (directory / "artwork" / "cover.jpg").write_bytes(b"image")
+    return directory
+
+
 def test_trash_success(audio, monkeypatch):
     trashed = []
     monkeypatch.setattr(platform_os, "send2trash", trashed.append)
@@ -63,3 +72,72 @@ def test_consent_is_not_a_bypass_when_trash_works(audio, monkeypatch):
     monkeypatch.setattr(platform_os, "send2trash", trashed.append)
     assert delete_file(audio, consent_to_permanent_delete=True) == "trashed"
     assert trashed and audio.exists()  # our fake did not really move it
+
+
+def test_directory_trash_success(job_dir, monkeypatch):
+    trashed = []
+    monkeypatch.setattr(platform_os, "send2trash", trashed.append)
+    assert delete_file(job_dir) == "trashed"
+    assert trashed == [str(job_dir)]
+
+
+def test_directory_trash_failure_without_consent_deletes_nothing(job_dir, monkeypatch):
+    monkeypatch.setattr(
+        platform_os,
+        "send2trash",
+        lambda path: (_ for _ in ()).throw(OSError("no trash")),
+    )
+    with pytest.raises(PermanentDeleteConsentRequired):
+        delete_file(job_dir)
+    assert (job_dir / "artwork" / "cover.jpg").is_file()
+
+
+def test_directory_trash_failure_with_consent_deletes_recursively(job_dir, monkeypatch):
+    monkeypatch.setattr(
+        platform_os,
+        "send2trash",
+        lambda path: (_ for _ in ()).throw(OSError("no trash")),
+    )
+    assert (
+        delete_file(job_dir, consent_to_permanent_delete=True)
+        == "deleted_permanently"
+    )
+    assert not job_dir.exists()
+
+
+def test_recursive_delete_failure_is_propagated(job_dir, monkeypatch):
+    monkeypatch.setattr(
+        platform_os,
+        "send2trash",
+        lambda path: (_ for _ in ()).throw(OSError("no trash")),
+    )
+    monkeypatch.setattr(
+        platform_os.shutil,
+        "rmtree",
+        lambda path: (_ for _ in ()).throw(OSError("cannot remove directory")),
+    )
+    with pytest.raises(OSError, match="cannot remove directory"):
+        delete_file(job_dir, consent_to_permanent_delete=True)
+    assert job_dir.is_dir()
+
+
+def test_permanent_delete_unlinks_a_symlink_without_following_it(
+    audio, job_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        platform_os,
+        "send2trash",
+        lambda path: (_ for _ in ()).throw(OSError("no trash")),
+    )
+    file_link = tmp_path / "link.aiff"
+    file_link.symlink_to(audio)
+    dir_link = tmp_path / "link-job"
+    dir_link.symlink_to(job_dir)
+
+    for link in (file_link, dir_link):
+        assert delete_file(link, consent_to_permanent_delete=True) == (
+            "deleted_permanently"
+        )
+        assert not link.exists() and not link.is_symlink()
+    # The link went, never what it pointed at.
+    assert audio.is_file() and (job_dir / "artwork" / "cover.jpg").is_file()

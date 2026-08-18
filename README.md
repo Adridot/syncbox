@@ -3,7 +3,7 @@
 **Keep your Rekordbox collection clean, matched, and gig-ready — with guarded
 writes and automatic backups.**
 
-Current source version: **0.7.1**
+Current source version: **0.7.2**
 
 Syncbox is a macOS desktop app for DJs who prepare sets with Spotify and
 perform with [Rekordbox](https://rekordbox.com). It bridges the two: it reads
@@ -77,8 +77,8 @@ Syncbox write to Rekordbox goes through a single guarded pipeline:
 
 ## Install (macOS, Apple Silicon)
 
-1. Download `Syncbox-0.7.1-macos-arm64.zip` from the
-   [v0.7.1 GitHub Release](https://github.com/Adridot/syncbox/releases/tag/v0.7.1),
+1. Download `Syncbox-0.7.2-macos-arm64.zip` from the
+   [v0.7.2 GitHub Release](https://github.com/Adridot/syncbox/releases/tag/v0.7.2),
    then unzip it.
 2. The current app is ad-hoc signed, not signed with an Apple Developer ID and
    not notarized. Launch it once. If macOS blocks an artifact you trust, open
@@ -166,9 +166,10 @@ docstring says how to run it.
 
 ## Status & roadmap
 
-Current source and release version: **0.7.1**. This patch revalidates persisted
-Spotify-to-Rekordbox links during source synchronization, repairs stale matches
-after Rekordbox content changes, and preserves valid manual or automatic links.
+Current source and release version: **0.7.2**. This patch cleans up legacy
+acquisition storage by trashing the complete migrated job directory instead of
+its audio file alone, and adds a guarded, fill-only repair for legacy Syncbox
+imports whose Rekordbox metadata was left blank.
 The macOS 14+ Apple Silicon release workflow keeps the scanner, isolated-root
 reproducibility, component-pin, and test gates. The app is ad-hoc signed
 without a Developer ID or notarization.
@@ -182,7 +183,7 @@ without a Developer ID or notarization.
 - **Optional acquisition** — purchase links remain first. Deezer acquisition
   is explicit, disabled by default, requires a Premium credential stored only
   in the encrypted secret store. Local archive installation is validated; the
-  hash-pinned online component path uses the matching `v0.7.1` GitHub Release
+  hash-pinned online component path uses the matching `v0.7.2` GitHub Release
   asset. SoundCloud and ffmpeg are not exposed.
 - **Later** — local-library audio preview, fingerprint-based duplicate
   detection (Chromaprint), ISRC enrichment.

@@ -163,6 +163,10 @@ def _packaging_check() -> int:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "--legacy-metadata-backfill":
+        from syncbox.legacy_metadata_backfill import main as backfill_main
+
+        return backfill_main(argv[1:])
     if argv and argv[0] == "--quality-analyze":
         if len(argv) != 2:
             print("usage: syncbox-sidecar --quality-analyze PATH", file=sys.stderr)

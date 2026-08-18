@@ -1,6 +1,6 @@
 [project]
 name = "syncbox-deezer-component"
-version = "0.7.1"
+version = "0.7.2"
 description = "Separately distributed optional Deezer acquisition component for Syncbox"
 license = "MIT"
 requires-python = ">=3.13,<3.14"
