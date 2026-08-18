@@ -70,9 +70,9 @@ def delete_file(path, *, consent_to_permanent_delete: bool = False) -> str:
     except OSError as exc:
         if not consent_to_permanent_delete:
             raise PermanentDeleteConsentRequired(path, exc) from exc
-        if path.is_symlink():
-            raise ValueError(f"refusing permanent deletion of symbolic link: {path}")
-        if path.is_dir():
+        if path.is_dir() and not path.is_symlink():
+            # A symlink is unlinked, never followed: rmtree through one would
+            # delete somebody else's tree.
             shutil.rmtree(path)
         else:
             path.unlink()

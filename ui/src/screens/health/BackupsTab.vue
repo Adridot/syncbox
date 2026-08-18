@@ -182,6 +182,7 @@ function reasonLabel(reason?: string | null): string {
     'untagged_remove',
     'smart_fixes',
     'acquisition_storage_migration',
+    'legacy_metadata_backfill',
     'pre_restore',
   ])
   return t(`backups.reason.${reason && known.has(reason) ? reason : 'legacy'}`)

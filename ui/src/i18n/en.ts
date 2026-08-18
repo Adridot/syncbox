@@ -565,6 +565,7 @@ export const en = {
       untagged_remove: 'Untagged cleanup',
       smart_fixes: 'Smart fixes',
       acquisition_storage_migration: 'Download storage migration',
+      legacy_metadata_backfill: 'Legacy metadata repair',
       pre_restore: 'Before restore',
       legacy: 'Unknown operation',
     },

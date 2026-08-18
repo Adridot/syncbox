@@ -119,3 +119,25 @@ def test_recursive_delete_failure_is_propagated(job_dir, monkeypatch):
     with pytest.raises(OSError, match="cannot remove directory"):
         delete_file(job_dir, consent_to_permanent_delete=True)
     assert job_dir.is_dir()
+
+
+def test_permanent_delete_unlinks_a_symlink_without_following_it(
+    audio, job_dir, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        platform_os,
+        "send2trash",
+        lambda path: (_ for _ in ()).throw(OSError("no trash")),
+    )
+    file_link = tmp_path / "link.aiff"
+    file_link.symlink_to(audio)
+    dir_link = tmp_path / "link-job"
+    dir_link.symlink_to(job_dir)
+
+    for link in (file_link, dir_link):
+        assert delete_file(link, consent_to_permanent_delete=True) == (
+            "deleted_permanently"
+        )
+        assert not link.exists() and not link.is_symlink()
+    # The link went, never what it pointed at.
+    assert audio.is_file() and (job_dir / "artwork" / "cover.jpg").is_file()

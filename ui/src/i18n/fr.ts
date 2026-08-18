@@ -583,6 +583,7 @@ export const fr: typeof en = {
       untagged_remove: 'Nettoyage des sans-tag',
       smart_fixes: 'Smart fixes',
       acquisition_storage_migration: 'Migration du stockage des téléchargements',
+      legacy_metadata_backfill: 'Réparation des métadonnées héritées',
       pre_restore: 'Avant restauration',
       legacy: 'Opération inconnue',
     },
