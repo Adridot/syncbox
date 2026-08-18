@@ -20,6 +20,9 @@ from syncbox.safety.paths import (
     stored_form,
 )
 
+PLAN_VERSION = 2
+ACTIVE_JOB_STATUSES = {"queued", "running"}
+
 
 def _serial_fingerprint(db_path) -> list[list[str]]:
     return [list(part) for part in fingerprint(db_path)]
@@ -52,6 +55,23 @@ def _state(path: Path) -> dict:
 
 def _matches_state(expected: dict) -> bool:
     return _state(Path(expected["path"])) == expected
+
+
+def _directory_state(path: Path) -> dict:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return {"path": str(path), "exists": False}
+    if path.is_symlink() or not path.is_dir():
+        return {"path": str(path), "exists": True, "kind": "unsafe"}
+    return {
+        "path": str(path),
+        "exists": True,
+        "kind": "directory",
+        "device": str(info.st_dev),
+        "inode": str(info.st_ino),
+        "mtime_ns": str(info.st_mtime_ns),
+    }
 
 
 def _inside(path: Path, parent: Path) -> bool:
@@ -89,7 +109,8 @@ def _destination(
 def _owner(conn, job, storage_root):
     if job["scope"] == "event":
         row = conn.execute(
-            "SELECT t.id, t.content_id, e.id AS event_id, e.slug, e.staging_dir "
+            "SELECT t.id, t.content_id, t.staging_file_path, e.id AS event_id, "
+            "e.slug, e.staging_dir "
             "FROM event_tracks t JOIN events e ON e.id = t.event_id "
             "WHERE t.id = ?",
             (job["event_track_id"] or job["ref"],),
@@ -103,13 +124,14 @@ def _owner(conn, job, storage_root):
             "destination_dir": Path(staging) / "audio",
             "content_id": row["content_id"],
             "track_id": row["id"],
+            "staging_file_path": row["staging_file_path"],
             "event_id": row["event_id"],
             "staging_dir": staging,
             "slug": row["slug"],
         }
     if job["scope"] == "library":
         row = conn.execute(
-            "SELECT id, content_id FROM library_tracks WHERE id = ?",
+            "SELECT id, content_id, staging_file_path FROM library_tracks WHERE id = ?",
             (job["library_track_id"] or job["ref"],),
         ).fetchone()
         if row is None:
@@ -118,6 +140,7 @@ def _owner(conn, job, storage_root):
             "destination_dir": Path(storage_root) / "rekordbox" / "Collection",
             "content_id": row["content_id"],
             "track_id": row["id"],
+            "staging_file_path": row["staging_file_path"],
         }
     return {
         "destination_dir": Path(storage_root) / "rekordbox" / "Collection",
@@ -141,6 +164,64 @@ def _safe_owner_destination(job, owner, storage_root) -> Path | None:
     return destination
 
 
+def _ignored(job, path: Path, reason: str) -> dict:
+    return {
+        "job_id": job["id"] if job is not None else None,
+        "title": job["title"] if job is not None else path.name,
+        "artist": job["artist"] if job is not None else None,
+        "source_path": str(path),
+        "reason": reason,
+    }
+
+
+def _cleanup_directory(
+    job,
+    path: Path,
+    state: dict,
+    destination: Path,
+    digest: str,
+    owner,
+    source_state: dict | None = None,
+) -> dict:
+    entry = {
+        "job_id": job["id"],
+        "scope": job["scope"],
+        "title": job["title"],
+        "artist": job["artist"],
+        "directory_path": str(path),
+        "directory_state": state,
+        "destination_path": str(destination),
+        "destination_sha256": digest,
+        "content_id": str(owner["content_id"]) if owner["content_id"] else None,
+    }
+    if source_state is not None:
+        entry["source_state"] = source_state
+    return entry
+
+
+def _owner_references_destination(
+    ro, job, owner, destination: Path, storage_root
+) -> bool:
+    if job["scope"] in ("event", "library"):
+        staging = owner.get("staging_file_path")
+        if not staging or not paths_equal(staging, destination, storage_root):
+            return False
+    content_id = owner["content_id"]
+    if not content_id:
+        return True
+    content = ro.execute(
+        "SELECT FolderPath, rb_local_deleted FROM djmdContent WHERE ID = ?",
+        (str(content_id),),
+    ).fetchone()
+    return bool(
+        content is not None
+        and not int(content[1] or 0)
+        and paths_equal(
+            resolve_stored_path(content[0], storage_root), destination, storage_root
+        )
+    )
+
+
 def build_plan(conn, storage_root, db_path) -> dict:
     # Refuses symlinked ancestors: with acquisition -> /victim, every job
     # source below it would really live outside managed storage and the
@@ -155,21 +236,64 @@ def build_plan(conn, storage_root, db_path) -> dict:
                 "WHERE rb_local_deleted = 0 AND FolderPath IS NOT NULL ORDER BY ID"
             )
         )
-        jobs = conn.execute(
-            "SELECT * FROM acquisition_jobs "
-            "WHERE output_path IS NOT NULL OR legacy_output_path IS NOT NULL ORDER BY id"
-        ).fetchall()
+        jobs = conn.execute("SELECT * FROM acquisition_jobs ORDER BY id").fetchall()
         items = []
+        cleanup_directories = []
         ignored = []
-        planned_sources = set()
+        known_job_directories = set()
         for job in jobs:
+            job_root = legacy_root / f"job-{job['id']}"
+            known_job_directories.add(job_root)
+            directory_state = _directory_state(job_root)
+            if directory_state.get("kind") == "unsafe":
+                ignored.append(_ignored(job, job_root, "unsafe_directory"))
+                continue
+            if job["status"] in ACTIVE_JOB_STATUSES:
+                if directory_state["exists"]:
+                    ignored.append(_ignored(job, job_root, "active_job"))
+                continue
             raw_source = job["legacy_output_path"] or job["output_path"]
+            if not raw_source:
+                if directory_state["exists"]:
+                    ignored.append(_ignored(job, job_root, "missing_destination"))
+                continue
             raw_source_path = Path(raw_source)
             source = raw_source_path.resolve(strict=False)
-            job_root = legacy_root / f"job-{job['id']}"
             if job["legacy_output_path"] is None and not _inside(source, legacy_root):
-                # Owner-published output (event/audio or Collection): not a
-                # legacy candidate — silently out of scope, never a warning.
+                if not directory_state["exists"]:
+                    continue
+                owner = _owner(conn, job, storage_root)
+                owner_destination = (
+                    _safe_owner_destination(job, owner, storage_root)
+                    if owner is not None
+                    else None
+                )
+                destination_state = _state(source)
+                if owner is None:
+                    ignored.append(_ignored(job, job_root, "missing_owner"))
+                elif (
+                    raw_source_path.is_symlink()
+                    or owner_destination is None
+                    or source.parent != owner_destination
+                ):
+                    ignored.append(_ignored(job, job_root, "unsafe_destination"))
+                elif destination_state.get("kind") != "file":
+                    ignored.append(_ignored(job, job_root, "missing_destination"))
+                elif not _owner_references_destination(
+                    ro, job, owner, source, storage_root
+                ):
+                    ignored.append(_ignored(job, job_root, "unverified_destination"))
+                else:
+                    cleanup_directories.append(
+                        _cleanup_directory(
+                            job,
+                            job_root,
+                            directory_state,
+                            source,
+                            destination_state["sha256"],
+                            owner,
+                        )
+                    )
                 continue
             if raw_source_path.is_symlink() or not _inside(source, job_root):
                 ignored.append(
@@ -182,7 +306,6 @@ def build_plan(conn, storage_root, db_path) -> dict:
                     }
                 )
                 continue
-            planned_sources.add(source)
             source_state = _state(source)
             owner = _owner(conn, job, storage_root)
             if source_state.get("kind") != "file" or owner is None:
@@ -331,6 +454,17 @@ def build_plan(conn, storage_root, db_path) -> dict:
                     "staging_dir": owner.get("staging_dir"),
                 }
             )
+            cleanup_directories.append(
+                _cleanup_directory(
+                    job,
+                    job_root,
+                    directory_state,
+                    destination,
+                    source_state["sha256"],
+                    owner,
+                    source_state,
+                )
+            )
     finally:
         ro.close()
     after = _serial_fingerprint(db_path)
@@ -340,22 +474,25 @@ def build_plan(conn, storage_root, db_path) -> dict:
         )
 
     if legacy_root.is_dir():
-        for path in legacy_root.glob("job-*/*"):
-            if path.is_file() and path.resolve(strict=False) not in planned_sources:
+        for path in legacy_root.glob("job-*"):
+            if path not in known_job_directories:
                 ignored.append(
-                    {
-                        "job_id": None,
-                        "title": path.name,
-                        "artist": None,
-                        "source_path": str(path),
-                        "reason": "orphan_file",
-                    }
+                    _ignored(
+                        None,
+                        path,
+                        (
+                            "unsafe_directory"
+                            if path.is_symlink()
+                            else "unowned_directory"
+                        ),
+                    )
                 )
     return {
         "dry_run": True,
-        "plan_version": 1,
+        "plan_version": PLAN_VERSION,
         "fingerprint": before,
         "items": items,
+        "cleanup_directories": cleanup_directories,
         "ignored": ignored,
     }
 
@@ -387,37 +524,66 @@ def _copy_item(item: dict) -> bool:
     return True
 
 
-def _assert_cleanup_safe(conn, item: dict, storage_root, db_path) -> None:
-    """Revalidate EVERYTHING this item relies on immediately before deleting
-    its legacy source — a resumed plan (e.g. after a permanent-delete 428)
-    may be arbitrarily old, so nothing validated at planning time is
-    trusted here. Any mismatch keeps the source and surfaces a conflict.
-    """
-    legacy_root = acquisition.acquisition_root(storage_root)
-    raw_source = Path(item["source_path"])
-    source = raw_source.resolve(strict=False)
-    if raw_source.is_symlink() or not _inside(source, legacy_root / f"job-{item['job_id']}"):
-        raise StaleSnapshotError(f"migration source escaped its workspace: {source}")
-    if not _matches_state(item["source_state"]):
-        raise StaleSnapshotError(f"migration source changed: {source}")
-    raw_destination = Path(item["destination_path"])
+def _assert_cleanup_safe(conn, cleanup: dict, storage_root, db_path) -> bool:
+    """Revalidate the complete job directory and its published owner."""
+    raw_directory = Path(cleanup["directory_path"])
+    try:
+        expected_directory = acquisition.validated_job_workspace(
+            storage_root, cleanup["job_id"]
+        )
+    except ValueError as exc:
+        raise StaleSnapshotError(str(exc)) from exc
+    if (
+        raw_directory != expected_directory
+        or raw_directory.is_symlink()
+        or raw_directory.resolve(strict=False) != expected_directory
+    ):
+        raise StaleSnapshotError(
+            f"migration directory escaped its workspace: {raw_directory}"
+        )
+    current_directory_state = _directory_state(raw_directory)
+    if current_directory_state["exists"] and (
+        current_directory_state != cleanup["directory_state"]
+    ):
+        raise StaleSnapshotError(f"migration directory changed: {raw_directory}")
+    if (
+        current_directory_state["exists"]
+        and cleanup.get("source_state")
+        and not _matches_state(cleanup["source_state"])
+    ):
+        raise StaleSnapshotError(
+            f"migration source changed: {cleanup['source_state']['path']}"
+        )
+    raw_destination = Path(cleanup["destination_path"])
     if (
         raw_destination.is_symlink()
         or not raw_destination.is_file()
-        or _sha256(raw_destination) != item["source_state"]["sha256"]
+        or _sha256(raw_destination) != cleanup["destination_sha256"]
     ):
         raise StaleSnapshotError(
             f"migration destination changed: {raw_destination}"
         )
     job = conn.execute(
-        "SELECT * FROM acquisition_jobs WHERE id = ?", (item["job_id"],)
+        "SELECT * FROM acquisition_jobs WHERE id = ?", (cleanup["job_id"],)
     ).fetchone()
     if job is None:
-        raise StaleSnapshotError(f"migration job {item['job_id']} no longer exists")
+        raise StaleSnapshotError(
+            f"migration job {cleanup['job_id']} no longer exists"
+        )
+    if job["status"] in ACTIVE_JOB_STATUSES:
+        raise StaleSnapshotError(
+            f"migration job {cleanup['job_id']} became active; keeping its directory"
+        )
+    if not job["output_path"] or not paths_equal(
+        job["output_path"], raw_destination, storage_root
+    ):
+        raise StaleSnapshotError(
+            f"migration destination for job {cleanup['job_id']} changed"
+        )
     owner = _owner(conn, job, storage_root)
     if owner is None:
         raise StaleSnapshotError(
-            f"migration owner for job {item['job_id']} no longer exists"
+            f"migration owner for job {cleanup['job_id']} no longer exists"
         )
     owner_destination = _safe_owner_destination(job, owner, storage_root)
     if (
@@ -427,26 +593,37 @@ def _assert_cleanup_safe(conn, item: dict, storage_root, db_path) -> None:
         raise StaleSnapshotError(
             f"migration destination no longer belongs to its owner: {raw_destination}"
         )
-    if item["content_id"]:
+    if job["scope"] in ("event", "library") and (
+        not owner.get("staging_file_path")
+        or not paths_equal(
+            owner["staging_file_path"], raw_destination, storage_root
+        )
+    ):
+        raise StaleSnapshotError(
+            f"migration owner for job {cleanup['job_id']} no longer references "
+            "the published destination"
+        )
+    if cleanup["content_id"]:
         ro = open_readonly(db_path)
         try:
             content = ro.execute(
                 "SELECT FolderPath, rb_local_deleted FROM djmdContent WHERE ID = ?",
-                (str(item["content_id"]),),
+                (str(cleanup["content_id"]),),
             ).fetchone()
         finally:
             ro.close()
         if content is None or int(content[1] or 0):
             raise StaleSnapshotError(
-                f"Rekordbox content {item['content_id']} disappeared; "
-                "keeping the migration source"
+                f"Rekordbox content {cleanup['content_id']} disappeared; "
+                "keeping the migration directory"
             )
         current = resolve_stored_path(content[0], storage_root)
         if not paths_equal(current, raw_destination, storage_root):
             raise StaleSnapshotError(
-                f"Rekordbox path for {item['content_id']} does not reference "
-                "the migrated destination; keeping the migration source"
+                f"Rekordbox path for {cleanup['content_id']} does not reference "
+                "the migrated destination; keeping the migration directory"
             )
+    return current_directory_state["exists"]
 
 
 def _resume_state(conn, item: dict) -> str | None:
@@ -482,9 +659,12 @@ def execute(
     retention: int = 20,
     consent_to_permanent_delete: bool = False,
 ) -> dict:
-    if not isinstance(plan, dict) or plan.get("plan_version") != 1:
+    if not isinstance(plan, dict) or plan.get("plan_version") != PLAN_VERSION:
         raise ValueError("a valid storage migration preview is required")
     resume = [_resume_state(conn, item) for item in plan["items"]]
+    migrated_files = sum(
+        state not in ("cleanup_pending", "complete") for state in resume
+    )
     if not all(state in ("cleanup_pending", "complete") for state in resume):
         fresh = build_plan(conn, storage_root, db_path)
         if fresh != plan:
@@ -572,29 +752,35 @@ def execute(
             conn.execute("ROLLBACK")
             raise
 
-    removed = []
-    for item in plan["items"]:
-        state = _resume_state(conn, item)
-        if state == "complete":
-            continue
-        source = Path(item["source_path"])
-        if source.exists():
-            _assert_cleanup_safe(conn, item, storage_root, db_path)
-            delete_file(source, consent_to_permanent_delete=consent_to_permanent_delete)
-            removed.append(str(source))
+    removed_sources = []
+    cleaned_directories = []
+    for cleanup in plan["cleanup_directories"]:
+        source_state = cleanup.get("source_state")
+        source_existed = bool(
+            source_state and Path(source_state["path"]).exists()
+        )
+        directory = Path(cleanup["directory_path"])
+        if _assert_cleanup_safe(conn, cleanup, storage_root, db_path):
+            delete_file(
+                directory,
+                consent_to_permanent_delete=consent_to_permanent_delete,
+            )
+            if directory.exists():
+                raise OSError(f"migration directory was not removed: {directory}")
         conn.execute(
             "UPDATE acquisition_jobs SET legacy_output_path = NULL, "
             "updated_at = datetime('now') WHERE id = ?",
-            (item["job_id"],),
+            (cleanup["job_id"],),
         )
-        job_dir = source.parent
-        try:
-            job_dir.rmdir()
-        except OSError:
-            pass
+        cleaned_directories.append(str(directory))
+        if source_existed:
+            removed_sources.append(source_state["path"])
     return {
         **plan,
         "dry_run": False,
-        "migrated": len(plan["items"]),
-        "removed_sources": removed,
+        "migrated": migrated_files,
+        "migrated_files": migrated_files,
+        "cleaned_directories": len(cleaned_directories),
+        "cleaned_directory_paths": cleaned_directories,
+        "removed_sources": removed_sources,
     }

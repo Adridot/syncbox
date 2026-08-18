@@ -32,6 +32,13 @@ interface StorageMigrationPlan {
     source_path: string
     destination_path: string
   }>
+  cleanup_directories: Array<{
+    job_id: number
+    scope: 'event' | 'library' | 'collection'
+    title: string | null
+    artist: string | null
+    directory_path: string
+  }>
   ignored: Array<{
     job_id: number | null
     title: string | null
@@ -119,17 +126,27 @@ async function saveRetention() {
 }
 
 async function migrateStorage() {
-  if (!migration.value?.items.length) return
+  if (
+    !migration.value ||
+    (!migration.value.items.length && !migration.value.cleanup_directories.length)
+  )
+    return
   migrationBusy.value = true
   banner.value = null
   try {
-    const result = await api.post<{ migrated: number }>('/api/acquisition/storage-migration', {
-      dry_run: false,
-      plan: migration.value,
-    })
+    const result = await api.post<{ migrated_files: number; cleaned_directories: number }>(
+      '/api/acquisition/storage-migration',
+      {
+        dry_run: false,
+        plan: migration.value,
+      },
+    )
     banner.value = {
       tone: 'success',
-      text: t('backups.migration.done', { n: result.migrated }),
+      text: `${t('backups.migration.doneFiles', result.migrated_files)} · ${t(
+        'backups.migration.doneDirectories',
+        result.cleaned_directories,
+      )}`,
     }
     await load()
   } catch (cause) {
@@ -181,7 +198,12 @@ function reasonLabel(reason?: string | null): string {
     <LoadingState v-if="backups === null" :rows="4" />
     <div v-else class="grid">
       <div
-        v-if="migration && (migration.items.length || migration.ignored.length)"
+        v-if="
+          migration &&
+          (migration.items.length ||
+            migration.cleanup_directories.length ||
+            migration.ignored.length)
+        "
         class="card full"
       >
         <div class="card-head">
@@ -191,10 +213,20 @@ function reasonLabel(reason?: string | null): string {
           </div>
           <button
             class="restore"
-            :disabled="status.rbOpen || jobs.jobRunning || migrationBusy || !migration.items.length"
+            :disabled="
+              status.rbOpen ||
+              jobs.jobRunning ||
+              migrationBusy ||
+              (!migration.items.length && !migration.cleanup_directories.length)
+            "
             @click="migrateStorage"
           >
-            {{ t('backups.migration.confirm', migration.items.length) }}
+            {{
+              t(
+                'backups.migration.confirm',
+                migration.items.length + migration.cleanup_directories.length,
+              )
+            }}
           </button>
         </div>
         <div class="migration-counts">
@@ -204,6 +236,9 @@ function reasonLabel(reason?: string | null): string {
               migration.items.filter((item) => item.scope === 'event').length,
             )
           }}</span>
+          <span v-if="migration.cleanup_directories.length">
+            {{ t('backups.migration.cleanup', migration.cleanup_directories.length) }}
+          </span>
           <span>{{
             t(
               'backups.migration.collection',
@@ -220,6 +255,18 @@ function reasonLabel(reason?: string | null): string {
             <b>{{ item.title || t('missing.untitled') }}</b> —
             {{ item.artist || '—' }}
             <div class="mono path">{{ item.source_path }} → {{ item.destination_path }}</div>
+          </div>
+        </details>
+        <details v-if="migration.cleanup_directories.length">
+          <summary>{{ t('backups.migration.cleanupDetails') }}</summary>
+          <div
+            v-for="item in migration.cleanup_directories"
+            :key="`cleanup-${item.job_id}`"
+            class="migration-item"
+          >
+            <b>{{ item.title || t('missing.untitled') }}</b> —
+            {{ item.artist || '—' }}
+            <div class="mono path">{{ item.directory_path }}</div>
           </div>
         </details>
         <details v-if="migration.ignored.length" open>

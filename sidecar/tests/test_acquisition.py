@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import sqlite3
 import ssl
 import stat
@@ -826,6 +827,9 @@ def test_legacy_job_storage_migration_moves_safe_files_and_updates_app_state(
     source = acquisition.acquisition_output_dir(env.storage, job) / "legacy.mp3"
     source.parent.mkdir(parents=True)
     source.write_bytes(b"legacy audio")
+    (source.parent / "artwork").mkdir()
+    (source.parent / "artwork" / "cover.jpg").write_bytes(b"cover")
+    (source.parent / "unexpected.txt").write_text("owned by the job")
     env.conn.execute(
         "UPDATE acquisition_jobs SET output_path = ? WHERE id = ?", (str(source), job)
     )
@@ -850,7 +854,7 @@ def test_legacy_job_storage_migration_moves_safe_files_and_updates_app_state(
     monkeypatch.setattr(
         acquisition_migration,
         "delete_file",
-        lambda path, **kwargs: Path(path).unlink(),
+        lambda path, **kwargs: shutil.rmtree(path),
     )
 
     plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
@@ -871,8 +875,9 @@ def test_legacy_job_storage_migration_moves_safe_files_and_updates_app_state(
 
     destination = Path(plan["items"][0]["destination_path"])
     assert result["migrated"] == 1
+    assert result["cleaned_directories"] == 1
     assert destination.read_bytes() == b"legacy audio"
-    assert not source.exists()
+    assert not source.parent.exists()
     migrated = env.conn.execute(
         "SELECT output_path, legacy_output_path FROM acquisition_jobs WHERE id = ?",
         (job,),
@@ -881,6 +886,203 @@ def test_legacy_job_storage_migration_moves_safe_files_and_updates_app_state(
     assert env.conn.execute(
         "SELECT staging_file_path FROM event_tracks WHERE id = ?", (track["id"],)
     ).fetchone()[0] == str(destination)
+
+
+class _EmptyRO:
+    def execute(self, sql, params=()):
+        return []
+
+    def close(self):
+        pass
+
+
+def _seed_cleanup_only_job(env, *, status="downloaded"):
+    event = events_service.create_event(
+        env.conn, env.storage, f"Residual {status}", manual=True
+    )
+    track = events_service.add_track(
+        env.conn, event, title="Residual", artist="Artist"
+    )
+    destination = Path(event["staging_dir"]) / "audio" / "published.mp3"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(b"published audio")
+    job = env.conn.execute(
+        "INSERT INTO acquisition_jobs "
+        "(scope, ref, title, artist, status, event_id, event_track_id, output_path) "
+        "VALUES ('event', ?, 'Residual', 'Artist', ?, ?, ?, ?)",
+        (str(track["id"]), status, event["id"], track["id"], str(destination)),
+    ).lastrowid
+    env.conn.execute(
+        "UPDATE event_tracks SET status = 'ready', staging_file_path = ? WHERE id = ?",
+        (str(destination), track["id"]),
+    )
+    directory = acquisition.acquisition_output_dir(env.storage, job)
+    (directory / "artwork").mkdir(parents=True)
+    (directory / "artwork" / "cover.jpg").write_bytes(b"cover")
+    return job, destination, directory
+
+
+def test_cleanup_only_plan_is_versioned_visible_and_executes_without_migration(
+    tmp_path, monkeypatch
+):
+    env = make_env(tmp_path)
+    job, destination, directory = _seed_cleanup_only_job(env)
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: _EmptyRO())
+
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+
+    assert plan["plan_version"] == acquisition_migration.PLAN_VERSION == 2
+    assert plan["items"] == []
+    assert len(plan["cleanup_directories"]) == 1
+    cleanup = plan["cleanup_directories"][0]
+    assert cleanup["job_id"] == job
+    assert cleanup["directory_path"] == str(directory.resolve())
+    assert cleanup["directory_state"]["kind"] == "directory"
+    assert cleanup["directory_state"]["inode"]
+
+    monkeypatch.setattr(
+        acquisition_migration,
+        "mutate",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("cleanup-only execution must not mutate Rekordbox")
+        ),
+    )
+    monkeypatch.setattr(
+        acquisition_migration, "delete_file", lambda path, **kwargs: shutil.rmtree(path)
+    )
+    result = acquisition_migration.execute(
+        env.conn,
+        env.deps.db_path,
+        env.deps.backups_root,
+        env.deps.cache(),
+        env.storage,
+        plan,
+    )
+
+    assert destination.is_file()
+    assert not directory.exists()
+    assert result["migrated_files"] == 0
+    assert result["cleaned_directories"] == 1
+
+
+def test_cleanup_plan_ignores_active_unowned_and_unsafe_directories(
+    tmp_path, monkeypatch
+):
+    env = make_env(tmp_path)
+    _, _, active_directory = _seed_cleanup_only_job(env, status="running")
+    legacy_root = acquisition.acquisition_root(env.storage)
+    unowned = legacy_root / "job-999"
+    unowned.mkdir(parents=True)
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "keep.txt").write_text("keep")
+    unsafe = legacy_root / "job-1000"
+    unsafe.symlink_to(victim, target_is_directory=True)
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: _EmptyRO())
+
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+    reasons = {item["source_path"]: item["reason"] for item in plan["ignored"]}
+
+    assert plan["cleanup_directories"] == []
+    assert reasons[str(active_directory)] == "active_job"
+    assert reasons[str(unowned)] == "unowned_directory"
+    assert reasons[str(unsafe)] == "unsafe_directory"
+    assert (victim / "keep.txt").read_text() == "keep"
+
+
+def test_cleanup_plan_ignores_an_unverified_published_owner(tmp_path, monkeypatch):
+    env = make_env(tmp_path)
+    job, _, directory = _seed_cleanup_only_job(env)
+    track_id = env.conn.execute(
+        "SELECT event_track_id FROM acquisition_jobs WHERE id = ?", (job,)
+    ).fetchone()[0]
+    env.conn.execute(
+        "UPDATE event_tracks SET staging_file_path = NULL WHERE id = ?", (track_id,)
+    )
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: _EmptyRO())
+
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+
+    assert plan["cleanup_directories"] == []
+    assert any(
+        item["source_path"] == str(directory)
+        and item["reason"] == "unverified_destination"
+        for item in plan["ignored"]
+    )
+
+
+@pytest.mark.parametrize("change", ["changed", "missing"])
+def test_cleanup_revalidates_published_destination_before_removing_directory(
+    tmp_path, monkeypatch, change
+):
+    env = make_env(tmp_path)
+    _, destination, directory = _seed_cleanup_only_job(env)
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: _EmptyRO())
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+    if change == "changed":
+        destination.write_bytes(b"replacement")
+    else:
+        destination.unlink()
+
+    with pytest.raises(StaleSnapshotError, match="destination changed"):
+        acquisition_migration.execute(
+            env.conn,
+            env.deps.db_path,
+            env.deps.backups_root,
+            env.deps.cache(),
+            env.storage,
+            plan,
+        )
+    assert directory.is_dir()
+
+
+def test_cleanup_revalidates_directory_identity_before_removal(tmp_path, monkeypatch):
+    env = make_env(tmp_path)
+    _, _, directory = _seed_cleanup_only_job(env)
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: _EmptyRO())
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+    shutil.rmtree(directory)
+    directory.mkdir()
+    (directory / "replacement.txt").write_text("keep")
+
+    with pytest.raises(StaleSnapshotError, match="directory changed"):
+        acquisition_migration.execute(
+            env.conn,
+            env.deps.db_path,
+            env.deps.backups_root,
+            env.deps.cache(),
+            env.storage,
+            plan,
+        )
+    assert (directory / "replacement.txt").read_text() == "keep"
+
+
+def test_cleanup_missing_directory_is_idempotently_completed(tmp_path, monkeypatch):
+    env = make_env(tmp_path)
+    _, destination, directory = _seed_cleanup_only_job(env)
+    monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: _EmptyRO())
+    plan = acquisition_migration.build_plan(env.conn, env.storage, env.deps.db_path)
+    shutil.rmtree(directory)
+    monkeypatch.setattr(
+        acquisition_migration,
+        "delete_file",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("an absent directory must not be deleted again")
+        ),
+    )
+
+    result = acquisition_migration.execute(
+        env.conn,
+        env.deps.db_path,
+        env.deps.backups_root,
+        env.deps.cache(),
+        env.storage,
+        plan,
+    )
+
+    assert destination.is_file()
+    assert result["migrated_files"] == 0
+    assert result["cleaned_directories"] == 1
 
 
 # --- PR #31 review regression tests --------------------------------------------------
@@ -1339,8 +1541,11 @@ def test_resume_after_428_keeps_source_on_any_change(tmp_path, monkeypatch):
     live = _ContentRO("77", str(source))
     monkeypatch.setattr(acquisition_migration, "open_readonly", lambda path: live)
 
+    mutations = []
+
     @contextmanager
     def fake_mutate(*args, **kwargs):
+        mutations.append("rekordbox")
         yield object()
 
     monkeypatch.setattr(acquisition_migration, "mutate", fake_mutate)
@@ -1370,6 +1575,10 @@ def test_resume_after_428_keeps_source_on_any_change(tmp_path, monkeypatch):
             env.storage,
             plan,
         )
+    assert mutations == ["rekordbox"]
+    assert env.conn.execute(
+        "SELECT legacy_output_path FROM acquisition_jobs WHERE id = ?", (job,)
+    ).fetchone()[0] == str(source)
     destination = Path(plan["items"][0]["destination_path"])
     assert destination.is_file()  # copy landed before the 428
 
@@ -1381,7 +1590,7 @@ def test_resume_after_428_keeps_source_on_any_change(tmp_path, monkeypatch):
 
     def record_delete(path, *, consent_to_permanent_delete=False):
         deletions.append(str(path))
-        Path(path).unlink()
+        shutil.rmtree(path)
 
     monkeypatch.setattr(acquisition_migration, "delete_file", record_delete)
 
@@ -1430,8 +1639,12 @@ def test_resume_after_428_keeps_source_on_any_change(tmp_path, monkeypatch):
         plan,
         consent_to_permanent_delete=True,
     )
-    assert deletions == [str(source)]
+    assert deletions == [str(source.parent)]
     assert result["removed_sources"] == [str(source)]
+    assert mutations == ["rekordbox"]
+    assert env.conn.execute(
+        "SELECT legacy_output_path FROM acquisition_jobs WHERE id = ?", (job,)
+    ).fetchone()[0] is None
 
 
 def test_migration_0008_canonicalizes_and_dedupes_a_v6_database(tmp_path):

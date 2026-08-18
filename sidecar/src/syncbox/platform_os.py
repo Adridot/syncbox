@@ -11,6 +11,7 @@ stake here.
 """
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def app_db_path() -> Path:
 
 
 class PermanentDeleteConsentRequired(RuntimeError):
-    """The OS trash failed for this path; deleting means losing the file.
+    """The OS trash failed for this path; deleting it is irreversible.
 
     Raised BEFORE any unlink. The UI must show the irreversible-delete
     warning (IrreversibleDeleteModal) and re-call with consent granted;
@@ -51,13 +52,13 @@ class PermanentDeleteConsentRequired(RuntimeError):
         self.path = path
         super().__init__(
             f"The volume holding {path.name!r} has no working trash; deleting "
-            "the file there is permanent. Explicit consent is required."
+            "it there is permanent. Explicit consent is required."
         )
         self.__cause__ = cause
 
 
 def delete_file(path, *, consent_to_permanent_delete: bool = False) -> str:
-    """Delete a file: OS trash first, permanent only with prior consent.
+    """Delete a file or validated directory, trash first.
 
     Returns 'trashed' or 'deleted_permanently'. Caller contract (5.4): call
     only AFTER the owning DB transaction committed.
@@ -69,5 +70,10 @@ def delete_file(path, *, consent_to_permanent_delete: bool = False) -> str:
     except OSError as exc:
         if not consent_to_permanent_delete:
             raise PermanentDeleteConsentRequired(path, exc) from exc
-        path.unlink()
+        if path.is_symlink():
+            raise ValueError(f"refusing permanent deletion of symbolic link: {path}")
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
         return "deleted_permanently"
