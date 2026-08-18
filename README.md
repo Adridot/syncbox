@@ -1,202 +1,292 @@
-# Syncbox
+<h1 align="center">Syncbox</h1>
 
-**Keep your Rekordbox collection clean, matched, and gig-ready — with guarded
-writes and automatic backups.**
+<p align="center">
+  <b>Find music in Spotify. Play it in Rekordbox.</b><br>
+  A macOS app that bridges the two — and keeps your DJ collection clean along the way.
+</p>
 
-<img width="2904" height="1912" alt="94380" src="https://github.com/user-attachments/assets/07fad7c4-c432-47b9-ae1b-7a5e342c572f" />
+<p align="center">
+  <a href="https://github.com/Adridot/syncbox/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Adridot/syncbox/ci.yml?branch=master&label=CI"></a>
+  <a href="https://github.com/Adridot/syncbox/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Adridot/syncbox"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Adridot/syncbox"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-000000?logo=apple&logoColor=white">
+</p>
 
-Current source version: **0.7.2**
+![Syncbox Overview screen: a green banner confirms Rekordbox is closed and mutations are allowed, above collection counters, file health and genre distribution](docs/assets/dashboard.png)
 
-Syncbox is a macOS desktop app for DJs who prepare sets with Spotify and
-perform with [Rekordbox](https://rekordbox.com). It bridges the two: it reads
-your Spotify playlists, matches them against your Rekordbox collection, writes
-MyTags and smart playlists straight into Rekordbox, and keeps the collection
-itself healthy — duplicates, missing files, untagged tracks, suspicious audio
-quality — with guarded writes, automatic backups, and exact-payload
-confirmation.
+## What is Syncbox?
 
-## What it does
+Spotify is where most DJs find music. [Rekordbox](https://rekordbox.com) is
+where they play it. Nothing connects the two, so the crate you built all week
+has to be rebuilt by hand before every gig.
 
-- **Spotify → Rekordbox matching** — connect your own Spotify account
-  (read-only API, PKCE, no password stored), follow playlists as sources, and
-  let Syncbox match every track against your collection by ISRC first, fuzzy
-  title/artist second. Review and apply the matches as MyTags in Rekordbox.
-- **Events** — build a set for a gig from a Spotify playlist (or link). Each
-  event becomes a MyTag + smart playlist inside Rekordbox. Tracks you do not
-  own yet are listed as *missing* with purchase links first. An optional
-  Deezer component can acquire an ISRC-resolved track after explicit setup;
-  it is disabled by default and distributed separately from the base app.
-  Events stay open after applying: add tracks later and re-apply just the
-  delta — idempotent, never duplicated.
-- **Performance history** — archives Rekordbox play history locally, groups
-  plays into performances across restarts, keeps overlapping sessions
-  separate, flags likely USB-import bursts, and shows a live tracklist while
-  Rekordbox is running. Performances can be renamed or hidden. Export creates
-  an ordered plain playlist under `Historiques` through the guarded Rekordbox
-  write pipeline.
-- **Collection health** —
-  - *Duplicates*: groups duplicate tracks, ranks the best copy (file presence,
-    bitrate bucket, trusted audio-quality verdict), moves the losers' playlist and tag
-    memberships onto the keeper, and sends losing files to the macOS Trash.
-  - *Missing files*: finds tracks whose audio file is gone; relink them to a
-    file you own or soft-remove them.
-  - *Untagged*: surfaces tracks that slipped through your tagging workflow,
-    with structural rules plus your own patterns.
-- **Smart Fixes** — conservative bulk metadata cleanup for trailing site
-  junk, Unicode whitespace/NFC, exact encoded entities, selected reversible
-  mojibake signatures,
-  explicit featured credits, and fill-only known remixers. Stylized casing
-  and ambiguous patterns stay unchanged. The complete ordered before/after
-  preview is revalidated field-for-field before anything is written.
-- **Audio quality diagnostics** — a local, read-only spectral analysis reports
-  a clearly full spectrum as consistent and a lower cutoff as uncertain. A
-  cutoff alone cannot distinguish a lossy transcode from a legitimate
-  band-limited master, so the current fallback never penalizes a duplicate
-  keeper from this heuristic alone.
-- **Doctor** — timestamped backups of the Rekordbox database with rotation,
-  diagnostics, and application logs in one place.
-- **French / English** UI.
+Syncbox does that work for you. It reads the Spotify playlists you choose,
+finds which of those tracks you already own, and writes the result back into
+Rekordbox as tags and playlists. Along the way it cleans up what a collection
+accumulates over the years — duplicates, broken file links, untagged tracks,
+messy titles.
 
-## The safety model
+It runs entirely on your Mac. There is no account to create and no server to
+sign in to.
 
-Rekordbox's `master.db` is the one file a DJ cannot afford to corrupt. Every
-Syncbox write to Rekordbox goes through a single guarded pipeline:
+## Who it's for
 
-1. **Rekordbox must be closed** — writes are refused while it runs.
-2. **Timestamped backup** of the database before every mutation (rotated,
-   restorable from Doctor).
-3. **Exact-payload confirmation** — the dry-run you approve is exactly what
-   is written, re-validated server-side.
-4. **Freshness guard** — if the database changed since the preview was
-   computed, the write aborts instead of applying stale plans.
-5. **Reversible by construction** — deletions are soft-deletes in the
-   database; audio files go to the macOS Trash. Where a volume has no
-   working trash (some cloud/exFAT setups), Syncbox asks for explicit
-   consent *before* anything irreversible.
-6. **Ordinary library files are never moved or renamed.** The only v1
-   exception is a retained event-staging track, which is migrated to
-   `<storage root>/rekordbox/Collection/` before the event is removed.
+- You crate-dig in Spotify but perform from Rekordbox, and you retype the
+  bridge between them before every set.
+- Your collection has grown past the point where hand-tagging is realistic.
+- You prepare gig-specific sets and want to know, in one place, which tracks
+  you still need to buy.
+- You want to know what you actually played six months ago.
+- You do not want a tool improvising inside your Rekordbox database.
 
-## Install (macOS, Apple Silicon)
+## Before you download
 
-1. Download `Syncbox-0.7.2-macos-arm64.zip` from the
-   [v0.7.2 GitHub Release](https://github.com/Adridot/syncbox/releases/tag/v0.7.2),
-   then unzip it.
-2. The current app is ad-hoc signed, not signed with an Apple Developer ID and
-   not notarized. Launch it once. If macOS blocks an artifact you trust, open
-   **System Settings → Privacy & Security**, select **Open Anyway**, then
-   confirm **Open**. Apple documents this exception in
+Honest limits, up front:
+
+- **macOS 14 or later, Apple Silicon only.** No Intel build. No Windows build.
+- **The app is ad-hoc signed** — it has no Apple Developer ID signature and is
+  not notarized, so macOS will warn you the first time you open it. The
+  [Install](#install) section shows what to do.
+- **No auto-update.** New versions are downloaded manually.
+- **Your data stays on your Mac.** No Syncbox account, no Syncbox server. The
+  only network traffic is the Spotify requests you authorize, the store
+  searches you open in your browser, and — if you ever enable it — the optional
+  component and its lookups. What is requested and where it is stored is
+  itemised in [docs/PRIVACY.md](docs/PRIVACY.md).
+- **Free**, MIT-licensed, and built by one person.
+
+## Features
+
+### Find in Spotify, play in Rekordbox
+
+*The problem:* you follow a playlist all month, then discover on Friday that
+none of it is tagged in Rekordbox.
+
+Add a Spotify playlist as a source and Syncbox matches every track against the
+music you already own — first by the recording's unique industry identifier
+(which both services carry), then by title and artist when that identifier is
+missing. You review the proposed matches and choose which ones to apply.
+Syncbox then writes them into Rekordbox as **MyTags**, Rekordbox's own tagging
+system. Anything ambiguous stays a review item; nothing is applied silently.
+
+![Library screen: 17 followed Spotify playlists on the left, and the match review on the right with a confidence percentage and bitrate for each track](docs/assets/library.png)
+
+### Events — one gig, one set
+
+*The problem:* a gig has a name, a date and a tracklist. Rekordbox has a flat
+pile of playlists.
+
+Create an event from a Spotify playlist or a link. Syncbox turns it into a
+MyTag and a smart playlist inside Rekordbox. Tracks you do not own yet are
+listed as **missing**, with Beatport and Bandcamp searches so you can buy from
+the store or the artist — purchase links remain the primary path. Events stay
+open after you apply them: add tracks later, re-apply, and only the pending
+delta is written. Nothing gets duplicated.
+
+An optional Deezer component exists for tracks you cannot buy anywhere. It is
+distributed separately, disabled by default, requires explicit setup, and is
+never needed for anything else in the app.
+
+![Events screen: an event of 52 titles, 47 ready to apply and 5 still missing, with an Apply button targeting the Event Imports playlist](docs/assets/events.png)
+
+### Collection health
+
+*The problem:* after a few years, every collection carries duplicates, dead
+file links, tracks that escaped your tagging habit, and titles still wearing
+junk from wherever they came from.
+
+- **Duplicates** — groups them, proposes the copy worth keeping (file
+  availability, quality, bitrate), moves the losers' playlist and tag
+  memberships onto the keeper so you lose nothing, and sends the losing files
+  to the macOS Trash.
+- **Missing files** — finds tracks whose audio file is gone. Relink them to a
+  file you own, or remove them with a reversible soft delete.
+- **Untagged** — surfaces tracks that slipped through your tagging workflow,
+  using structural rules plus patterns you define.
+- **Smart Fixes** — conservative metadata cleanup: trailing site junk,
+  invisible whitespace, exact encoded entities, selected reversible mojibake,
+  explicit featured credits, and known remixers added only where the field is
+  empty. Stylized casing and ambiguous patterns are left alone. You see the
+  complete before/after list, and it is re-checked field by field before
+  anything is written.
+
+Audio-quality analysis is local, read-only and deliberately cautious: a clearly
+full spectrum reads as *consistent*, a lower cutoff reads as *uncertain*. A
+cutoff alone cannot tell a lossy transcode from a legitimately band-limited
+master, so an uncertain verdict never decides a duplicate keeper on its own.
+
+![Collection health screen showing the Duplicates, Missing files, Untagged, Smart Fixes and Backups & logs tabs](docs/assets/duplicates.png)
+
+### Performance history
+
+*The problem:* you played a set that worked, and six months later you cannot
+reconstruct it.
+
+Syncbox archives your Rekordbox play history locally and groups it into
+performances — surviving Rekordbox restarts, keeping overlapping sessions
+apart, and flagging bursts that look like a USB import rather than an actual
+set. While Rekordbox is running you get a live tracklist. Performances can be
+renamed or hidden, and any one of them can be exported as an ordered playlist.
+
+![Performances screen: past gigs rebuilt from the Rekordbox play history, one selected showing its timed tracklist, with USB import badges on others](docs/assets/history.png)
+
+### Backups, logs and languages
+
+Every change to Rekordbox is preceded by a timestamped backup, rotated
+automatically and restorable from **Collection Health → Backups & logs**, where
+the application logs live too. The interface is available in **French and
+English**.
+
+## Your collection is safe
+
+Your Rekordbox database is the one file a DJ cannot afford to lose. Every
+change Syncbox makes to it goes through the same guarded path:
+
+- Rekordbox must be **closed** — Syncbox refuses to write while it is running.
+- A **timestamped backup** is taken before every change.
+- You approve an **exact preview**, and that preview is re-validated at the
+  moment of writing. If the database changed in between, the write is aborted
+  rather than applied to stale data.
+- **Deletions are reversible by design**: entries are soft-deleted in the
+  database, audio files go to the macOS Trash. Where a volume has no working
+  Trash, Syncbox asks for explicit consent *before* anything irreversible.
+- Your **ordinary library files are never moved or renamed**.
+
+The full pipeline is documented in
+[docs/USER_GUIDE.md](docs/USER_GUIDE.md#rekordbox-write-safety).
+
+## Install
+
+1. Download `Syncbox-0.7.2-macos-arm64.dmg` from the
+   [latest release](https://github.com/Adridot/syncbox/releases/tag/v0.7.2),
+   open it, and drag `Syncbox.app` into your Applications folder. A `.zip` of
+   the same build is published alongside it if you prefer.
+2. Open it once. Because the app is ad-hoc signed rather than signed with an
+   Apple Developer ID, macOS will block it. Open **System Settings → Privacy &
+   Security**, choose **Open Anyway**, then confirm **Open**. Apple describes
+   this exception in
    [Open a Mac app from an unknown developer](https://support.apple.com/guide/mac-help/mh40616/mac).
-3. Launch. The onboarding walks you through the three things it needs: your
-   Rekordbox database (one click fills the default
-   `~/Library/Pioneer/rekordbox/master.db`), a storage root, and — for
-   Spotify features — a free Spotify developer client ID (guided, ~2 min).
+3. Follow the onboarding. It asks for three things: your Rekordbox database
+   (one click fills in the usual
+   `~/Library/Pioneer/rekordbox/master.db`), a storage folder Syncbox can use,
+   and — only if you want the Spotify features — a free Spotify developer
+   Client ID. The app walks you through creating one; it takes about two
+   minutes.
 
-Release validation and historical v1 evidence for lifecycle, reproducibility,
-private Rekordbox fixtures, and disposable-copy manual checks are indexed in
-[docs/POC-EVIDENCE.md](docs/POC-EVIDENCE.md). App data lives in
-`~/Library/Application Support/Syncbox`; database backups live under
-`<storage root>/_syncbox/backups`.
+## FAQ
 
-## Architecture
+<details>
+<summary><b>Is there a Windows version?</b></summary>
 
-```
-┌───────────────────────────  Syncbox.app  ───────────────────────────┐
-│  shell/   Tauri v2 (Rust) — window, process supervisor, tray of     │
-│           safety plumbing: single instance, bounded restarts,        │
-│           tree-kill + shutdown handshake                             │
-│  ui/      Vue 3 + TypeScript — screens, guarded mutations, i18n      │
-│  sidecar/ Python 3.14 (Starlette) — all domain logic, served on      │
-│           127.0.0.1:8766 (REST + SSE), packaged as a PyInstaller     │
-│           onedir binary inside the app bundle. Spotify PKCE opens    │
-│           127.0.0.1:8765/callback only for the active attempt.       │
-└──────────────────────────────────────────────────────────────────────┘
-             reads/writes master.db via pyrekordbox, guarded
+Not today. Version 1 targets macOS 14+ on Apple Silicon only; Windows is
+deferred to a future version.
+</details>
 
- optional-component/  Separate pinned PyInstaller onedir download.
-                      Deezer-only Syncbox interface; streamrip is never
-                      imported or bundled by the base application.
-```
+<details>
+<summary><b>Does it cost anything?</b></summary>
 
-The current product and architecture specification lives in
-[docs/SPEC-UNIFIED.md](docs/SPEC-UNIFIED.md). Detailed operational and
-historical material lives in the [user guide](docs/USER_GUIDE.md),
-[distribution contract](docs/DISTRIBUTION.md), and
-[POC evidence index](docs/POC-EVIDENCE.md).
+No. Syncbox is free and MIT-licensed.
+</details>
 
-## Build from source
+<details>
+<summary><b>Will it move or rename my music files?</b></summary>
 
-Prerequisites: [pnpm](https://pnpm.io), [Rust](https://rustup.rs), and
-[uv](https://docs.astral.sh/uv/). The build uses separate locked Python
-projects: Python 3.14 for the base sidecar and Python 3.13 for the optional
-component.
+No. Ordinary library files are never moved or renamed. There is exactly one
+exception: if you keep a track that was staged for an event, it is moved into
+`<storage folder>/rekordbox/Collection/` when that event is removed, so it does
+not disappear with the event.
+</details>
 
-```sh
-pnpm install --frozen-lockfile
-(cd sidecar && uv sync --locked --managed-python)
-pnpm --dir shell bundle:macos
-# → shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
-```
+<details>
+<summary><b>Does it need my Spotify password?</b></summary>
 
-Dev loop and tests:
+No. Authorization happens in your own browser, on Spotify's site. Syncbox never
+sees a password and never asks for a client secret. It requests read-only
+access to your playlists — nothing else.
+</details>
 
-```sh
-pnpm --dir shell tauri dev                       # app against the source tree
-(cd sidecar && uv run --locked pytest -q -rs)    # sidecar suite
-pnpm --dir ui test                               # UI suite
-pnpm --dir ui typecheck
-mkdir -p sidecar/dist/syncbox-sidecar            # resource required by Tauri
-cargo check --locked --manifest-path shell/src-tauri/Cargo.toml \
-  --target aarch64-apple-darwin
-```
+<details>
+<summary><b>Do I need Spotify Premium?</b></summary>
 
-Packaging regression harnesses (lifecycle, single-instance, supervisor,
-frozen bundle) live in [shell/harness/](shell/harness/) — each file's
-docstring says how to run it.
+Syncbox uses a Spotify developer application that you create and own. Spotify's
+Development Mode requires the owner of that application to keep an active
+Spotify Premium subscription, and limits it to five authorized users. Details
+in [docs/PRIVACY.md](docs/PRIVACY.md).
+</details>
 
-## Repository layout
+<details>
+<summary><b>Can I undo something?</b></summary>
 
-| Path | What |
+Yes. A backup is taken before every change and can be restored from
+**Collection Health → Backups & logs**. Database deletions are soft deletes,
+and deleted audio files go to the macOS Trash.
+</details>
+
+<details>
+<summary><b>Where does Syncbox keep my data?</b></summary>
+
+Application data lives in `~/Library/Application Support/Syncbox`. Rekordbox
+database backups live under `<storage folder>/_syncbox/backups`. Nothing is
+uploaded anywhere. Back up your audio files separately — Syncbox's backups
+protect Rekordbox metadata, not your music.
+</details>
+
+<details>
+<summary><b>Which Rekordbox versions work?</b></summary>
+
+Syncbox reads and writes the local Rekordbox database used by Rekordbox 6 and
+7. Release validation includes a walkthrough against Rekordbox 7.2.16 on a
+disposable copy; the evidence is indexed in
+[docs/POC-EVIDENCE.md](docs/POC-EVIDENCE.md).
+</details>
+
+<details>
+<summary><b>How do I update?</b></summary>
+
+Download the new release and replace the app. There is no auto-updater. Your
+settings, backups and history are kept.
+</details>
+
+## Documentation
+
+| Document | What's in it |
 |---|---|
-| `sidecar/` | Python sidecar — domain logic, HTTP+SSE API, Rekordbox writes |
-| `optional-component/` | Separately distributed pinned Deezer/streamrip runner |
-| `ui/` | Vue 3 front end |
-| `shell/` | Tauri shell (Rust supervisor) + packaging harnesses |
-| `docs/` | Specification, user guide, distribution contract, POC evidence index |
-| `scripts/` | Release build, packaging, license generation, and fixture tooling |
-| `release/` | License inventories and notice bundles shipped with the released apps |
+| [User guide](docs/USER_GUIDE.md) | Every screen, step by step, plus the write-safety rules |
+| [Privacy](docs/PRIVACY.md) | What Spotify data is used, where it is stored, how to delete it |
+| [Distribution](docs/DISTRIBUTION.md) | Release contract, build reproducibility, signing posture |
+| [Specification](docs/SPEC-UNIFIED.md) | The product and architecture specification |
+| [Validation evidence](docs/POC-EVIDENCE.md) | Release validation and historical proof-of-concept records |
 
-## Status & roadmap
+## Contributing & support
 
-Current source and release version: **0.7.2**. This patch cleans up legacy
-acquisition storage by trashing the complete migrated job directory instead of
-its audio file alone, and adds a guarded, fill-only repair for legacy Syncbox
-imports whose Rekordbox metadata was left blank.
-The macOS 14+ Apple Silicon release workflow keeps the scanner, isolated-root
-reproducibility, component-pin, and test gates. The app is ad-hoc signed
-without a Developer ID or notarization.
+- Something broken, or a question → [SUPPORT.md](SUPPORT.md)
+- Want to build or change it → [CONTRIBUTING.md](CONTRIBUTING.md)
+- Suspected vulnerability → [.github/SECURITY.md](.github/SECURITY.md), never a
+  public issue
 
-- **Signing, notarization, and Keychain** — deferred; the v1 distribution uses
-  a per-install encrypted SQLCipher secret store and never exports OAuth
-  tokens.
-- **Windows** — deferred to v2; the v1 build and validation contract is macOS
-  Apple Silicon only.
-- **Updates** — no in-app auto-update is implemented.
-- **Optional acquisition** — purchase links remain first. Deezer acquisition
-  is explicit, disabled by default, requires a Premium credential stored only
-  in the encrypted secret store. Local archive installation is validated; the
-  hash-pinned online component path uses the matching `v0.7.2` GitHub Release
-  asset. SoundCloud and ffmpeg are not exposed.
-- **Later** — local-library audio preview, fingerprint-based duplicate
-  detection (Chromaprint), ISRC enrichment.
+## Roadmap & current limits
+
+- **Signing and notarization** — deferred. The app is ad-hoc signed, and
+  credentials are held in a per-install encrypted store rather than the
+  Keychain. OAuth tokens are never exported.
+- **Windows** — deferred to a future version.
+- **Automatic updates** — not implemented.
+- **Optional acquisition** — purchase links remain first. The Deezer component
+  is explicit, disabled by default, distributed separately, and requires a
+  Premium credential kept in the encrypted store. SoundCloud and ffmpeg are not
+  exposed. Only acquire music when your account and local law allow it.
+- **Later** — previewing audio from your library, fingerprint-based duplicate
+  detection, richer identifier enrichment.
 
 ## License
 
-[MIT](LICENSE). The packaged base app bundles third-party components under
-their own licenses, including [mutagen](https://github.com/quodlibet/mutagen)
-(GPL-2.0-or-later), MPL-2.0 dependencies, and the PyInstaller bootloader under
-its GPL exception. The separately distributed component contains deezer-py
-(GPL-3.0-or-later), mutagen, streamrip's exact GPL-3.0-only license, pinned
-source revision, source-availability notice, and its own dependency inventory.
-The generated base and optional consolidated notices are authoritative; this
-summary is not a legal-compliance claim.
+[MIT](LICENSE).
+
+The packaged app bundles third-party components under their own licenses,
+including [mutagen](https://github.com/quodlibet/mutagen) (GPL-2.0-or-later),
+MPL-2.0 dependencies, and the PyInstaller bootloader under its GPL exception.
+The separately distributed component carries deezer-py (GPL-3.0-or-later),
+mutagen, streamrip's exact GPL-3.0-only license, its pinned source revision, a
+source-availability notice, and its own dependency inventory. The generated
+notices shipped with each release are authoritative; this summary is not a
+legal-compliance claim.
