@@ -426,6 +426,233 @@ def test_adopt_walks_subfolders_and_ignores_non_audio(conn, tmp_path):
     ]
 
 
+# --- playlist refresh (event-playlist-refresh) -------------------------------------
+
+
+def _spotify_item(track_id, name="Song", artist="A", duration_ms=200_000, isrc=None):
+    return {
+        "item": {
+            "id": track_id,
+            "name": name,
+            "artists": [{"name": artist}],
+            "duration_ms": duration_ms,
+            "external_ids": {"isrc": isrc},
+            "type": "track",
+        }
+    }
+
+
+class FakePlaylist:
+    """SpotifyClient.get() contract only; ``fail`` raises instead of paging."""
+
+    def __init__(self, *items, fail=None):
+        self.payload = {"items": {"items": list(items), "next": None}}
+        self.fail = fail
+        self.calls = []
+
+    def get(self, path):
+        self.calls.append(path)
+        if self.fail is not None:
+            raise self.fail
+        return self.payload
+
+
+def _playlist_event(conn, tmp_path, *track_ids, name="Refresh Night"):
+    event = create_event(
+        conn, tmp_path / "storage", name, spotify_playlist_id="PL123"
+    )
+    for track_id in track_ids:
+        add_track(
+            conn,
+            event,
+            spotify_track_id=track_id,
+            resolver=lambda tid: {"title": f"Song {tid}", "artist": "A"},
+            origin="playlist",
+        )
+    return event
+
+
+def test_refresh_buckets_updated_added_and_departed(conn, tmp_path):
+    """4.1: one fetch, three buckets keyed on spotify_track_id."""
+    event = _playlist_event(conn, tmp_path, "keep", "gone")
+    client = FakePlaylist(
+        _spotify_item("keep", name="Renamed"),
+        _spotify_item("keep", name="Duplicate occurrence"),  # collapsed, first wins
+        _spotify_item("fresh"),
+    )
+
+    result = events_service.refresh_from_playlist(conn, event, client)
+
+    assert client.calls == ["/playlists/PL123"]
+    assert result == {"added": 1, "updated": 1, "removed": 1}
+    rows = {t["spotify_track_id"]: t for t in list_event_tracks(conn, event["id"])}
+    assert rows["keep"]["title"] == "Renamed"
+    assert rows["gone"]["status"] == "removed_upstream"
+    assert rows["fresh"]["origin"] == "playlist"
+    # an unchanged playlist reports nothing changed (idempotent second run)
+    assert events_service.refresh_from_playlist(conn, event, client) == {
+        "added": 0,
+        "updated": 0,
+        "removed": 0,
+    }
+
+
+def test_refresh_updates_metadata_only(conn, tmp_path):
+    """4.2: status, content_id and staging_file_path survive the update."""
+    event = _playlist_event(conn, tmp_path, "t1")
+    staged = Path(event["staging_dir"]) / "t1.mp3"
+    staged.write_bytes(b"fake")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'applied', content_id = '42',"
+        " staging_file_path = ? WHERE spotify_track_id = 't1'",
+        (str(staged),),
+    )
+    client = FakePlaylist(
+        _spotify_item("t1", name="New Title", artist="New Artist", isrc="USAAA0000001")
+    )
+
+    assert events_service.refresh_from_playlist(conn, event, client)["updated"] == 1
+
+    row = list_event_tracks(conn, event["id"])[0]
+    assert (row["title"], row["artist"], row["isrc"]) == (
+        "New Title",
+        "New Artist",
+        "USAAA0000001",
+    )
+    assert row["status"] == "applied"
+    assert row["content_id"] == "42"
+    assert row["staging_file_path"] == str(staged)
+
+
+def test_refresh_import_carries_the_11_2_delta_flag(conn, tmp_path):
+    """4.3: on an applied event an imported row is a pending addition."""
+    event = _playlist_event(conn, tmp_path)
+    conn.execute("UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],))
+
+    events_service.refresh_from_playlist(conn, event, FakePlaylist(_spotify_item("new")))
+
+    row = list_event_tracks(conn, event["id"])[0]
+    assert row["added_after_apply"] == 1 and row["origin"] == "playlist"
+
+
+def test_refresh_departure_saves_prior_status(conn, tmp_path):
+    """4.4 + 3.1: the signal parks the previous status and costs no work."""
+    event = _playlist_event(conn, tmp_path, "gone")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'applied', content_id = '7'"
+        " WHERE spotify_track_id = 'gone'"
+    )
+    conn.execute("UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],))
+
+    assert events_service.refresh_from_playlist(conn, event, FakePlaylist())["removed"] == 1
+
+    row = list_event_tracks(conn, event["id"])[0]
+    assert row["status"] == "removed_upstream"
+    assert row["prior_status"] == "applied"
+    assert row["content_id"] == "7"  # signalled, never acted on
+    # the event stays applied: a departure is not outstanding work (11.2)
+    assert recompute_event_status([row["status"]]) == "applied"
+
+
+def test_refresh_clears_the_signal_when_a_track_comes_back(conn, tmp_path):
+    """4.4: put back on the playlist, the departure is contradicted - the row
+    returns to its prior status by itself. Leaving it signalled would force
+    the user through 'keep', which flips origin to 'manual' and drops the row
+    from playlist tracking for good."""
+    event = _playlist_event(conn, tmp_path, "gone")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'applied', content_id = '7'"
+        " WHERE spotify_track_id = 'gone'"
+    )
+
+    assert events_service.refresh_from_playlist(conn, event, FakePlaylist())["removed"] == 1
+
+    back = FakePlaylist(_spotify_item("gone", name="Song gone"))
+    assert events_service.refresh_from_playlist(conn, event, back) == {
+        "added": 0,
+        "updated": 1,
+        "removed": 0,
+    }
+    row = list_event_tracks(conn, event["id"])[0]
+    assert (row["status"], row["prior_status"]) == ("applied", None)
+    assert row["content_id"] == "7"
+    assert row["origin"] == "playlist"  # still tracked, no 'keep' needed
+    # and the return is reported once, not again on the next refresh
+    assert events_service.refresh_from_playlist(conn, event, back) == {
+        "added": 0,
+        "updated": 0,
+        "removed": 0,
+    }
+
+
+def test_removed_upstream_is_inert_everywhere(conn, tmp_path):
+    """3.1/3.3: never re-matched, never claims a file, never pending."""
+    event = _playlist_event(conn, tmp_path, "gone")
+    (Path(event["staging_dir"]) / "Song gone.mp3").write_bytes(b"fake")
+    events_service.refresh_from_playlist(conn, event, FakePlaylist())
+
+    for statuses in (
+        events_service.PENDING_STATUSES,
+        events_service.REMATCHED_STATUSES,
+        events_service.CLAIMABLE_STATUSES,
+    ):
+        assert "removed_upstream" not in statuses
+    cache = FakeCache([{"content_id": "9", "title": "Song gone", "artist": "A"}])
+    match_event_tracks(conn, event, cache, tmp_path / "storage")
+    assert claim_staged_files(conn, event) == []
+    row = list_event_tracks(conn, event["id"])[0]
+    assert row["status"] == "removed_upstream"
+    assert row["content_id"] is None and row["staging_file_path"] is None
+
+
+def test_refresh_ignores_manual_and_adopted_rows(conn, tmp_path):
+    """4.5: only origin='playlist' rows are compared to the playlist."""
+    event = _playlist_event(conn, tmp_path)
+    linked = add_track(
+        conn,
+        event,
+        spotify_track_id="linked",
+        resolver=lambda tid: {"title": "Pasted Link", "artist": "A"},
+    )
+    typed = add_track(conn, event, title="Typed By Hand")
+    staged = Path(event["staging_dir"]) / "Dropped.mp3"
+    staged.write_bytes(b"fake")
+    adopted = adopt_staged_files(conn, event)[0]
+    assert adopted["origin"] == "adopted"
+
+    assert events_service.refresh_from_playlist(conn, event, FakePlaylist()) == {
+        "added": 0,
+        "updated": 0,
+        "removed": 0,
+    }
+
+    rows = {t["id"]: t for t in list_event_tracks(conn, event["id"])}
+    assert [rows[t["id"]]["status"] for t in (linked, typed, adopted)] == [
+        "missing",
+        "missing",
+        "missing",
+    ]
+    assert rows[linked["id"]]["title"] == "Pasted Link"
+    # a link-added track already in the event is not imported a second time
+    events_service.refresh_from_playlist(
+        conn, event, FakePlaylist(_spotify_item("linked", name="From Playlist"))
+    )
+    assert len(list_event_tracks(conn, event["id"])) == 3
+
+
+def test_refresh_leaves_everything_untouched_when_spotify_fails(conn, tmp_path):
+    """5.3 at the service level: the fetch precedes every write."""
+    event = _playlist_event(conn, tmp_path, "t1", "t2")
+    before = list_event_tracks(conn, event["id"])
+
+    with pytest.raises(RuntimeError):
+        events_service.refresh_from_playlist(
+            conn, event, FakePlaylist(fail=RuntimeError("spotify down"))
+        )
+
+    assert list_event_tracks(conn, event["id"]) == before
+
+
 # --- status recompute + strict no-op (11.2) ----------------------------------------
 
 

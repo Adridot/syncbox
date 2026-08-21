@@ -47,6 +47,7 @@ export const en = {
     missing: 'Missing',
     acquisition_failed: 'Acquisition failed',
     removed_from_source: 'Removed from source',
+    removed_upstream: 'Gone from the playlist',
     ignored: 'Ignored',
     purchase_link_unavailable: 'Purchase link unavailable',
     manual_relink_needed: 'Manual relink needed',
@@ -196,6 +197,22 @@ export const en = {
     rejectTrack: 'Ignore this dropped file',
     restoreTrack: 'Put back in the event',
     restoreDone: '“{title}” put back in the event.',
+    // refresh from the Spotify playlist — no Rekordbox guard: nothing is
+    // written to master.db
+    refresh: 'Refresh from Spotify',
+    refreshing: 'Refreshing…',
+    refreshHelp:
+      'Re-reads the Spotify playlist: imports the titles added to it, flags the ones that left. Writes nothing to Rekordbox.',
+    refreshDone: '{added} added · {updated} updated · {removed} gone from the playlist.',
+    refreshNoChange: 'The Spotify playlist has not moved — nothing to update.',
+    // departure signal: a title is no longer in the playlist. Nothing was
+    // written nor deleted — it is a decision to make, not pending work, so
+    // it is never mixed into the “+n” badge
+    removedShort: 'gone',
+    removedHelp:
+      'These titles are no longer in the Spotify playlist. Nothing was touched in Rekordbox: keep them or remove them, your call.',
+    keepTrack: 'Keep this title',
+    keepDone: '“{title}” kept — the departure signal is cleared.',
     filterEmpty: 'No title in this filter.',
     modifiedBanner:
       'Modified since the last apply — {n}. Re-apply to update the Rekordbox smart playlist.',
@@ -211,6 +228,7 @@ export const en = {
       ambiguous: 'To arbitrate',
       pending: 'Pending',
       ignored: 'Rejected',
+      removed: 'Gone',
     },
     columns: {
       title: 'Title',

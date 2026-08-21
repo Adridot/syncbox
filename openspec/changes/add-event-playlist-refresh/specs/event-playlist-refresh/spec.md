@@ -90,6 +90,16 @@ A refresh SHALL report every playlist-sourced track of the event that is no long
 - **WHEN** an event that was fully applied is refreshed and one of its tracks has left the playlist
 - **THEN** the event's applied status is unchanged and its count of pending changes stays at zero
 
+#### Scenario: A departed track put back on the playlist
+
+- **WHEN** a track reported as having left the playlist is added back to it and the event is refreshed
+- **THEN** the departure signal is cleared and the track returns to the status it held before the signal, without the user having to act on it
+
+#### Scenario: An already-signalled or rejected track
+
+- **WHEN** a refresh runs over a track that is already reported as departed, or that the user rejected
+- **THEN** it is not signalled a second time and the record of its previous status is left intact
+
 ### Requirement: A departure signal can be dismissed
 
 The user SHALL be able to keep a track that has left the playlist. Keeping it SHALL restore the status the track held before the signal and SHALL prevent the track from being signalled again by a later refresh, while leaving it otherwise unchanged.

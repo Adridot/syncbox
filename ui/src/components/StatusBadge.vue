@@ -15,6 +15,9 @@ const TONES: Record<string, string> = {
   missing: 'danger',
   acquisition_failed: 'danger',
   removed_from_source: 'muted',
+  // same tone as its library twin, and deliberately NOT the warning amber of
+  // the pending delta: a departure is a decision, not work to re-apply
+  removed_upstream: 'muted',
   ignored: 'muted',
   purchase_link_unavailable: 'muted',
   manual_relink_needed: 'warning',

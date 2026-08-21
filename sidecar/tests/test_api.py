@@ -2391,6 +2391,208 @@ def test_events_create_playlist_mode_imports_tracks(tmp_path):
     assert bare.client.get("/api/events").json()["events"] == []
 
 
+# --- playlist refresh (event-playlist-refresh) -------------------------------------
+
+
+def playlist_item(track_id, name="Song", artist="A", isrc=None):
+    return {
+        "item": {
+            "id": track_id,
+            "name": name,
+            "artists": [{"name": artist}],
+            "duration_ms": 200_000,
+            "external_ids": {"isrc": isrc},
+            "type": "track",
+        }
+    }
+
+
+class FakePlaylistClient:
+    """SpotifyClient.get() over a MUTABLE playlist, so a test can add and
+    remove tracks between two refreshes."""
+
+    def __init__(self, *items):
+        self.items = list(items)
+        self.fail = None
+
+    def get(self, path):
+        if self.fail is not None:
+            raise self.fail
+        if path.startswith("/tracks"):
+            # resolve_track_meta's batched ladder (a track added by LINK)
+            ids = path.split("ids=", 1)[1].split(",")
+            return {"tracks": [{"id": i, "name": i.title(), "artists": []} for i in ids]}
+        return {"items": {"items": list(self.items), "next": None}}
+
+
+def test_event_track_origin_is_recorded_at_every_creation_site(tmp_path):
+    """0010: playlist import / hand entry / link / adoption are told apart,
+    and 'adopted' is READ from the column, no longer inferred."""
+    client = FakePlaylistClient(playlist_item("trk1", name="Imported"))
+    env = make_env(tmp_path, spotify_client=client)
+    event = env.client.post(
+        "/api/events", json={"name": "Origins", "spotify_playlist_id": PLAYLIST_ID}
+    ).json()
+    typed = env.client.post(
+        f"/api/events/{event['id']}/tracks", json={"title": "Typed"}
+    ).json()
+    env.client.post(
+        f"/api/events/{event['id']}/tracks", json={"spotify_track_id": "linked"}
+    )
+    drop_file(event, "Zzz Unrelated.mp3")
+    env.client.post(f"/api/events/{event['id']}/claim")
+    # the old inference's false positive: a HAND-TYPED row that later claimed
+    # a staged file used to read back as 'adopted'.
+    env.conn.execute(
+        "UPDATE event_tracks SET staging_file_path = '/tmp/typed.mp3', "
+        "status = 'ready' WHERE id = ?",
+        (typed["id"],),
+    )
+
+    tracks = env.client.get(f"/api/events/{event['id']}").json()["tracks"]
+    assert {t["title"]: t["origin"] for t in tracks} == {
+        "Imported": "playlist",
+        "Typed": "manual",
+        "Linked": "manual",
+        "Zzz Unrelated.mp3": "adopted",
+    }
+    # the derived flag now follows the column, not the old inference
+    assert [t["title"] for t in tracks if t["adopted"]] == ["Zzz Unrelated.mp3"]
+
+
+def test_events_refresh_reconciles_with_the_playlist(tmp_path):
+    """5.1 + 3.2: added / updated / removed counts, and a departure moves
+    neither the +n badge nor the applied status."""
+    client = FakePlaylistClient(
+        playlist_item("stay", name="Stay"), playlist_item("gone", name="Gone")
+    )
+    env = make_env(tmp_path, spotify_client=client)
+    event = env.client.post(
+        "/api/events", json={"name": "Jo Helo", "spotify_playlist_id": PLAYLIST_ID}
+    ).json()
+    env.conn.execute(
+        "UPDATE events SET status = 'applied' WHERE id = ?", (event["id"],)
+    )
+    env.conn.execute("UPDATE event_tracks SET status = 'applied'")
+    before = env.client.get("/api/events").json()["events"][0]
+    assert (before["n_tracks"], before["pending_delta"]) == (2, 0)
+    # an untouched playlist reports nothing changed: 'updated' counts the rows
+    # whose metadata actually moved, never every survivor (the UI reads
+    # added + updated + removed == 0 as "nothing changed").
+    assert env.client.post(f"/api/events/{event['id']}/refresh").json() == {
+        "added": 0,
+        "updated": 0,
+        "removed": 0,
+    }
+
+    client.items = [playlist_item("stay", name="Renamed"), playlist_item("fresh")]
+    result = env.client.post(f"/api/events/{event['id']}/refresh")
+
+    assert result.status_code == 200
+    assert result.json() == {"added": 1, "updated": 1, "removed": 1}
+    tracks = {
+        t["spotify_track_id"]: t
+        for t in env.client.get(f"/api/events/{event['id']}").json()["tracks"]
+    }
+    assert tracks["stay"]["title"] == "Renamed"
+    assert tracks["gone"]["status"] == "removed_upstream"
+    assert tracks["gone"]["prior_status"] == "applied"
+    assert tracks["fresh"]["origin"] == "playlist"
+
+    card = env.client.get("/api/events").json()["events"][0]
+    # the departure is its own signal: out of n_tracks AND out of the +n
+    assert card["n_tracks"] == 2  # stay + fresh, the departure is not carried
+    assert card["pending_delta"] == 1  # the import only
+    assert card["removed_upstream"] == 1
+    assert card["status"] == "applied"
+
+
+def test_events_refresh_refuses_a_manual_event(tmp_path):
+    env = make_env(tmp_path, spotify_client=FakePlaylistClient())
+    event = env.client.post(
+        "/api/events", json={"name": "Party", "manual": True}
+    ).json()
+
+    refused = env.client.post(f"/api/events/{event['id']}/refresh")
+
+    assert refused.status_code == 409
+    assert "no Spotify playlist" in refused.json()["message"]
+    assert env.client.post("/api/events/999/refresh").status_code == 404
+
+
+def test_events_refresh_spotify_failure_changes_nothing(tmp_path):
+    """5.3: the fetch precedes every write, so a failure is a strict no-op."""
+    client = FakePlaylistClient(playlist_item("t1"), playlist_item("t2"))
+    env = make_env(tmp_path, spotify_client=client)
+    event = env.client.post(
+        "/api/events", json={"name": "Gig", "spotify_playlist_id": PLAYLIST_ID}
+    ).json()
+    before = env.client.get(f"/api/events/{event['id']}").json()["tracks"]
+
+    client.fail = spotify.SpotifyApiError(502, "upstream is down")
+    failed = env.client.post(f"/api/events/{event['id']}/refresh")
+
+    assert failed.status_code >= 400
+    assert env.client.get(f"/api/events/{event['id']}").json()["tracks"] == before
+
+
+def test_events_refresh_runs_with_rekordbox_open(tmp_path, monkeypatch):
+    """5.4: no _require_rekordbox and no mutate() - app DB + Spotify only."""
+    client = FakePlaylistClient(playlist_item("t1"))
+    env = make_env(tmp_path, spotify_client=client)
+    event = env.client.post(
+        "/api/events", json={"name": "Gig", "spotify_playlist_id": PLAYLIST_ID}
+    ).json()
+
+    def blocked(_db_path):
+        raise MutationBlockedError()
+
+    monkeypatch.setattr(process_guard, "assert_mutation_ready", blocked)
+    env.deps.settings.update({"rekordbox_db_path": ""})
+    client.items = [playlist_item("t1"), playlist_item("t2")]
+    response = env.client.post(f"/api/events/{event['id']}/refresh")
+
+    assert response.status_code == 200
+    assert response.json()["added"] == 1
+    assert not env.deps.backups_root.exists()
+
+
+def test_event_track_keep_clears_the_departure_for_good(tmp_path):
+    """5.5: keep restores prior_status and turns the row 'manual', so the
+    NEXT refresh does not signal it a second time."""
+    client = FakePlaylistClient(playlist_item("gone"))
+    env = make_env(tmp_path, spotify_client=client)
+    event = env.client.post(
+        "/api/events", json={"name": "Gig", "spotify_playlist_id": PLAYLIST_ID}
+    ).json()
+    track = env.client.get(f"/api/events/{event['id']}").json()["tracks"][0]
+    client.items = []
+    assert env.client.post(f"/api/events/{event['id']}/refresh").json()["removed"] == 1
+
+    kept = env.client.post(
+        f"/api/events/{event['id']}/tracks/{track['id']}/keep"
+    )
+    assert kept.status_code == 200
+    assert kept.json()["status"] == "missing"
+    assert kept.json()["prior_status"] is None
+    assert kept.json()["origin"] == "manual"
+
+    assert env.client.post(f"/api/events/{event['id']}/refresh").json() == {
+        "added": 0,
+        "updated": 0,
+        "removed": 0,
+    }
+    row = env.client.get(f"/api/events/{event['id']}").json()["tracks"][0]
+    assert row["status"] == "missing"
+    # a row that never left the playlist cannot be kept
+    refused = env.client.post(f"/api/events/{event['id']}/tracks/{track['id']}/keep")
+    assert refused.status_code == 409
+    assert (
+        env.client.post(f"/api/events/{event['id']}/tracks/9999/keep").status_code
+        == 404
+    )
+
+
 def test_event_track_remove_guards_imported(tmp_path):
     env = make_env(tmp_path)
     event = env.client.post(

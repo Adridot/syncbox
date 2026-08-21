@@ -31,6 +31,7 @@ const row = (over: Record<string, unknown>) => ({
   staging_file_path: null,
   added_after_apply: 0,
   prior_status: null,
+  origin: 'manual',
   adopted: false,
   duplicates_collection: false,
   duplicate_title: null,
@@ -65,6 +66,7 @@ const EVENT = {
   created_at: '2026-08-21',
   n_tracks: TRACKS.length,
   pending_delta: 0,
+  removed_upstream: 0,
 }
 
 /** The restored row comes back from the POST with its state RE-DERIVED — the

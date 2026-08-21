@@ -19,7 +19,7 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-from syncbox import event_delete, relink
+from syncbox import event_delete, library_service, relink
 from syncbox.matching import match
 from syncbox.rb_write import (
     add_content,
@@ -38,6 +38,13 @@ from syncbox.staging import reclassify_stale_ready, staged_file_ok
 EVENT_FOLDER_NAME = "Event Imports"
 SITUATION_CATEGORY = "Situation"
 XML_NAME = "masterPlaylists6.xml"
+# event-playlist-refresh: 'removed_upstream' (a playlist-sourced track that
+# left the playlist) is a SIGNAL, never work. It is deliberately absent from
+# all three sets below, from apply_event's applicable set and from both
+# events_list aggregates: a departure alone must not flip a fully applied
+# event back to partially_applied, must not be counted by the +n badge, and
+# must not be re-matched nor claim a staged file while it awaits a decision.
+# The row's previous status is parked in prior_status; 'keep' puts it back.
 # SPEC-UNIFIED 11.2: applied when none of these remain, else partially_applied.
 PENDING_STATUSES = frozenset(
     {"matched", "ready", "missing", "ambiguous", "acquisition_failed"}
@@ -147,13 +154,24 @@ def create_event(conn, storage_root, name, *, spotify_playlist_id=None, manual=F
 
 
 def add_track(
-    conn, event, *, spotify_track_id=None, resolver=None, title=None, artist=None
+    conn,
+    event,
+    *,
+    spotify_track_id=None,
+    resolver=None,
+    title=None,
+    artist=None,
+    origin="manual",
 ) -> dict:
     """Add a track: Spotify metadata via the injected ``resolver`` callable
     (the API layer wires SpotifyClient - 11.1), or manual {title, artist}.
 
     On an applied/partially_applied event the row is flagged
     ``added_after_apply`` (the 11.2 delta) - additions are NEVER blocked.
+
+    ``origin`` (0010, event-playlist-refresh) records provenance:
+    'playlist' for a row imported from the event's playlist (creation OR
+    refresh), 'manual' for anything the user asked for by hand or by link.
     """
     event = get_event(conn, event["id"])
     if spotify_track_id is not None:
@@ -167,8 +185,8 @@ def add_track(
     delta = 1 if event["status"] in APPLIED_EVENT_STATUSES else 0
     cur = conn.execute(
         "INSERT INTO event_tracks (event_id, spotify_track_id, title, artist,"
-        " duration_ms, isrc, status, added_after_apply, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, 'missing', ?, ?)",
+        " duration_ms, isrc, status, added_after_apply, origin, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'missing', ?, ?, ?)",
         (
             event["id"],
             spotify_track_id,
@@ -177,6 +195,7 @@ def add_track(
             meta.get("duration_ms"),
             meta.get("isrc"),
             delta,
+            origin,
             _now(),
         ),
     )
@@ -184,6 +203,111 @@ def add_track(
         "SELECT * FROM event_tracks WHERE id = ?", (cur.lastrowid,)
     ).fetchone()
     return dict(row)
+
+
+# --- playlist refresh (event-playlist-refresh) -------------------------------------
+
+_REFRESHED_COLUMNS = ("title", "artist", "duration_ms", "isrc")
+# A row the user already took a decision on is not re-signalled: 'ignored' is
+# a rejection that must stick (and its prior_status belongs to D22 unignore),
+# 'removed_upstream' is already signalled.
+_UNSIGNALLABLE = frozenset({"ignored", "removed_upstream"})
+
+
+def refresh_from_playlist(conn, event, spotify_client) -> dict:
+    """Reconcile the event with its Spotify playlist IN PLACE; returns
+    {added, updated, removed}.
+
+    NOT the 5.6 library diff: sync_one_source replaces a source's rows
+    wholesale because a library row carries no irreplaceable local state,
+    while an event row carries content_id, staging_file_path, the 11.2
+    added_after_apply flag and its acquisition history. So this is a
+    three-bucket reconciliation keyed on spotify_track_id over the
+    origin='playlist' rows only - a link-added, hand-typed or adopted row is
+    never compared to the playlist and never touched.
+
+    The whole fetch + mapping happens BEFORE the first write (like
+    events_create): a Spotify failure leaves every event track exactly as it
+    was. No master.db write anywhere here, so it runs with Rekordbox open.
+
+    'updated' counts the rows whose metadata ACTUALLY moved, never every
+    survivor: added + updated + removed == 0 is what tells the user the
+    playlist has not changed (spec scenario), and a 27-track playlist
+    reporting 27 updates every time would make that unreachable.
+    """
+    event = get_event(conn, event["id"])
+    payload = spotify_client.get(f"/playlists/{event['spotify_playlist_id']}")
+    fetched = library_service._collect_tracks(spotify_client, payload)
+    # An event is a SET of tracks, not a running order: collapse duplicate
+    # playlist occurrences on spotify_track_id, first wins (as sync does).
+    playlist: dict[str, dict] = {}
+    for meta in fetched:
+        playlist.setdefault(meta["spotify_track_id"], meta)
+
+    tracks = list_event_tracks(conn, event["id"])
+    carried = {t["spotify_track_id"] for t in tracks if t["spotify_track_id"]}
+    now = _now()
+    updated = removed = 0
+    for track in tracks:
+        if track["origin"] != "playlist":
+            continue
+        meta = playlist.get(track["spotify_track_id"])
+        if meta is None:
+            if track["status"] in _UNSIGNALLABLE:
+                continue
+            # Signal only: prior_status is what 'keep' restores, and nothing
+            # here writes to Rekordbox or touches the staged file.
+            conn.execute(
+                "UPDATE event_tracks SET status = 'removed_upstream',"
+                " prior_status = ?, updated_at = ? WHERE id = ?",
+                (track["status"], now, track["id"]),
+            )
+            removed += 1
+            continue
+        if track["status"] == "removed_upstream":
+            # It CAME BACK. Clearing the signal here is the one case where the
+            # survivor bucket may move a status: leaving it signalled would
+            # report a departure the playlist just contradicted, and the only
+            # way out would be 'keep', which flips origin to 'manual' and
+            # drops the row from playlist tracking for good.
+            conn.execute(
+                "UPDATE event_tracks SET status = ?, prior_status = NULL,"
+                " updated_at = ? WHERE id = ?",
+                (track["prior_status"] or "missing", now, track["id"]),
+            )
+            track = dict(track, status=track["prior_status"] or "missing")
+            came_back = True
+        else:
+            came_back = False
+        changed = {c: meta.get(c) for c in _REFRESHED_COLUMNS if meta.get(c) != track[c]}
+        if not changed:
+            updated += came_back  # a return alone is still a change to report
+            continue  # an unchanged playlist must report 'nothing changed'
+        # Metadata ONLY - never status, content_id nor staging_file_path.
+        conn.execute(
+            "UPDATE event_tracks SET "
+            + ", ".join(f"{column} = ?" for column in changed)
+            + ", updated_at = ? WHERE id = ?",
+            (*changed.values(), now, track["id"]),
+        )
+        updated += 1
+
+    added = 0
+    for track_id, meta in playlist.items():
+        if track_id in carried:
+            continue
+        # add_track's own rule sets added_after_apply on an applied event, so
+        # the import lands in the existing 11.2 delta / re-apply flow with no
+        # new way for a track to reach Rekordbox.
+        add_track(
+            conn,
+            event,
+            spotify_track_id=track_id,
+            resolver=lambda tid, meta=meta: meta,
+            origin="playlist",
+        )
+        added += 1
+    return {"added": added, "updated": updated, "removed": removed}
 
 
 # --- matching (5.7 event flavor) ---------------------------------------------------
@@ -342,8 +466,8 @@ def adopt_staged_files(conn, event) -> list[dict]:
         title = meta.get("title")
         cur = conn.execute(
             "INSERT INTO event_tracks (event_id, title, artist, duration_ms,"
-            " isrc, staging_file_path, status, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, 'missing', ?)",
+            " isrc, staging_file_path, status, origin, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, 'missing', 'adopted', ?)",
             (
                 event["id"],
                 title or path.name,

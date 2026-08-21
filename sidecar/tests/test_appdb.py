@@ -70,6 +70,46 @@ def test_real_numbering_is_contiguous():
     assert [v for v, _, _ in scripts] == list(range(1, len(scripts) + 1))
 
 
+def test_0010_backfills_event_track_origin(tmp_path, monkeypatch):
+    """0010 (event-playlist-refresh): provenance is backfilled from the
+    columns that still carry a hint, and a migrated DB is schema-identical
+    to a fresh one - the export/import canonical-schema check depends on it.
+    """
+    scripts = appdb._scripts()
+    before = [s for s in scripts if s[0] < 10]
+    monkeypatch.setattr(appdb, "_scripts", lambda: before)
+    conn = appdb.open_app_db(tmp_path / "app.db")
+    conn.execute(
+        "INSERT INTO events (name, slug, default_tag, spotify_playlist_id,"
+        " staging_dir) VALUES ('Gig', 'gig', 'Gig', 'PL', '/tmp/gig')"
+    )
+    rows = [
+        ("imported", "sp:1", None),  # a Spotify id -> came from the playlist
+        ("adopted", None, "/tmp/gig/dropped.mp3"),  # staged file, no id
+        ("typed", None, None),  # neither -> hand-typed
+    ]
+    for title, track_id, staged in rows:
+        conn.execute(
+            "INSERT INTO event_tracks (event_id, title, spotify_track_id,"
+            " staging_file_path) VALUES (1, ?, ?, ?)",
+            (title, track_id, staged),
+        )
+
+    monkeypatch.setattr(appdb, "_scripts", lambda: scripts)
+    appdb.migrate(conn)
+
+    assert dict(
+        conn.execute("SELECT title, origin FROM event_tracks").fetchall()
+    ) == {"imported": "playlist", "adopted": "adopted", "typed": "manual"}
+    assert conn.execute(
+        "SELECT COUNT(*) FROM event_tracks WHERE origin IS NULL"
+    ).fetchone()[0] == 0
+    fresh = appdb.open_app_db(tmp_path / "fresh.db")
+    assert appdb._schema(conn) == appdb._schema(fresh)
+    fresh.close()
+    conn.close()
+
+
 def test_statement_splitter_handles_strings_and_comments():
     sql = (
         "-- header comment\n"

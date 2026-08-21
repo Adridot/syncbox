@@ -109,21 +109,24 @@ const baseApplied = computed(() => (selected.value ? isBaseApplied(selected.valu
 const counts = computed(() => eventCounts(selectedTracks.value, baseApplied.value))
 const visibleTracks = computed(() => filterEventTracks(selectedTracks.value, filter.value))
 
-// §5.7 "A rejection can be undone": rejected rows are outstanding work for
-// nobody, so they live outside `counts` — their chip counts them itself.
+// Rejections (§5.7) and playlist departures are outstanding work for nobody,
+// so they live outside `counts` — each chip counts its own rows.
 const rejected = computed(() => filterEventTracks(selectedTracks.value, 'ignored').length)
-// No dead affordance (owner): the chip only exists once there IS something
-// to consult, and it is LAST so its arrival moves no other chip.
-const visibleFilters = computed(() =>
-  EVENT_FILTERS.filter(
-    (chip) => chip !== 'ignored' || rejected.value > 0 || filter.value === 'ignored',
-  ),
-)
+const departed = computed(() => filterEventTracks(selectedTracks.value, 'removed').length)
 function chipCount(chip: EventFilter): number {
   if (chip === 'all') return counts.value.total
   if (chip === 'ignored') return rejected.value
+  if (chip === 'removed') return departed.value
   return counts.value[chip]
 }
+// No dead affordance (owner): these two only exist once there IS something to
+// consult, and they are LAST so their arrival moves no other chip.
+const OPT_IN_CHIPS: EventFilter[] = ['ignored', 'removed']
+const visibleFilters = computed(() =>
+  EVENT_FILTERS.filter(
+    (chip) => !OPT_IN_CHIPS.includes(chip) || chipCount(chip) > 0 || filter.value === chip,
+  ),
+)
 
 // windowed tracklist: the page scrolls in App's .main (nearest scrollable
 // ancestor), resolved by the wrapper; only ~viewport rows are in the DOM
@@ -360,6 +363,53 @@ async function restoreTrack(track: EventTrack) {
   }
 }
 
+/** Re-read the event's Spotify playlist. Application DB only — no Rekordbox
+    write — so it is deliberately NOT behind the rbOpen guard. Refused by the
+    sidecar on a manual event, which is why the button is not offered there. */
+const isPlaylistBacked = computed(
+  () => !!selected.value && !selected.value.spotify_playlist_id.startsWith('manual:'),
+)
+const refreshing = ref(false)
+
+async function refreshFromPlaylist() {
+  if (!selected.value) return
+  banner.value = null
+  refreshing.value = true
+  try {
+    const result = await api.post<{ added: number; updated: number; removed: number }>(
+      `/api/events/${selected.value.id}/refresh`,
+    )
+    // load(): imports land as pending additions, so the card's +n badge and
+    // the departure count must move with the rows
+    await load()
+    const moved = result.added + result.updated + result.removed
+    banner.value = {
+      tone: 'success',
+      text: moved ? t('events.refreshDone', result) : t('events.refreshNoChange'),
+    }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    refreshing.value = false
+  }
+}
+
+/** A departure is a signal, never an act: keeping the track clears it and
+    restores the status the row held before — same shape as /restore. */
+async function keepTrack(track: EventTrack) {
+  if (!selected.value) return
+  banner.value = null
+  try {
+    const kept = await api.post<EventTrack>(
+      `/api/events/${selected.value.id}/tracks/${track.id}/keep`,
+    )
+    await load()
+    banner.value = { tone: 'success', text: t('events.keepDone', { title: kept.title ?? '' }) }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  }
+}
+
 async function removeTrack(track: EventTrack) {
   if (!selected.value) return
   banner.value = null
@@ -439,9 +489,21 @@ async function onWriteDone() {
               <div class="card-name">{{ event.name }}</div>
               <div class="card-src">{{ srcLine(event) }}</div>
             </div>
-            <span v-if="event.pending_delta > 0" class="pend-badge">
-              +{{ event.pending_delta }} {{ t('events.pendingShort') }}
-            </span>
+            <div class="card-flags">
+              <span v-if="event.pending_delta > 0" class="pend-badge">
+                +{{ event.pending_delta }} {{ t('events.pendingShort') }}
+              </span>
+              <!-- no '+': a departure is not work re-apply will do, it is a
+                   decision waiting on the user — different sign, different
+                   tone, never folded into the delta above -->
+              <span
+                v-if="event.removed_upstream > 0"
+                class="dep-badge"
+                :title="t('events.removedHelp')"
+              >
+                {{ event.removed_upstream }} {{ t('events.removedShort') }}
+              </span>
+            </div>
           </div>
           <div class="card-badge"><StatusBadge :status="event.status" /></div>
           <div class="card-counters">
@@ -617,6 +679,16 @@ async function onWriteDone() {
             <span class="chip-n mono">{{ chipCount(chip) }}</span>
           </button>
           <span class="spacer" />
+          <!-- no rbOpen guard: the refresh touches the app DB only -->
+          <button
+            v-if="isPlaylistBacked"
+            class="btn-secondary tool"
+            :disabled="refreshing"
+            :title="t('events.refreshHelp')"
+            @click="refreshFromPlaylist"
+          >
+            {{ refreshing ? t('events.refreshing') : t('events.refresh') }}
+          </button>
           <button
             v-if="acqReady && downloadable.length"
             class="btn-secondary tool"
@@ -737,6 +809,17 @@ async function onWriteDone() {
               >
               <!-- a rejected row's only move is back in: rejecting it twice
                    is not a thing -->
+              <!-- a departed row's decision: keep it (signal cleared) or
+                   remove it with the ✕ below, which stays available -->
+              <button
+                v-if="track.status === 'removed_upstream'"
+                class="row-remove row-keep"
+                :data-tip="t('events.keepTrack')"
+                :aria-label="t('events.keepTrack')"
+                @click="keepTrack(track)"
+              >
+                ✓
+              </button>
               <button
                 v-if="track.status === 'ignored'"
                 class="row-remove row-restore"
@@ -869,6 +952,26 @@ h1 {
   color: var(--warning-text);
   background: var(--warning-tint);
   border: 1px solid rgba(245, 181, 68, 0.28);
+  border-radius: 6px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+.card-flags {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+/* twin geometry, opposite reading: the delta is amber ("to do"), a departure
+   is a neutral outline ("to decide") — never the same visual weight */
+.dep-badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted-bright);
+  background: transparent;
+  border: 1px dashed var(--border-2);
   border-radius: 6px;
   padding: 2px 7px;
   white-space: nowrap;
@@ -1401,6 +1504,11 @@ h1 {
 .row-remove:hover {
   color: var(--danger-text);
   border-color: rgba(247, 110, 110, 0.4);
+}
+/* keeping is the affirmative half of the departure decision */
+.row-keep:hover {
+  color: var(--success);
+  border-color: var(--success-border);
 }
 /* same box as the reject it undoes — only the tone differs */
 .row-restore:hover {

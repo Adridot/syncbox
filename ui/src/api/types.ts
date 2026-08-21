@@ -60,6 +60,10 @@ export interface EventSummary {
   created_at: string
   n_tracks: number
   pending_delta: number
+  /** Tracks a refresh found gone from the Spotify playlist. NOT part of
+      `pending_delta`: a departure is a decision to make, not work re-apply
+      will do — the two are counted, and shown, apart. */
+  removed_upstream: number
 }
 
 export interface EventTrack {
@@ -76,9 +80,13 @@ export interface EventTrack {
   staging_file_path: string | null
   added_after_apply: number
   prior_status: string | null
+  /** Where the row came from. Only `playlist` rows take part in a refresh's
+      diff, so only they can be signalled as having left the playlist. */
+  origin: 'playlist' | 'manual' | 'adopted'
   /** §5.7 adoption: the row was created from an audio file the user dropped
-      in the event's staging folder (no Spotify id + a staged path), not from
-      Spotify nor typed by hand. */
+      in the event's staging folder, not from Spotify nor typed by hand.
+      Exactly `origin === 'adopted'` — kept because it reads better at every
+      call site than the three-way comparison. */
   adopted: boolean
   /** Adopted + `matched`: the dropped file duplicates a title already in the
       collection — apply tags the existing entry instead of importing a copy. */

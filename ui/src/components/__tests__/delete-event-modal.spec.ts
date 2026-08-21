@@ -18,6 +18,7 @@ const EVENT: EventSummary = {
   created_at: '2026-07-09T12:00:00Z',
   n_tracks: 2,
   pending_delta: 0,
+  removed_upstream: 0,
 }
 
 const PREVIEW = {

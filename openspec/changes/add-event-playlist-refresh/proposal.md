@@ -25,9 +25,9 @@ The library side already has the machinery for this — `sync_one_source` re-fet
 
 ## Impact
 
-- **Migration 0010** — `event_tracks.origin`, backfilled from existing rows (`spotify_track_id` present and not `manual:` → `playlist`, otherwise `manual`).
+- **Migration 0010** — `event_tracks.origin`, backfilled from existing rows: `spotify_track_id` present → `playlist`; absent but holding a `staging_file_path` → `adopted`; otherwise `manual`.
 - `sidecar/src/syncbox/events_service.py` — the diff and the new statuses.
 - `sidecar/src/syncbox/api.py` — the `refresh` and "keep" routes; `events_create` and `events_add_track` set `origin`; the `pending_delta` aggregate must exclude `removed_upstream`.
 - `sidecar/src/syncbox/library_service.py` — `_collect_tracks` is reused verbatim for the fetch, as `events_create` already does.
 - `ui/src/screens/EventsScreen.vue`, `ui/src/lib/events.ts`, `ui/src/api/types.ts`, `ui/src/i18n/*` — the refresh button, the departure signal and its keep action.
-- Depends on nothing. `add-event-staged-file-adoption` is independent; if it ships first, its adopted rows are backfilled as `manual` and set to `adopted` going forward.
+- `add-event-staged-file-adoption` has landed, so the `adopted` value is live from the start and the payload's `adopted` flag stops being inferred from `spotify_track_id`/`staging_file_path` and reads `origin` directly — which removes that inference's known false positive on a manually typed track that later claimed a staged file.

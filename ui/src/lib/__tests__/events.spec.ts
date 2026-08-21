@@ -75,6 +75,27 @@ test('§5.7: the ignored chip lists exactly the rejected rows and nothing else',
   expect(filterEventTracks(TRACKS, 'ignored')).toEqual([])
 })
 
+test('a track that left the playlist is a decision, not outstanding work', () => {
+  // it keeps everything it had — including a ready status and the delta flag
+  // — but nothing will be written for it, so no count may move
+  const departed = [track(11, 'removed_upstream'), track(12, 'removed_upstream', 1)]
+  expect(eventCounts([...TRACKS, ...departed], true)).toEqual(eventCounts(TRACKS, true))
+  for (const chip of EVENT_FILTERS.filter((c) => c !== 'removed'))
+    expect(filterEventTracks([...TRACKS, ...departed], chip).map((t) => t.id)).toEqual(
+      filterEventTracks(TRACKS, chip).map((t) => t.id),
+    )
+})
+
+test('the removed chip is the one place a departure is reachable', () => {
+  const departed = [track(11, 'removed_upstream'), track(12, 'removed_upstream', 1)]
+  const all = [...TRACKS, ...departed, track(9, 'ignored')]
+  // post-apply additions still sort first, and the rejected rows do NOT leak
+  // in through the neighbouring opt-in chip
+  expect(filterEventTracks(all, 'removed').map((t) => t.id)).toEqual([12, 11])
+  expect(filterEventTracks(all, 'ignored').map((t) => t.id)).toEqual([9])
+  expect(filterEventTracks(TRACKS, 'removed')).toEqual([])
+})
+
 test('applied and partially_applied both stay open to additions', () => {
   expect(isBaseApplied('applied')).toBe(true)
   expect(isBaseApplied('partially_applied')).toBe(true)

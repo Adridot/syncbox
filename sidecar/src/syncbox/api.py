@@ -491,13 +491,14 @@ def _get_event(deps: Deps, event_id: int) -> dict:
 
 
 def _event_track(track: dict, names: dict | None = None) -> dict:
-    """Event track payload + the DERIVED adoption fields (no column, no
-    migration - event-staged-file-adoption): an adopted row is exactly a row
-    with no Spotify id holding a staged file, and 'matched' on top of that
-    means the dropped file duplicates a collection entry the user already
-    owns, which is what the workspace tells them. ``names`` is the
-    _duplicate_names map that puts a TITLE and an ARTIST on that notice."""
-    adopted = not track.get("spotify_track_id") and bool(track.get("staging_file_path"))
+    """Event track payload + the adoption fields. ``adopted`` READS the 0010
+    origin column (event-playlist-refresh) instead of the old inference "no
+    Spotify id + a staged file", which was wrong for a hand-typed track that
+    later claimed a file. 'matched' on top of adopted still means the dropped
+    file duplicates a collection entry the user already owns, which is what
+    the workspace tells them; ``names`` is the _duplicate_names map that puts
+    a TITLE and an ARTIST on that notice."""
+    adopted = track.get("origin") == "adopted"
     duplicates = adopted and track.get("status") == "matched"
     entry = (names or {}).get(str(track.get("content_id"))) if duplicates else None
     return {
@@ -926,13 +927,19 @@ def events_list(deps, request, body):
         for row in deps.conn.execute(
             # 'ignored' rows (event-staged-file-adoption) survive only to keep
             # their staged file referenced: the workspace never shows them, so
-            # the card badge must not count them either.
+            # the card badge must not count them either. 'removed_upstream'
+            # (event-playlist-refresh) is out of BOTH aggregates: a departure
+            # is not a track the event still carries, and re-apply will never
+            # write it - it gets its own count instead of inflating the +n.
             "SELECT event_id, "
-            "SUM(CASE WHEN status != 'ignored' THEN 1 ELSE 0 END) AS n_tracks, "
+            "SUM(CASE WHEN status NOT IN ('ignored', 'removed_upstream') "
+            "         THEN 1 ELSE 0 END) AS n_tracks, "
             "SUM(CASE WHEN status IN ('matched', 'ready') THEN 1 "
             "         WHEN added_after_apply = 1 "
             "              AND status IN ('missing', 'acquisition_failed') THEN 1 "
-            "         ELSE 0 END) AS pending_delta "
+            "         ELSE 0 END) AS pending_delta, "
+            "SUM(CASE WHEN status = 'removed_upstream' THEN 1 ELSE 0 END) "
+            "    AS removed_upstream "
             "FROM event_tracks GROUP BY event_id"
         )
     }
@@ -947,6 +954,9 @@ def events_list(deps, request, body):
                 "pending_delta": (row["pending_delta"] or 0)
                 if (row and applied)
                 else 0,
+                # Not gated on `applied`: a departure is worth showing on a
+                # pending event too, and it is never outstanding work.
+                "removed_upstream": (row["removed_upstream"] or 0) if row else 0,
             }
         )
     return {"events": out}
@@ -977,6 +987,7 @@ def events_create(deps, request, body):
             event,
             spotify_track_id=meta["spotify_track_id"],
             resolver=lambda tid, meta=meta: meta,
+            origin="playlist",  # 0010: the refresh diff owns these rows only
         )
     if imported:
         _try_match_event(deps, event)  # tracks land matched, not 'missing'
@@ -1096,6 +1107,54 @@ def events_track_restore(deps, request, body):
     _try_match_event(deps, event)  # best-effort, as everywhere else
     events_service.claim_staged_files(deps.conn, event)
     return _event_tracks(deps, [_get_event_track(deps, event, track_id)])[0]
+
+
+def events_track_keep(deps, request, body):
+    """Dismiss a departure signal (event-playlist-refresh): the row goes back
+    to the status it held before the refresh and becomes 'manual'.
+
+    The origin flip is the whole point: a track the user deliberately keeps
+    despite its absence from the playlist IS a manual track from now on, so
+    the NEXT refresh skips it by the existing origin rule instead of
+    re-signalling it. No second flag, no new exclusion list.
+    """
+    event = _get_event(deps, request.path_params["event_id"])
+    track_id = request.path_params["track_id"]
+    row = _get_event_track(deps, event, track_id)
+    if row["status"] != "removed_upstream":
+        raise ConflictError(
+            "only a track that left the playlist can be kept; this one is "
+            f"'{row['status']}'"
+        )
+    deps.conn.execute(
+        "UPDATE event_tracks SET status = ?, prior_status = NULL, "
+        "origin = 'manual', updated_at = datetime('now') WHERE id = ?",
+        (row["prior_status"] or "missing", track_id),
+    )
+    return _event_tracks(deps, [_get_event_track(deps, event, track_id)])[0]
+
+
+def events_refresh(deps, request, body):
+    """Re-read the event's Spotify playlist and reconcile it (5.7 +
+    event-playlist-refresh): {added, updated, removed}.
+
+    NO _require_rekordbox and no mutate(): the whole thing reads Spotify and
+    writes the app DB, so it stays available with Rekordbox open. Imported
+    rows go through the same best-effort _try_match_event as every other
+    event mutation, so they land matched rather than 'missing'.
+    """
+    event = _get_event(deps, request.path_params["event_id"])
+    if str(event["spotify_playlist_id"] or "").startswith("manual:"):
+        raise ConflictError(
+            "this event has no Spotify playlist: add its tracks by link or "
+            "by hand, there is nothing to refresh from"
+        )
+    result = events_service.refresh_from_playlist(
+        deps.conn, event, _sync_client(deps)
+    )
+    if result["added"]:
+        _try_match_event(deps, event)
+    return result
 
 
 def events_match(deps, request, body):
@@ -2662,6 +2721,12 @@ def routes(deps: Deps) -> list[Route]:
             events_track_restore,
             ["POST"],
         ),
+        r(
+            "/api/events/{event_id:int}/tracks/{track_id:int}/keep",
+            events_track_keep,
+            ["POST"],
+        ),
+        r("/api/events/{event_id:int}/refresh", events_refresh, ["POST"]),
         r("/api/events/{event_id:int}/match", events_match, ["POST"]),
         r("/api/events/{event_id:int}/claim", events_claim, ["POST"]),
         r("/api/events/{event_id:int}/apply", events_apply, ["POST"]),

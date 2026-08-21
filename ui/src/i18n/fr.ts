@@ -51,6 +51,7 @@ export const fr: typeof en = {
     missing: 'Manquant',
     acquisition_failed: 'Échec de l’acquisition',
     removed_from_source: 'Retiré de la source',
+    removed_upstream: 'Parti de la playlist',
     ignored: 'Ignoré',
     purchase_link_unavailable: "Lien d'achat indisponible",
     manual_relink_needed: 'Relink manuel requis',
@@ -202,6 +203,22 @@ export const fr: typeof en = {
     rejectTrack: 'Ignorer ce fichier déposé',
     restoreTrack: 'Remettre dans l’événement',
     restoreDone: '« {title} » remis dans l’événement.',
+    // rafraîchissement depuis la playlist Spotify — pas de guard Rekordbox :
+    // rien n’est écrit dans master.db
+    refresh: 'Rafraîchir depuis Spotify',
+    refreshing: 'Rafraîchissement…',
+    refreshHelp:
+      'Relit la playlist Spotify : importe les titres ajoutés, signale ceux qui en sont partis. N’écrit rien dans Rekordbox.',
+    refreshDone: '{added} ajoutés · {updated} mis à jour · {removed} partis de la playlist.',
+    refreshNoChange: 'La playlist Spotify n’a pas bougé — rien à mettre à jour.',
+    // signal de départ : un titre n’est plus dans la playlist. Rien n’a été
+    // écrit ni supprimé — c’est une décision à prendre, pas du travail en
+    // attente, donc jamais mélangé au badge « +n »
+    removedShort: 'partis',
+    removedHelp:
+      'Ces titres ne sont plus dans la playlist Spotify. Rien n’a été touché dans Rekordbox : à toi de les garder ou de les retirer.',
+    keepTrack: 'Garder ce titre',
+    keepDone: '« {title} » gardé — le signal de départ est levé.',
     filterEmpty: 'Aucun titre dans ce filtre.',
     modifiedBanner:
       'Modifié depuis la dernière application — {n}. Ré-applique pour mettre à jour le smart playlist Rekordbox.',
@@ -218,6 +235,7 @@ export const fr: typeof en = {
       ambiguous: 'À arbitrer',
       pending: 'En attente',
       ignored: 'Rejetés',
+      removed: 'Partis',
     },
     columns: {
       title: 'Titre',
