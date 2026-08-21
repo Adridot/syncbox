@@ -1,6 +1,6 @@
 {
   "artifact": "base",
-  "artifact_version": "0.7.2",
+  "artifact_version": "0.8.0",
   "entries": [
     {
       "ecosystem": "bundled-native",
@@ -1605,7 +1605,7 @@
       ],
       "name": "sqlcipher3-wheels",
       "scope": "base-runtime",
-      "source": "https://github.com/Adridot/syncbox/tree/v0.7.2/sidecar/vendor/sqlcipher3-commoncrypto",
+      "source": "https://github.com/Adridot/syncbox/tree/v0.8.0/sidecar/vendor/sqlcipher3-commoncrypto",
       "source_path": "sidecar/vendor/sqlcipher3-commoncrypto",
       "source_tree_sha256": "c9c957aee64c8722543814e6fe9e52f9c363bd5bd89aa52dfabcaa3749eafb7c",
       "upstream_declared_license": "MIT",
@@ -6819,10 +6819,10 @@
     }
   ],
   "inputs": {
-    "cargo_lock_sha256": "9bd93e0be7e416a8ec29621042709a54389f1e5111e597156ce007b23369cb36",
+    "cargo_lock_sha256": "5341c543959adeeb6f1b1b22c5ecaaf4fad026bbcefbc39c7b5728fcd6fb9cfd",
     "pnpm_lock_sha256": "9167ad4c2062672bcbf637e48f05ff963f68bcd387b3d429f358e5da5e016c47",
-    "python_lock_sha256": "654016c75c24147627246a449d505532fe57cff97a0e80e786fc7c60c4241058",
-    "release_build_sha256": "df1de6f5979f16282b63368d8a30a227625e0b6853b42e17a398f84f0d4f6096"
+    "python_lock_sha256": "070ddf839682f92c3b6773d6f7652f956ec6178df4feae9cb0ddfb473ad782a3",
+    "release_build_sha256": "94d95590028948d9dcd27588dfa06964279613c45ef377e7474b3438c3150740"
   },
   "project": {
     "assets": [

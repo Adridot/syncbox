@@ -157,8 +157,8 @@ The full pipeline is documented in
 
 ## Install
 
-1. Download `Syncbox-0.7.2-macos-arm64.dmg` from the
-   [latest release](https://github.com/Adridot/syncbox/releases/tag/v0.7.2),
+1. Download `Syncbox-0.8.0-macos-arm64.dmg` from the
+   [latest release](https://github.com/Adridot/syncbox/releases/tag/v0.8.0),
    open it, and drag `Syncbox.app` into your Applications folder. A `.zip` of
    the same build is published alongside it if you prefer.
 2. Open it once. Because the app is ad-hoc signed rather than signed with an
