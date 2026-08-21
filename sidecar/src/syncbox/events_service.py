@@ -23,6 +23,7 @@ from syncbox import event_delete, relink
 from syncbox.matching import match
 from syncbox.rb_write import (
     add_content,
+    audio_metadata,
     create_or_repair_smart_playlist,
     ensure_playlist_folder,
     find_active_content_by_path,
@@ -32,7 +33,7 @@ from syncbox.rb_write import (
 )
 from syncbox.safety.mutate import mutate
 from syncbox.safety.paths import SYNC_DIR_NAME, stored_form
-from syncbox.staging import reclassify_stale_ready
+from syncbox.staging import reclassify_stale_ready, staged_file_ok
 
 EVENT_FOLDER_NAME = "Event Imports"
 SITUATION_CATEGORY = "Situation"
@@ -242,6 +243,10 @@ def claim_staged_files(conn, event) -> list[dict]:
     Claim rule (5.7): one staged file may be shared by two event tracks
     ONLY when both carry the SAME non-empty ISRC; otherwise first claimant
     (by row id, deterministic) wins and the other track stays 'missing'.
+
+    A claimable row that ALREADY holds an existing staged file needs no
+    scoring - it is its file (adopt_staged_files below): the dual of
+    staging.reclassify_stale_ready, which demotes the opposite state.
     """
     staging = Path(event["staging_dir"]) if event["staging_dir"] else None
     if staging is None or not staging.is_dir():
@@ -257,6 +262,14 @@ def claim_staged_files(conn, event) -> list[dict]:
     claimed = []
     for track in tracks:
         if track["status"] not in CLAIMABLE_STATUSES:
+            continue
+        if staged_file_ok(track["staging_file_path"]):
+            conn.execute(
+                "UPDATE event_tracks SET status = 'ready', confidence = 100,"
+                " updated_at = ? WHERE id = ?",
+                (now, track["id"]),
+            )
+            claimed.append({**track, "status": "ready", "confidence": 100})
             continue
         want = {
             "title": track["title"],
@@ -290,6 +303,65 @@ def claim_staged_files(conn, event) -> list[dict]:
             )
             break
     return claimed
+
+
+def adopt_staged_files(conn, event) -> list[dict]:
+    """Adopt every audio file under the staging dir that NO track references
+    (event-staged-file-adoption): one row per file, metadata read from the
+    file's own tags through rb_write.audio_metadata.
+
+    Runs AFTER claim_staged_files so a file that satisfies a track already
+    in the event is consumed by that track, never adopted as a near-
+    duplicate. The row is inserted 'missing' - not 'ready' - so the
+    automatic matcher gets its chance first: a file the user already owns
+    lands 'matched' on the existing collection entry instead of importing a
+    second copy of the same music, and only what matches nothing is claimed
+    back to 'ready' by the trailing claim. The staged path IS set at insert:
+    it is what keeps the file referenced (no second adoption on the next
+    claim, whatever the outcome, crash in between included).
+
+    Title fallback (owner decision): the COMPLETE file name, extension
+    included, with the artist left unset - never a guess parsed out of it.
+    """
+    staging = Path(event["staging_dir"]) if event["staging_dir"] else None
+    if staging is None or not staging.is_dir():
+        return []
+    # An 'ignored' row keeps its staged path for exactly this reason: a file
+    # the user rejected stays referenced, so it is never re-adopted.
+    referenced = {
+        track["staging_file_path"]
+        for track in list_event_tracks(conn, event["id"])
+        if track["staging_file_path"]
+    }
+    now = _now()
+    adopted = []
+    for path in sorted(relink.iter_audio_files([staging])):
+        if str(path) in referenced:
+            continue
+        meta = audio_metadata(path)  # {} on an unreadable file: name fallback
+        title = meta.get("title")
+        cur = conn.execute(
+            "INSERT INTO event_tracks (event_id, title, artist, duration_ms,"
+            " isrc, staging_file_path, status, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, 'missing', ?)",
+            (
+                event["id"],
+                title or path.name,
+                meta.get("artist") if title else None,
+                meta.get("duration_ms"),
+                meta.get("isrc"),
+                str(path),
+                now,
+            ),
+        )
+        adopted.append(
+            dict(
+                conn.execute(
+                    "SELECT * FROM event_tracks WHERE id = ?", (cur.lastrowid,)
+                ).fetchone()
+            )
+        )
+    return adopted
 
 
 # --- apply (5.7 + 11.2 delta reapply) ----------------------------------------------

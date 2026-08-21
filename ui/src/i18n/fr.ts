@@ -190,6 +190,18 @@ export const fr: typeof en = {
     addedChip: 'Ajouté',
     resolveMissing: 'Résoudre →',
     removeTrack: 'Retirer ce titre',
+    // §5.7 adoption — un fichier déposé dans le dossier est devenu un titre
+    adoptedChip: 'Déposé',
+    adoptedChipHelp: 'Créé depuis un fichier déposé dans le dossier de l’événement.',
+    duplicatesCollection:
+      'Déjà dans ta collection — le titre existant sera taggé, le fichier déposé n’était pas nécessaire.',
+    // nommée quand le snapshot de la collection a pu être lu ({entry} =
+    // « titre — artiste », ou le titre seul si l’artiste manque)
+    duplicatesCollectionNamed:
+      'Déjà dans ta collection : {entry}. Le titre existant sera taggé, le fichier déposé n’était pas nécessaire.',
+    rejectTrack: 'Ignorer ce fichier déposé',
+    restoreTrack: 'Remettre dans l’événement',
+    restoreDone: '« {title} » remis dans l’événement.',
     filterEmpty: 'Aucun titre dans ce filtre.',
     modifiedBanner:
       'Modifié depuis la dernière application — {n}. Ré-applique pour mettre à jour le smart playlist Rekordbox.',
@@ -205,6 +217,7 @@ export const fr: typeof en = {
       missing: 'Manquants',
       ambiguous: 'À arbitrer',
       pending: 'En attente',
+      ignored: 'Rejetés',
     },
     columns: {
       title: 'Titre',

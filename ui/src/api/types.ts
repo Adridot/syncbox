@@ -76,6 +76,18 @@ export interface EventTrack {
   staging_file_path: string | null
   added_after_apply: number
   prior_status: string | null
+  /** §5.7 adoption: the row was created from an audio file the user dropped
+      in the event's staging folder (no Spotify id + a staged path), not from
+      Spotify nor typed by hand. */
+  adopted: boolean
+  /** Adopted + `matched`: the dropped file duplicates a title already in the
+      collection — apply tags the existing entry instead of importing a copy. */
+  duplicates_collection: boolean
+  /** The duplicated collection entry, when the snapshot could be read. Both
+      are null when it could not — a normal state, not an error, so the
+      notice falls back to its generic wording. */
+  duplicate_title: string | null
+  duplicate_artist: string | null
 }
 
 export type FileOwnership = 'app_managed' | 'permanent_library' | 'external'

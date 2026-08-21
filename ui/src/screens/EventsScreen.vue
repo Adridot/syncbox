@@ -109,6 +109,22 @@ const baseApplied = computed(() => (selected.value ? isBaseApplied(selected.valu
 const counts = computed(() => eventCounts(selectedTracks.value, baseApplied.value))
 const visibleTracks = computed(() => filterEventTracks(selectedTracks.value, filter.value))
 
+// §5.7 "A rejection can be undone": rejected rows are outstanding work for
+// nobody, so they live outside `counts` — their chip counts them itself.
+const rejected = computed(() => filterEventTracks(selectedTracks.value, 'ignored').length)
+// No dead affordance (owner): the chip only exists once there IS something
+// to consult, and it is LAST so its arrival moves no other chip.
+const visibleFilters = computed(() =>
+  EVENT_FILTERS.filter(
+    (chip) => chip !== 'ignored' || rejected.value > 0 || filter.value === 'ignored',
+  ),
+)
+function chipCount(chip: EventFilter): number {
+  if (chip === 'all') return counts.value.total
+  if (chip === 'ignored') return rejected.value
+  return counts.value[chip]
+}
+
 // windowed tracklist: the page scrolls in App's .main (nearest scrollable
 // ancestor), resolved by the wrapper; only ~viewport rows are in the DOM
 const rowsEl = ref<HTMLElement | null>(null)
@@ -303,6 +319,44 @@ async function addTrack() {
     addError.value = describe(cause)
   } finally {
     adding.value = false
+  }
+}
+
+/** §5.7 adoption: removing an adopted row does NOT delete it — the sidecar
+    keeps it as `ignored` so its dropped file is not adopted again. Same
+    button, different verb, so the user is not told "removed" for a reject. */
+const removeLabel = (track: EventTrack) =>
+  t(track.adopted ? 'events.rejectTrack' : 'events.removeTrack')
+
+/** §5.7 "Naming the duplicated entry": name the collection entry the drop
+    duplicates when the snapshot could be read. Both fields null is the
+    normal snapshot-unavailable case, not an error — say it generically. */
+function duplicateNote(track: EventTrack): string {
+  if (!track.duplicate_title) return t('events.duplicatesCollection')
+  const entry = [track.duplicate_title, track.duplicate_artist].filter(Boolean).join(' — ')
+  return t('events.duplicatesCollectionNamed', { entry })
+}
+
+/** §5.7 "Restoring a rejected track": the sidecar re-derives the row's state
+    (ready, matched, or missing if the staged file vanished meanwhile) and
+    returns it — swap the row from the response rather than guessing. */
+async function restoreTrack(track: EventTrack) {
+  if (!selected.value) return
+  banner.value = null
+  try {
+    const restored = await api.post<EventTrack>(
+      `/api/events/${selected.value.id}/tracks/${track.id}/restore`,
+    )
+    // load(), like removeTrack: a restore that lands 'ready' on an applied
+    // event IS a pending change, so the card's pending_delta must move with
+    // it - splicing the row alone would leave the +n badge stale.
+    await load()
+    banner.value = {
+      tone: 'success',
+      text: t('events.restoreDone', { title: restored.title ?? '' }),
+    }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
   }
 }
 
@@ -553,24 +607,14 @@ async function onWriteDone() {
 
         <div class="toolbar">
           <button
-            v-for="chip in EVENT_FILTERS"
+            v-for="chip in visibleFilters"
             :key="chip"
             class="chip"
             :data-active="filter === chip"
             @click="filter = chip"
           >
             {{ t(`events.filters.${chip}`) }}
-            <span class="chip-n mono">{{
-              chip === 'all'
-                ? counts.total
-                : chip === 'ready'
-                  ? counts.ready
-                  : chip === 'missing'
-                    ? counts.missing
-                    : chip === 'ambiguous'
-                      ? counts.ambiguous
-                      : counts.pending
-            }}</span>
+            <span class="chip-n mono">{{ chipCount(chip) }}</span>
           </button>
           <span class="spacer" />
           <button
@@ -624,11 +668,26 @@ async function onWriteDone() {
                   kind="track"
                   :spotify-id="track.spotify_track_id"
                 />
+                <!-- §5.7 adoption: an adopted row has no Spotify provenance,
+                     so its marker takes the exact slot the attribution link
+                     would have — the title line's geometry is the same either
+                     way (owner: zero layout shift) -->
+                <span
+                  v-else-if="track.adopted"
+                  class="adopted-chip"
+                  :title="t('events.adoptedChipHelp')"
+                  >{{ t('events.adoptedChip') }}</span
+                >
                 <span v-if="track.added_after_apply === 1" class="added-chip">{{
                   t('events.addedChip')
                 }}</span>
               </div>
               <div class="row-artist">{{ track.artist }}</div>
+              <!-- the dropped file was unnecessary: apply will tag the entry
+                   already in the collection, not import a second copy -->
+              <div v-if="track.duplicates_collection" class="row-note">
+                {{ duplicateNote(track) }}
+              </div>
               <div v-if="acqStates[String(track.id)]?.error" class="row-error">
                 {{ humanizeAcquisitionError(t, acqStates[String(track.id)]?.error) }}
               </div>
@@ -676,11 +735,22 @@ async function onWriteDone() {
                 to="/missing/event"
                 >{{ t('events.resolveMissing') }}</router-link
               >
+              <!-- a rejected row's only move is back in: rejecting it twice
+                   is not a thing -->
               <button
-                v-if="track.status !== 'applied'"
+                v-if="track.status === 'ignored'"
+                class="row-remove row-restore"
+                :data-tip="t('events.restoreTrack')"
+                :aria-label="t('events.restoreTrack')"
+                @click="restoreTrack(track)"
+              >
+                ↺
+              </button>
+              <button
+                v-else-if="track.status !== 'applied'"
                 class="row-remove"
-                :data-tip="t('events.removeTrack')"
-                :aria-label="t('events.removeTrack')"
+                :data-tip="removeLabel(track)"
+                :aria-label="removeLabel(track)"
                 @click="removeTrack(track)"
               >
                 ✕
@@ -1191,6 +1261,19 @@ h1 {
   border-radius: 4px;
   padding: 1px 5px;
 }
+/* neutral twin of .added-chip: it marks provenance, not urgency */
+.adopted-chip {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted-bright);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 0 5px;
+}
 .row-artist {
   font-size: 12px;
   color: var(--text-muted-bright);
@@ -1256,6 +1339,12 @@ h1 {
   color: var(--danger-text);
   margin-top: 2px;
 }
+/* discreet: the outcome is fine, only the drop was pointless */
+.row-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
 .acq-badge {
   font-size: var(--size-meta);
   border-radius: 6px;
@@ -1312,6 +1401,11 @@ h1 {
 .row-remove:hover {
   color: var(--danger-text);
   border-color: rgba(247, 110, 110, 0.4);
+}
+/* same box as the reject it undoes — only the tone differs */
+.row-restore:hover {
+  color: var(--accent-hover);
+  border-color: var(--accent-border);
 }
 .table-empty {
   padding: 34px;

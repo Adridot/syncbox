@@ -19,6 +19,7 @@ import pytest
 from syncbox import appdb, event_delete, events_service, missing_service
 from syncbox.events_service import (
     add_track,
+    adopt_staged_files,
     apply_event,
     claim_staged_files,
     create_event,
@@ -329,6 +330,102 @@ def test_claim_staged_file_recovers_acquisition_failure(conn, tmp_path):
     assert list_event_tracks(conn, event["id"])[0]["status"] == "ready"
 
 
+# --- staged-file adoption (event-staged-file-adoption) -----------------------------
+
+
+def _fake_tags(monkeypatch, by_name: dict):
+    """rb_write.MutagenFile stand-in: easy-tags per FILE NAME, None elsewhere."""
+
+    class Audio:
+        info = None
+
+        def __init__(self, tags):
+            self.tags = tags
+
+    def open_file(path, **kwargs):
+        tags = by_name.get(Path(path).name)
+        return Audio(tags) if tags is not None else None
+
+    monkeypatch.setattr("syncbox.rb_write.MutagenFile", open_file)
+
+
+def test_adopt_creates_one_missing_track_per_unreferenced_file(
+    conn, tmp_path, monkeypatch
+):
+    event = create_event(conn, tmp_path / "storage", "Drop Night")
+    dropped = Path(event["staging_dir"]) / "audio" / "01 dropped.mp3"
+    dropped.write_bytes(b"fake")
+    _fake_tags(
+        monkeypatch,
+        {
+            "01 dropped.mp3": {
+                "title": ["Via Con Me"],
+                "artist": ["Paolo Conte"],
+                "isrc": ["ITAAA0000001"],
+            }
+        },
+    )
+
+    adopted = adopt_staged_files(conn, event)
+
+    assert len(adopted) == 1
+    row = list_event_tracks(conn, event["id"])[0]
+    assert (row["title"], row["artist"], row["isrc"]) == (
+        "Via Con Me",
+        "Paolo Conte",
+        "ITAAA0000001",
+    )
+    assert row["spotify_track_id"] is None
+    assert row["status"] == "missing"  # the matcher decides the outcome
+    assert row["staging_file_path"] == str(dropped)  # referenced from the start
+    assert adopt_staged_files(conn, event) == []  # never twice
+
+
+def test_adopt_falls_back_to_the_complete_file_name(conn, tmp_path):
+    event = create_event(conn, tmp_path / "storage", "Tagless")
+    (Path(event["staging_dir"]) / "Paolo Conte - Via Con Me.mp3").write_bytes(b"fake")
+
+    adopt_staged_files(conn, event)
+
+    row = list_event_tracks(conn, event["id"])[0]
+    # extension INCLUDED, and no Artist/Title guessed out of the name
+    assert row["title"] == "Paolo Conte - Via Con Me.mp3"
+    assert row["artist"] is None
+
+
+def test_adopt_skips_a_file_another_track_already_holds(conn, tmp_path):
+    event = create_event(conn, tmp_path / "storage", "Held")
+    staged = Path(event["staging_dir"]) / "Recovered Song.mp3"
+    staged.write_bytes(b"fake")
+    add_track(conn, event, title="Recovered Song", artist="Artist")
+    claim_staged_files(conn, event)
+
+    assert adopt_staged_files(conn, event) == []
+    assert len(list_event_tracks(conn, event["id"])) == 1
+
+    # an 'ignored' rejection keeps its path, which is what makes it stick
+    conn.execute("UPDATE event_tracks SET status = 'ignored'")
+    assert adopt_staged_files(conn, event) == []
+
+
+def test_adopt_walks_subfolders_and_ignores_non_audio(conn, tmp_path):
+    event = create_event(conn, tmp_path / "storage", "Nested")
+    staging = Path(event["staging_dir"])
+    nested = staging / "audio" / "From A Friend"
+    nested.mkdir(parents=True)
+    (nested / "Deep Cut.mp3").write_bytes(b"fake")
+    (staging / "Top Level.flac").write_bytes(b"fake")
+    (staging / "cover.jpg").write_bytes(b"not audio")
+    (staging / "masterPlaylists6.xml.bak").write_bytes(b"not audio")
+
+    adopted = adopt_staged_files(conn, event)
+
+    assert sorted(track["title"] for track in adopted) == [
+        "Deep Cut.mp3",
+        "Top Level.flac",
+    ]
+
+
 # --- status recompute + strict no-op (11.2) ----------------------------------------
 
 
@@ -337,6 +434,41 @@ def test_recompute_event_status():
     assert recompute_event_status(["applied", "ignored"]) == "applied"
     for pending in ("matched", "ready", "missing", "ambiguous", "acquisition_failed"):
         assert recompute_event_status(["applied", pending]) == "partially_applied"
+
+
+def test_an_ignored_row_is_inert_everywhere(conn, tmp_path):
+    """A rejected adopted track is never matched, claimed, applied nor
+    counted: an event holding nothing else computes as 'applied'."""
+    event = create_event(conn, tmp_path / "storage", "Rejected")
+    track = add_track(conn, event, title="Dropped By Mistake")
+    staged = Path(event["staging_dir"]) / "Dropped By Mistake.mp3"
+    staged.write_bytes(b"fake")
+    conn.execute(
+        "UPDATE event_tracks SET status = 'ignored', staging_file_path = ?"
+        " WHERE id = ?",
+        (str(staged), track["id"]),
+    )
+
+    for statuses in (
+        events_service.PENDING_STATUSES,
+        events_service.REMATCHED_STATUSES,
+        events_service.CLAIMABLE_STATUSES,
+    ):
+        assert "ignored" not in statuses
+    assert claim_staged_files(conn, event) == []
+    assert recompute_event_status(["applied", "ignored"]) == "applied"
+    # not applicable either: a reapply is a strict no-op, no backup wasted
+    backups = tmp_path / "backups"
+    result = apply_event(
+        conn,
+        tmp_path / "does-not-exist" / "master.db",
+        backups,
+        object(),
+        tmp_path / "storage",
+        event,
+        only_delta=True,
+    )
+    assert result["noop"] is True and not backups.exists()
 
 
 def test_reapply_without_delta_is_noop_before_mutate(conn, tmp_path):

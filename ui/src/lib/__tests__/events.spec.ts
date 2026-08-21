@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 
 import type { EventTrack } from '../../api/types'
-import { eventCounts, filterEventTracks, isBaseApplied } from '../events'
+import { EVENT_FILTERS, eventCounts, filterEventTracks, isBaseApplied } from '../events'
 
 const track = (id: number, status: string, delta = 0): EventTrack =>
   ({ id, event_id: 1, status, added_after_apply: delta }) as unknown as EventTrack
@@ -54,6 +54,25 @@ test('pending additions sort to the top of every filter (§11.2 staging)', () =>
   expect(filterEventTracks(TRACKS, 'pending').map((t) => t.id)).toEqual([6, 7, 1, 2])
   expect(filterEventTracks(TRACKS, 'ambiguous').map((t) => t.id)).toEqual([5])
   expect(filterEventTracks(TRACKS, 'missing').map((t) => t.id)).toEqual([7, 4])
+})
+
+test('§5.7: a rejected adoption is outstanding work for nobody', () => {
+  // the row survives only so its staged file is not re-adopted — it must not
+  // show up in the total, in any count, nor in a single chip but its own
+  const ignored = [track(9, 'ignored'), track(10, 'ignored', 1)]
+  expect(eventCounts([...TRACKS, ...ignored], true)).toEqual(eventCounts(TRACKS, true))
+  for (const chip of EVENT_FILTERS.filter((c) => c !== 'ignored'))
+    expect(filterEventTracks([...TRACKS, ...ignored], chip).map((t) => t.id)).toEqual(
+      filterEventTracks(TRACKS, chip).map((t) => t.id),
+    )
+})
+
+test('§5.7: the ignored chip lists exactly the rejected rows and nothing else', () => {
+  const ignored = [track(9, 'ignored'), track(10, 'ignored', 1)]
+  // the one place they are reachable — post-apply additions still sort first
+  expect(filterEventTracks([...TRACKS, ...ignored], 'ignored').map((t) => t.id)).toEqual([10, 9])
+  // and nothing else leaks in through it
+  expect(filterEventTracks(TRACKS, 'ignored')).toEqual([])
 })
 
 test('applied and partially_applied both stay open to additions', () => {

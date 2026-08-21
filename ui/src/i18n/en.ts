@@ -184,6 +184,18 @@ export const en = {
     addedChip: 'Added',
     resolveMissing: 'Resolve →',
     removeTrack: 'Remove this title',
+    // §5.7 adoption — a file dropped in the event folder became a track
+    adoptedChip: 'Dropped',
+    adoptedChipHelp: 'Created from a file you dropped in the event folder.',
+    duplicatesCollection:
+      'Already in your collection — the existing title will be tagged, the dropped file was not needed.',
+    // named when the collection snapshot could be read ({entry} = "title —
+    // artist", or the title alone when the artist is missing)
+    duplicatesCollectionNamed:
+      'Already in your collection: {entry}. The existing title will be tagged, the dropped file was not needed.',
+    rejectTrack: 'Ignore this dropped file',
+    restoreTrack: 'Put back in the event',
+    restoreDone: '“{title}” put back in the event.',
     filterEmpty: 'No title in this filter.',
     modifiedBanner:
       'Modified since the last apply — {n}. Re-apply to update the Rekordbox smart playlist.',
@@ -198,6 +210,7 @@ export const en = {
       missing: 'Missing',
       ambiguous: 'To arbitrate',
       pending: 'Pending',
+      ignored: 'Rejected',
     },
     columns: {
       title: 'Title',
