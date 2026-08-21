@@ -47,6 +47,7 @@ export const en = {
     missing: 'Missing',
     acquisition_failed: 'Acquisition failed',
     removed_from_source: 'Removed from source',
+    removed_upstream: 'Gone from the playlist',
     ignored: 'Ignored',
     purchase_link_unavailable: 'Purchase link unavailable',
     manual_relink_needed: 'Manual relink needed',
@@ -184,6 +185,34 @@ export const en = {
     addedChip: 'Added',
     resolveMissing: 'Resolve →',
     removeTrack: 'Remove this title',
+    // §5.7 adoption — a file dropped in the event folder became a track
+    adoptedChip: 'Dropped',
+    adoptedChipHelp: 'Created from a file you dropped in the event folder.',
+    duplicatesCollection:
+      'Already in your collection — the existing title will be tagged, the dropped file was not needed.',
+    // named when the collection snapshot could be read ({entry} = "title —
+    // artist", or the title alone when the artist is missing)
+    duplicatesCollectionNamed:
+      'Already in your collection: {entry}. The existing title will be tagged, the dropped file was not needed.',
+    rejectTrack: 'Ignore this dropped file',
+    restoreTrack: 'Put back in the event',
+    restoreDone: '“{title}” put back in the event.',
+    // refresh from the Spotify playlist — no Rekordbox guard: nothing is
+    // written to master.db
+    refresh: 'Refresh from Spotify',
+    refreshing: 'Refreshing…',
+    refreshHelp:
+      'Re-reads the Spotify playlist: imports the titles added to it, flags the ones that left. Writes nothing to Rekordbox.',
+    refreshDone: '{added} added · {updated} updated · {removed} gone from the playlist.',
+    refreshNoChange: 'The Spotify playlist has not moved — nothing to update.',
+    // departure signal: a title is no longer in the playlist. Nothing was
+    // written nor deleted — it is a decision to make, not pending work, so
+    // it is never mixed into the “+n” badge
+    removedShort: 'gone',
+    removedHelp:
+      'These titles are no longer in the Spotify playlist. Nothing was touched in Rekordbox: keep them or remove them, your call.',
+    keepTrack: 'Keep this title',
+    keepDone: '“{title}” kept — the departure signal is cleared.',
     filterEmpty: 'No title in this filter.',
     modifiedBanner:
       'Modified since the last apply — {n}. Re-apply to update the Rekordbox smart playlist.',
@@ -198,6 +227,8 @@ export const en = {
       missing: 'Missing',
       ambiguous: 'To arbitrate',
       pending: 'Pending',
+      ignored: 'Rejected',
+      removed: 'Gone',
     },
     columns: {
       title: 'Title',
@@ -295,6 +326,59 @@ export const en = {
       confirmCount: 'Delete event · {n} file | Delete event · {n} files',
       note: 'Required migrations complete before event cleanup. Rekordbox identity and retained metadata stay unchanged. Requires Rekordbox closed.',
       confirm: 'Delete the event',
+    },
+    // add-event-track-removal: the only destructive move in the workspace —
+    // every label must say exactly what is lost.
+    remove: {
+      title: 'Remove tracks from “{name}”',
+      lead: 'What happens, track by track. Nothing is written until you confirm.',
+      untagLine: 'Tracks removed from the event',
+      rbDeleteLine: 'Entries deleted from Rekordbox',
+      trashLine: 'Files sent to the trash',
+      tracksCount: '{n} track in the batch | {n} tracks in the batch',
+      noTracks: 'No track selected.',
+      trashFlag: 'file to the trash',
+      action: {
+        already_permanent: 'Untagged · kept',
+        keep_in_place: 'Untagged · kept',
+        delete_with_event: 'Deleted from Rekordbox · file to the trash',
+        never_applied: 'Never applied · staged file to the trash',
+        shared_with_kept_track: 'Removed from the event only',
+      },
+      actionHelp: {
+        already_permanent:
+          'The event tag is removed. The track stays in Rekordbox and its file is untouched.',
+        keep_in_place:
+          'The event tag is removed. The track stays in Rekordbox and its file is untouched.',
+        delete_with_event:
+          'The event tag is removed, the Rekordbox entry is deleted, and the file goes to the trash. This is the only destructive outcome in this batch.',
+        never_applied:
+          'The track leaves the event and its staged file goes to the trash. Rekordbox is not touched.',
+        shared_with_kept_track:
+          'A track staying in the event shares its Rekordbox entry or its file. Nothing is untagged, nothing is deleted: the row leaves the event, and that is all.',
+      },
+      unresolved: '{n} unresolved case | {n} unresolved cases',
+      issue: {
+        retained_by_other_mytag:
+          'This track’s staged file also carries a MyTag you added in Rekordbox ({tags}). While it remains, the batch cannot run.',
+      },
+      option: {
+        remove_other_mytag: 'Remove that other MyTag in Rekordbox, then reopen this preview.',
+        delete_event:
+          'Or delete the whole event — event deletion migrates the file into Collection instead of losing it.',
+        relink_in_rekordbox: 'Relink the file in Rekordbox, then reopen this preview.',
+        remove_from_rekordbox: 'Remove the entry in Rekordbox, then reopen this preview.',
+      },
+      technicalDetails: 'Technical details',
+      resolveFirst: 'Resolve the remaining cases',
+      confirmCount: 'Remove {n} track | Remove {n} tracks',
+      filesCount: '{n} file to the trash | {n} files to the trash',
+      note: 'Timestamped Rekordbox backup before the write. The event, its MyTag and its playlist survive: only the batch leaves. Requires Rekordbox closed.',
+      noteNoRb:
+        'None of these tracks was ever applied: nothing is written to Rekordbox, it can stay open.',
+      selectionCta: 'Remove from the event · {n}',
+      selectAll: 'Select all',
+      done: '{n} track removed from the event | {n} tracks removed from the event',
     },
   },
   history: {

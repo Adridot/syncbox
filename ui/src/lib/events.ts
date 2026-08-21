@@ -11,6 +11,23 @@ export const APPLIABLE = new Set(['matched', 'ready'])
 export const READY_FAMILY = APPLIABLE
 const MISSING_FAMILY = new Set(['missing', 'acquisition_failed'])
 
+/** Rows that are outstanding work for nobody — excluded here, ONCE, which
+    keeps them out of every count AND every filter chip but the one that opts
+    each back in:
+
+    - §5.7 adoption: an `ignored` row is an adopted track the user rejected.
+      It survives only so its staged file stays referenced and is not adopted
+      again on the next claim — never matched, claimed nor applied.
+    - playlist refresh: a `removed_upstream` row left the Spotify playlist.
+      Nothing was written and nothing will be — it is a signal awaiting the
+      user's decision, which is why it must never inflate the pending delta.
+    - track removal: a `removed` row was withdrawn from the event by an
+      executed removal. The decision is made and done; the row survives only
+      so a staged file that was NOT trashed stays referenced (design.md
+      "The removed track's row"). */
+const SIDELINED = new Set(['ignored', 'removed_upstream', 'removed'])
+const isCounted = (track: EventTrack) => !SIDELINED.has(track.status)
+
 /** Event lifecycle: applied/partially_applied stay open to additions (§11.2). */
 export function isBaseApplied(status: string): boolean {
   return status === 'applied' || status === 'partially_applied'
@@ -33,7 +50,8 @@ export interface EventCounts {
 /** ``baseApplied``: the 11.2 delta only exists once the event was applied —
     on it, EVERY matched/ready row is a pending change (owner bug report
     2026-07-07: a row matched after the apply was stuck un-reappliable). */
-export function eventCounts(tracks: EventTrack[], baseApplied = false): EventCounts {
+export function eventCounts(all: EventTrack[], baseApplied = false): EventCounts {
+  const tracks = all.filter(isCounted)
   const pendReady = baseApplied
     ? tracks.filter((track) => APPLIABLE.has(track.status)).length
     : 0
@@ -54,7 +72,17 @@ export function eventCounts(tracks: EventTrack[], baseApplied = false): EventCou
   }
 }
 
-export const EVENT_FILTERS = ['all', 'ready', 'missing', 'ambiguous', 'pending'] as const
+// the two SIDELINED chips last: each is the only way back to its own rows,
+// and the toolbar only shows it once there IS something to consult
+export const EVENT_FILTERS = [
+  'all',
+  'ready',
+  'missing',
+  'ambiguous',
+  'pending',
+  'ignored',
+  'removed',
+] as const
 export type EventFilter = (typeof EVENT_FILTERS)[number]
 
 export function filterEventTracks(tracks: EventTrack[], chip: EventFilter): EventTrack[] {
@@ -65,9 +93,20 @@ export function filterEventTracks(tracks: EventTrack[], chip: EventFilter): Even
     ambiguous: (track) => track.status === 'ambiguous',
     // pending = will be written next (re)apply, or added since the last one
     pending: (track) => APPLIABLE.has(track.status) || track.added_after_apply === 1,
+    // §5.7 "A rejection can be undone": rejected rows stay reachable, here
+    // and nowhere else
+    ignored: (track) => track.status === 'ignored',
+    // same deal for a departure: its chip is the one place to decide on it
+    removed: (track) => track.status === 'removed_upstream',
   }
-  // §11.2: pending (unapplied) additions sort to the top of the table
+  // a SIDELINED chip opts its own rows back in — and only its own, since its
+  // predicate matches nothing else
   return tracks
-    .filter(predicate[chip])
+    .filter(
+      (track) =>
+        (isCounted(track) || chip === 'ignored' || chip === 'removed') &&
+        predicate[chip](track),
+    )
+    // §11.2: pending (unapplied) additions sort to the top of the table
     .sort((a, b) => b.added_after_apply - a.added_after_apply || a.id - b.id)
 }

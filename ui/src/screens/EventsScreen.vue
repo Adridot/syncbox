@@ -17,6 +17,8 @@ import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import NewEventModal from '../components/NewEventModal.vue'
 import ReapplyEventModal from '../components/ReapplyEventModal.vue'
+import RemoveTracksModal from '../components/RemoveTracksModal.vue'
+import SelectionBar from '../components/SelectionBar.vue'
 import SpotifyAttributionLink from '../components/SpotifyAttributionLink.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import {
@@ -51,7 +53,7 @@ const filter = ref<EventFilter>('all')
 const loading = ref(true)
 const loadError = ref<string | null>(null)
 const banner = ref<{ tone: 'error' | 'success'; text: string } | null>(null)
-const modal = ref<null | 'new' | 'apply' | 'reapply' | 'delete'>(null)
+const modal = ref<null | 'new' | 'apply' | 'reapply' | 'delete' | 'remove'>(null)
 
 const link = ref('')
 const adding = ref(false)
@@ -108,6 +110,53 @@ const selectedTracks = computed(() =>
 const baseApplied = computed(() => (selected.value ? isBaseApplied(selected.value.status) : false))
 const counts = computed(() => eventCounts(selectedTracks.value, baseApplied.value))
 const visibleTracks = computed(() => filterEventTracks(selectedTracks.value, filter.value))
+
+// Rejections (§5.7) and playlist departures are outstanding work for nobody,
+// so they live outside `counts` — each chip counts its own rows.
+const rejected = computed(() => filterEventTracks(selectedTracks.value, 'ignored').length)
+const departed = computed(() => filterEventTracks(selectedTracks.value, 'removed').length)
+function chipCount(chip: EventFilter): number {
+  if (chip === 'all') return counts.value.total
+  if (chip === 'ignored') return rejected.value
+  if (chip === 'removed') return departed.value
+  return counts.value[chip]
+}
+// No dead affordance (owner): these two only exist once there IS something to
+// consult, and they are LAST so their arrival moves no other chip.
+const OPT_IN_CHIPS: EventFilter[] = ['ignored', 'removed']
+const visibleFilters = computed(() =>
+  EVENT_FILTERS.filter(
+    (chip) => !OPT_IN_CHIPS.includes(chip) || chipCount(chip) > 0 || filter.value === chip,
+  ),
+)
+
+// --- batch removal selection (task 5.1) -----------------------------------
+// Scoped to the departures chip: a departed track is the one row whose only
+// remaining moves are "keep it" or "get rid of it", and the removal API is
+// what makes the second one possible without deleting the event. The pick
+// column therefore exists only in that view — nowhere else would it ever be
+// used, and an affordance that always reads zero takes no space (owner).
+const selection = ref<Set<number>>(new Set())
+const picking = computed(() => filter.value === 'removed')
+const allVisibleSelected = computed(
+  () =>
+    visibleTracks.value.length > 0 &&
+    visibleTracks.value.every((track) => selection.value.has(track.id)),
+)
+function toggleAll() {
+  const next = new Set(selection.value)
+  if (allVisibleSelected.value) visibleTracks.value.forEach((track) => next.delete(track.id))
+  else visibleTracks.value.forEach((track) => next.add(track.id))
+  selection.value = next
+}
+function toggleOne(id: number) {
+  const next = new Set(selection.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selection.value = next
+}
+// a selection only means something inside the view that built it
+watch([selectedId, filter], () => (selection.value = new Set()))
 
 // windowed tracklist: the page scrolls in App's .main (nearest scrollable
 // ancestor), resolved by the wrapper; only ~viewport rows are in the DOM
@@ -306,6 +355,91 @@ async function addTrack() {
   }
 }
 
+/** §5.7 adoption: removing an adopted row does NOT delete it — the sidecar
+    keeps it as `ignored` so its dropped file is not adopted again. Same
+    button, different verb, so the user is not told "removed" for a reject. */
+const removeLabel = (track: EventTrack) =>
+  t(track.adopted ? 'events.rejectTrack' : 'events.removeTrack')
+
+/** §5.7 "Naming the duplicated entry": name the collection entry the drop
+    duplicates when the snapshot could be read. Both fields null is the
+    normal snapshot-unavailable case, not an error — say it generically. */
+function duplicateNote(track: EventTrack): string {
+  if (!track.duplicate_title) return t('events.duplicatesCollection')
+  const entry = [track.duplicate_title, track.duplicate_artist].filter(Boolean).join(' — ')
+  return t('events.duplicatesCollectionNamed', { entry })
+}
+
+/** §5.7 "Restoring a rejected track": the sidecar re-derives the row's state
+    (ready, matched, or missing if the staged file vanished meanwhile) and
+    returns it — swap the row from the response rather than guessing. */
+async function restoreTrack(track: EventTrack) {
+  if (!selected.value) return
+  banner.value = null
+  try {
+    const restored = await api.post<EventTrack>(
+      `/api/events/${selected.value.id}/tracks/${track.id}/restore`,
+    )
+    // load(), like removeTrack: a restore that lands 'ready' on an applied
+    // event IS a pending change, so the card's pending_delta must move with
+    // it - splicing the row alone would leave the +n badge stale.
+    await load()
+    banner.value = {
+      tone: 'success',
+      text: t('events.restoreDone', { title: restored.title ?? '' }),
+    }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  }
+}
+
+/** Re-read the event's Spotify playlist. Application DB only — no Rekordbox
+    write — so it is deliberately NOT behind the rbOpen guard. Refused by the
+    sidecar on a manual event, which is why the button is not offered there. */
+const isPlaylistBacked = computed(
+  () => !!selected.value && !selected.value.spotify_playlist_id.startsWith('manual:'),
+)
+const refreshing = ref(false)
+
+async function refreshFromPlaylist() {
+  if (!selected.value) return
+  banner.value = null
+  refreshing.value = true
+  try {
+    const result = await api.post<{ added: number; updated: number; removed: number }>(
+      `/api/events/${selected.value.id}/refresh`,
+    )
+    // load(): imports land as pending additions, so the card's +n badge and
+    // the departure count must move with the rows
+    await load()
+    const moved = result.added + result.updated + result.removed
+    banner.value = {
+      tone: 'success',
+      text: moved ? t('events.refreshDone', result) : t('events.refreshNoChange'),
+    }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    refreshing.value = false
+  }
+}
+
+/** A departure is a signal, never an act: keeping the track clears it and
+    restores the status the row held before — same shape as /restore. */
+async function keepTrack(track: EventTrack) {
+  if (!selected.value) return
+  banner.value = null
+  try {
+    const kept = await api.post<EventTrack>(
+      `/api/events/${selected.value.id}/tracks/${track.id}/keep`,
+    )
+    await load()
+    banner.value = { tone: 'success', text: t('events.keepDone', { title: kept.title ?? '' }) }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  }
+}
+
 async function removeTrack(track: EventTrack) {
   if (!selected.value) return
   banner.value = null
@@ -343,6 +477,15 @@ function onCreated(event: EventSummary) {
 async function onWriteDone() {
   modal.value = null
   await load()
+}
+
+/** Removal withdraws the rows (status `removed`, SIDELINED), so the counts,
+    the chips and the departure badge all move — load(), never a splice. */
+async function onRemoved(n: number) {
+  modal.value = null
+  selection.value = new Set()
+  await load()
+  banner.value = { tone: 'success', text: t('events.remove.done', n) }
 }
 </script>
 
@@ -385,9 +528,21 @@ async function onWriteDone() {
               <div class="card-name">{{ event.name }}</div>
               <div class="card-src">{{ srcLine(event) }}</div>
             </div>
-            <span v-if="event.pending_delta > 0" class="pend-badge">
-              +{{ event.pending_delta }} {{ t('events.pendingShort') }}
-            </span>
+            <div class="card-flags">
+              <span v-if="event.pending_delta > 0" class="pend-badge">
+                +{{ event.pending_delta }} {{ t('events.pendingShort') }}
+              </span>
+              <!-- no '+': a departure is not work re-apply will do, it is a
+                   decision waiting on the user — different sign, different
+                   tone, never folded into the delta above -->
+              <span
+                v-if="event.removed_upstream > 0"
+                class="dep-badge"
+                :title="t('events.removedHelp')"
+              >
+                {{ event.removed_upstream }} {{ t('events.removedShort') }}
+              </span>
+            </div>
           </div>
           <div class="card-badge"><StatusBadge :status="event.status" /></div>
           <div class="card-counters">
@@ -553,26 +708,26 @@ async function onWriteDone() {
 
         <div class="toolbar">
           <button
-            v-for="chip in EVENT_FILTERS"
+            v-for="chip in visibleFilters"
             :key="chip"
             class="chip"
             :data-active="filter === chip"
             @click="filter = chip"
           >
             {{ t(`events.filters.${chip}`) }}
-            <span class="chip-n mono">{{
-              chip === 'all'
-                ? counts.total
-                : chip === 'ready'
-                  ? counts.ready
-                  : chip === 'missing'
-                    ? counts.missing
-                    : chip === 'ambiguous'
-                      ? counts.ambiguous
-                      : counts.pending
-            }}</span>
+            <span class="chip-n mono">{{ chipCount(chip) }}</span>
           </button>
           <span class="spacer" />
+          <!-- no rbOpen guard: the refresh touches the app DB only -->
+          <button
+            v-if="isPlaylistBacked"
+            class="btn-secondary tool"
+            :disabled="refreshing"
+            :title="t('events.refreshHelp')"
+            @click="refreshFromPlaylist"
+          >
+            {{ refreshing ? t('events.refreshing') : t('events.refresh') }}
+          </button>
           <button
             v-if="acqReady && downloadable.length"
             class="btn-secondary tool"
@@ -601,6 +756,14 @@ async function onWriteDone() {
 
         <div class="table">
           <div class="table-head">
+            <span v-if="picking" class="cell-pick">
+              <input
+                type="checkbox"
+                :checked="allVisibleSelected"
+                :aria-label="t('events.remove.selectAll')"
+                @change="toggleAll"
+              />
+            </span>
             <span class="cell-title">{{ t('events.columns.title') }}</span>
             <span class="cell-status">{{ t('events.columns.status') }}</span>
             <span class="cell-conf">{{ t('events.columns.conf') }}</span>
@@ -615,7 +778,16 @@ async function onWriteDone() {
             class="row hover-reveal"
             :data-pending="track.added_after_apply === 1"
             :style="rowStyle(item)"
+            :data-selected="selection.has(track.id)"
           >
+            <span v-if="picking" class="cell-pick">
+              <input
+                type="checkbox"
+                :checked="selection.has(track.id)"
+                :aria-label="track.title ?? ''"
+                @change="toggleOne(track.id)"
+              />
+            </span>
             <div class="cell-title">
               <div class="row-title-line">
                 <span class="row-title">{{ track.title }}</span>
@@ -624,11 +796,26 @@ async function onWriteDone() {
                   kind="track"
                   :spotify-id="track.spotify_track_id"
                 />
+                <!-- §5.7 adoption: an adopted row has no Spotify provenance,
+                     so its marker takes the exact slot the attribution link
+                     would have — the title line's geometry is the same either
+                     way (owner: zero layout shift) -->
+                <span
+                  v-else-if="track.adopted"
+                  class="adopted-chip"
+                  :title="t('events.adoptedChipHelp')"
+                  >{{ t('events.adoptedChip') }}</span
+                >
                 <span v-if="track.added_after_apply === 1" class="added-chip">{{
                   t('events.addedChip')
                 }}</span>
               </div>
               <div class="row-artist">{{ track.artist }}</div>
+              <!-- the dropped file was unnecessary: apply will tag the entry
+                   already in the collection, not import a second copy -->
+              <div v-if="track.duplicates_collection" class="row-note">
+                {{ duplicateNote(track) }}
+              </div>
               <div v-if="acqStates[String(track.id)]?.error" class="row-error">
                 {{ humanizeAcquisitionError(t, acqStates[String(track.id)]?.error) }}
               </div>
@@ -676,11 +863,33 @@ async function onWriteDone() {
                 to="/missing/event"
                 >{{ t('events.resolveMissing') }}</router-link
               >
+              <!-- a rejected row's only move is back in: rejecting it twice
+                   is not a thing -->
+              <!-- a departed row's decision: keep it (signal cleared) or
+                   remove it with the ✕ below, which stays available -->
               <button
-                v-if="track.status !== 'applied'"
+                v-if="track.status === 'removed_upstream'"
+                class="row-remove row-keep"
+                :data-tip="t('events.keepTrack')"
+                :aria-label="t('events.keepTrack')"
+                @click="keepTrack(track)"
+              >
+                ✓
+              </button>
+              <button
+                v-if="track.status === 'ignored'"
+                class="row-remove row-restore"
+                :data-tip="t('events.restoreTrack')"
+                :aria-label="t('events.restoreTrack')"
+                @click="restoreTrack(track)"
+              >
+                ↺
+              </button>
+              <button
+                v-else-if="track.status !== 'applied'"
                 class="row-remove"
-                :data-tip="t('events.removeTrack')"
-                :aria-label="t('events.removeTrack')"
+                :data-tip="removeLabel(track)"
+                :aria-label="removeLabel(track)"
                 @click="removeTrack(track)"
               >
                 ✕
@@ -691,6 +900,15 @@ async function onWriteDone() {
           <div v-else class="table-empty">
             {{ t('events.filterEmpty') }}
           </div>
+        </div>
+
+        <!-- floating pill: the table never shifts when a selection starts -->
+        <div class="sel-float-anchor">
+          <SelectionBar :count="selection.size" @clear="selection = new Set()">
+            <button class="sel-remove" :disabled="jobs.jobRunning" @click="modal = 'remove'">
+              {{ t('events.remove.selectionCta', { n: selection.size }) }}
+            </button>
+          </SelectionBar>
         </div>
       </section>
     </template>
@@ -715,6 +933,13 @@ async function onWriteDone() {
       :event="selected"
       @close="modal = null"
       @deleted="onWriteDone"
+    />
+    <RemoveTracksModal
+      v-if="modal === 'remove' && selected"
+      :event="selected"
+      :track-ids="[...selection]"
+      @close="modal = null"
+      @removed="onRemoved"
     />
     <DeezerSearchPanel
       v-if="searchTrack"
@@ -799,6 +1024,26 @@ h1 {
   color: var(--warning-text);
   background: var(--warning-tint);
   border: 1px solid rgba(245, 181, 68, 0.28);
+  border-radius: 6px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+.card-flags {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+/* twin geometry, opposite reading: the delta is amber ("to do"), a departure
+   is a neutral outline ("to decide") — never the same visual weight */
+.dep-badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted-bright);
+  background: transparent;
+  border: 1px dashed var(--border-2);
   border-radius: 6px;
   padding: 2px 7px;
   white-space: nowrap;
@@ -1191,12 +1436,34 @@ h1 {
   border-radius: 4px;
   padding: 1px 5px;
 }
+/* neutral twin of .added-chip: it marks provenance, not urgency */
+.adopted-chip {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted-bright);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 0 5px;
+}
 .row-artist {
   font-size: 12px;
   color: var(--text-muted-bright);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.cell-pick {
+  width: 18px;
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.row[data-selected='true'] {
+  background: rgba(77, 163, 255, 0.07);
 }
 .cell-status {
   width: 140px;
@@ -1256,6 +1523,12 @@ h1 {
   color: var(--danger-text);
   margin-top: 2px;
 }
+/* discreet: the outcome is fine, only the drop was pointless */
+.row-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
 .acq-badge {
   font-size: var(--size-meta);
   border-radius: 6px;
@@ -1312,6 +1585,41 @@ h1 {
 .row-remove:hover {
   color: var(--danger-text);
   border-color: rgba(247, 110, 110, 0.4);
+}
+/* keeping is the affirmative half of the departure decision */
+.row-keep:hover {
+  color: var(--success);
+  border-color: var(--success-border);
+}
+/* same box as the reject it undoes — only the tone differs */
+.row-restore:hover {
+  color: var(--accent-hover);
+  border-color: var(--accent-border);
+}
+.sel-float-anchor {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  z-index: 6;
+}
+.sel-float-anchor:not(:empty) {
+  margin-top: 12px;
+}
+.sel-remove {
+  background: rgba(247, 110, 110, 0.12);
+  border: 1px solid rgba(247, 110, 110, 0.28);
+  color: var(--danger-text);
+  padding: 5px 11px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sel-remove:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .table-empty {
   padding: 34px;

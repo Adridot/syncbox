@@ -13,6 +13,7 @@ from syncbox import rb
 from syncbox.rb_write import (
     _audio_metadata,
     add_content,
+    audio_metadata,
     find_or_create_album,
     migrate_content_path,
     signed32,
@@ -102,6 +103,32 @@ def test_audio_metadata_reads_standard_tags_and_stream_properties(
         "bit_depth": 24,
         "sample_rate": 48000,
     }
+
+
+def test_audio_metadata_tolerates_a_missing_title_and_an_unreadable_file(
+    monkeypatch, tmp_path
+):
+    """The three cases staged-file adoption relies on: complete tags (above),
+    no usable title tag, and a file mutagen cannot read at all -> {}."""
+
+    class Untitled:
+        info = None
+        tags = {"title": ["   "], "artist": ["Artist"]}  # blank = no usable title
+
+    monkeypatch.setattr(
+        "syncbox.rb_write.MutagenFile", lambda *args, **kwargs: Untitled()
+    )
+    untitled = audio_metadata(tmp_path / "track.mp3")
+    assert untitled["title"] is None and untitled["artist"] == "Artist"
+    assert untitled["duration_ms"] is None
+
+    def boom(*args, **kwargs):
+        raise OSError("cloud file unavailable")
+
+    monkeypatch.setattr("syncbox.rb_write.MutagenFile", boom)
+    assert audio_metadata(tmp_path / "track.mp3") == {}  # never raises
+    monkeypatch.setattr("syncbox.rb_write.MutagenFile", lambda *a, **k: None)
+    assert audio_metadata(tmp_path / "track.mp3") == {}
 
 
 def test_album_identity_includes_album_artist():

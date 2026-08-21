@@ -213,6 +213,53 @@ def _anlz_paths(db_path: Path, analysis_data_path) -> list[Path]:
     return paths
 
 
+def classify_removal(ownership: str, in_event_staging: bool, retaining_ids) -> str:
+    """The per-entry decision SHARED by full deletion and batch track removal.
+
+    Pure function of (where the audio lives, whether it sits in THIS event's
+    staging dir, which other active MyTags retain it). It is the definition
+    of "the event brought this in" — the one rule that must never diverge
+    between the two destructive paths (event-track-removal design.md), which
+    is why it is extracted and nothing else is. The four names are the ones
+    build_plan has always produced; ``migrate_to_collection`` stays exclusive
+    to full deletion, where the removal planner turns it into a blocker.
+    """
+    if ownership == "permanent_library":
+        return "already_permanent"
+    if in_event_staging and retaining_ids:
+        return "migrate_to_collection"
+    if in_event_staging:
+        return "delete_with_event"
+    return "keep_in_place"
+
+
+def event_staging(event, storage_root) -> Path | None:
+    """Resolve and validate the event's staging directory, or None.
+
+    Shared by both destructive planners: never a symbolic link, never
+    outside <storage_root>/_syncbox/events, never the events root itself.
+    """
+    if not event.get("staging_dir"):
+        return None
+    root = Path(storage_root).expanduser().resolve(strict=False)
+    raw_staging = Path(event["staging_dir"]).expanduser()
+    if raw_staging.is_symlink():
+        raise EventMigrationError(
+            f"event staging directory is a symbolic link: {raw_staging}"
+        )
+    staging = raw_staging.resolve(strict=False)
+    expected_parent = (root / "_syncbox" / "events").resolve(strict=False)
+    try:
+        staging.relative_to(expected_parent)
+    except ValueError as exc:
+        raise EventMigrationError(
+            f"event staging directory escapes app-managed storage: {staging}"
+        ) from exc
+    if staging == expected_parent:
+        raise EventMigrationError("event staging directory cannot be the events root")
+    return staging
+
+
 def _referenced_by_other_content(
     candidate: Path, content_id: str, active_paths, storage_root
 ) -> bool:
@@ -271,25 +318,7 @@ def build_plan(query, event, storage_root, db_path, db_fingerprint) -> dict:
     """Build the deterministic payload that the confirmation must echo."""
     db_path = Path(db_path)
     root = Path(storage_root).expanduser().resolve(strict=False)
-    staging = None
-    if event.get("staging_dir"):
-        raw_staging = Path(event["staging_dir"]).expanduser()
-        if raw_staging.is_symlink():
-            raise EventMigrationError(
-                f"event staging directory is a symbolic link: {raw_staging}"
-            )
-        staging = raw_staging.resolve(strict=False)
-        expected_parent = (root / "_syncbox" / "events").resolve(strict=False)
-        try:
-            staging.relative_to(expected_parent)
-        except ValueError as exc:
-            raise EventMigrationError(
-                f"event staging directory escapes app-managed storage: {staging}"
-            ) from exc
-        if staging == expected_parent:
-            raise EventMigrationError(
-                "event staging directory cannot be the events root"
-            )
+    staging = event_staging(event, storage_root)
     collection_raw = root / "rekordbox" / "Collection"
     collection = collection_raw.resolve(strict=False)
     if collection != collection_raw:
@@ -325,15 +354,9 @@ def build_plan(query, event, storage_root, db_path, db_fingerprint) -> dict:
                 if folder_path
                 else "external"
             )
-            in_event_staging = _inside_staging(source, staging)
-            if ownership == "permanent_library":
-                action = "already_permanent"
-            elif in_event_staging and retaining_ids:
-                action = "migrate_to_collection"
-            elif in_event_staging:
-                action = "delete_with_event"
-            else:
-                action = "keep_in_place"
+            action = classify_removal(
+                ownership, _inside_staging(source, staging), retaining_ids
+            )
 
             destination = None
             destination_reused = False

@@ -51,6 +51,7 @@ export const fr: typeof en = {
     missing: 'Manquant',
     acquisition_failed: 'Échec de l’acquisition',
     removed_from_source: 'Retiré de la source',
+    removed_upstream: 'Parti de la playlist',
     ignored: 'Ignoré',
     purchase_link_unavailable: "Lien d'achat indisponible",
     manual_relink_needed: 'Relink manuel requis',
@@ -190,6 +191,34 @@ export const fr: typeof en = {
     addedChip: 'Ajouté',
     resolveMissing: 'Résoudre →',
     removeTrack: 'Retirer ce titre',
+    // §5.7 adoption — un fichier déposé dans le dossier est devenu un titre
+    adoptedChip: 'Déposé',
+    adoptedChipHelp: 'Créé depuis un fichier déposé dans le dossier de l’événement.',
+    duplicatesCollection:
+      'Déjà dans ta collection — le titre existant sera taggé, le fichier déposé n’était pas nécessaire.',
+    // nommée quand le snapshot de la collection a pu être lu ({entry} =
+    // « titre — artiste », ou le titre seul si l’artiste manque)
+    duplicatesCollectionNamed:
+      'Déjà dans ta collection : {entry}. Le titre existant sera taggé, le fichier déposé n’était pas nécessaire.',
+    rejectTrack: 'Ignorer ce fichier déposé',
+    restoreTrack: 'Remettre dans l’événement',
+    restoreDone: '« {title} » remis dans l’événement.',
+    // rafraîchissement depuis la playlist Spotify — pas de guard Rekordbox :
+    // rien n’est écrit dans master.db
+    refresh: 'Rafraîchir depuis Spotify',
+    refreshing: 'Rafraîchissement…',
+    refreshHelp:
+      'Relit la playlist Spotify : importe les titres ajoutés, signale ceux qui en sont partis. N’écrit rien dans Rekordbox.',
+    refreshDone: '{added} ajoutés · {updated} mis à jour · {removed} partis de la playlist.',
+    refreshNoChange: 'La playlist Spotify n’a pas bougé — rien à mettre à jour.',
+    // signal de départ : un titre n’est plus dans la playlist. Rien n’a été
+    // écrit ni supprimé — c’est une décision à prendre, pas du travail en
+    // attente, donc jamais mélangé au badge « +n »
+    removedShort: 'partis',
+    removedHelp:
+      'Ces titres ne sont plus dans la playlist Spotify. Rien n’a été touché dans Rekordbox : à toi de les garder ou de les retirer.',
+    keepTrack: 'Garder ce titre',
+    keepDone: '« {title} » gardé — le signal de départ est levé.',
     filterEmpty: 'Aucun titre dans ce filtre.',
     modifiedBanner:
       'Modifié depuis la dernière application — {n}. Ré-applique pour mettre à jour le smart playlist Rekordbox.',
@@ -205,6 +234,8 @@ export const fr: typeof en = {
       missing: 'Manquants',
       ambiguous: 'À arbitrer',
       pending: 'En attente',
+      ignored: 'Rejetés',
+      removed: 'Partis',
     },
     columns: {
       title: 'Titre',
@@ -306,6 +337,59 @@ export const fr: typeof en = {
       confirmCount: 'Supprimer l’événement · {n} fichier | Supprimer l’événement · {n} fichiers',
       note: 'Les migrations requises s’achèvent avant le nettoyage de l’événement. L’identité Rekordbox et les métadonnées conservées restent inchangées. Requiert Rekordbox fermé.',
       confirm: 'Supprimer l’événement',
+    },
+    // add-event-track-removal : le seul geste destructif du plan de travail —
+    // chaque libellé doit dire exactement ce qui est perdu.
+    remove: {
+      title: 'Retirer des titres de « {name} »',
+      lead: 'Ce qui va se passer, titre par titre. Rien n’est écrit avant ta confirmation.',
+      untagLine: 'Titres retirés de l’événement',
+      rbDeleteLine: 'Entrées supprimées de Rekordbox',
+      trashLine: 'Fichiers envoyés à la corbeille',
+      tracksCount: '{n} titre dans le lot | {n} titres dans le lot',
+      noTracks: 'Aucun titre sélectionné.',
+      trashFlag: 'fichier à la corbeille',
+      action: {
+        already_permanent: 'Détagué · conservé',
+        keep_in_place: 'Détagué · conservé',
+        delete_with_event: 'Supprimé de Rekordbox · fichier à la corbeille',
+        never_applied: 'Jamais appliqué · fichier stagé à la corbeille',
+        shared_with_kept_track: 'Retiré de l’événement seulement',
+      },
+      actionHelp: {
+        already_permanent:
+          'Le MyTag de l’événement est retiré. Le titre reste dans Rekordbox et son fichier n’est pas touché.',
+        keep_in_place:
+          'Le MyTag de l’événement est retiré. Le titre reste dans Rekordbox et son fichier n’est pas touché.',
+        delete_with_event:
+          'Le MyTag de l’événement est retiré, l’entrée Rekordbox est supprimée et le fichier part à la corbeille. C’est la seule issue destructive de ce lot.',
+        never_applied:
+          'Le titre quitte l’événement et son fichier stagé part à la corbeille. Rekordbox n’est pas touché.',
+        shared_with_kept_track:
+          'Un titre qui reste dans l’événement partage son entrée Rekordbox ou son fichier. Rien n’est détagué, rien n’est supprimé : la ligne quitte l’événement, c’est tout.',
+      },
+      unresolved: '{n} cas non résolu | {n} cas non résolus',
+      issue: {
+        retained_by_other_mytag:
+          'Le fichier stagé de ce titre porte aussi un MyTag que tu as ajouté dans Rekordbox ({tags}). Tant qu’il reste, le lot ne peut pas s’exécuter.',
+      },
+      option: {
+        remove_other_mytag: 'Retirer cet autre MyTag dans Rekordbox, puis rouvrir cet aperçu.',
+        delete_event:
+          'Ou supprimer l’événement entier — la suppression d’événement migre le fichier vers Collection au lieu de le perdre.',
+        relink_in_rekordbox: 'Relier le fichier dans Rekordbox, puis rouvrir cet aperçu.',
+        remove_from_rekordbox: 'Retirer l’entrée dans Rekordbox, puis rouvrir cet aperçu.',
+      },
+      technicalDetails: 'Détails techniques',
+      resolveFirst: 'Résoudre les cas restants',
+      confirmCount: 'Retirer {n} titre | Retirer {n} titres',
+      filesCount: '{n} fichier à la corbeille | {n} fichiers à la corbeille',
+      note: 'Backup Rekordbox horodaté avant l’écriture. L’événement, son MyTag et sa playlist survivent : seuls les titres du lot partent. Requiert Rekordbox fermé.',
+      noteNoRb:
+        'Aucun de ces titres n’a été appliqué : rien n’est écrit dans Rekordbox, il peut rester ouvert.',
+      selectionCta: 'Retirer de l’événement · {n}',
+      selectAll: 'Tout sélectionner',
+      done: '{n} titre retiré de l’événement | {n} titres retirés de l’événement',
     },
   },
   history: {

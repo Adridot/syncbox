@@ -433,8 +433,13 @@ _FILE_TYPE_BY_EXT = {
 }
 
 
-def _audio_metadata(path: Path) -> dict:
-    """Read standard audio tags and stream properties without ever blocking import."""
+def audio_metadata(path: Path) -> dict:
+    """Read standard audio tags and stream properties without ever blocking import.
+
+    Public because staged-file adoption reads the tags of a dropped file
+    through THIS reader (event-staged-file-adoption): one tag reader, never
+    a second one.
+    """
     try:
         audio = MutagenFile(str(path), easy=True)
     except Exception:
@@ -478,8 +483,11 @@ def _audio_metadata(path: Path) -> dict:
     }
 
 
+_audio_metadata = audio_metadata  # historical private name (legacy backfill)
+
+
 def _content_metadata(db, path: Path, metadata: dict) -> dict:
-    audio = _audio_metadata(path)
+    audio = audio_metadata(path)
 
     def value(key: str):
         supplied = metadata.get(key)

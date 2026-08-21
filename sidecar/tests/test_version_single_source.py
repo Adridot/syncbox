@@ -102,13 +102,14 @@ def test_tauri_conf_derives_from_package_json():
     assert conf["identifier"] == APP_IDENTIFIER
 
 
-def test_readme_source_version_matches_canonical():
+def test_readme_download_matches_canonical():
+    # The landing-page README (379f8ff) no longer states the source version
+    # outright; it publishes it through the Install step's download name and
+    # release tag, which is what a reader actually acts on. Retarget authored
+    # in a parallel session, folded in here so the bump lands green in one go.
     readme = (REPO / "README.md").read_text()
-    assert f"Current source version: **{CANONICAL}**" in readme
-    assert f"Syncbox-{CANONICAL}-macos-arm64.zip" in readme
-    assert f"[v{CANONICAL} GitHub Release]" in readme
-    assert f"Current source and release version: **{CANONICAL}**" in readme
-    assert f"matching `v{CANONICAL}` GitHub Release" in readme
+    assert f"Syncbox-{CANONICAL}-macos-arm64.dmg" in readme
+    assert f"/releases/tag/v{CANONICAL}" in readme
 
 
 def test_vite_injects_the_version():

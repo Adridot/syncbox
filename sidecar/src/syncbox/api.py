@@ -46,6 +46,7 @@ from syncbox import (
     acquisition_migration,
     appdb,
     dedup,
+    event_remove,
     events_service,
     library_service,
     matching,
@@ -490,6 +491,59 @@ def _get_event(deps: Deps, event_id: int) -> dict:
     return event
 
 
+def _event_track(track: dict, names: dict | None = None) -> dict:
+    """Event track payload + the adoption fields. ``adopted`` READS the 0010
+    origin column (event-playlist-refresh) instead of the old inference "no
+    Spotify id + a staged file", which was wrong for a hand-typed track that
+    later claimed a file. 'matched' on top of adopted still means the dropped
+    file duplicates a collection entry the user already owns, which is what
+    the workspace tells them; ``names`` is the _duplicate_names map that puts
+    a TITLE and an ARTIST on that notice."""
+    adopted = track.get("origin") == "adopted"
+    duplicates = adopted and track.get("status") == "matched"
+    entry = (names or {}).get(str(track.get("content_id"))) if duplicates else None
+    return {
+        **track,
+        "adopted": adopted,
+        "duplicates_collection": duplicates,
+        "duplicate_title": entry.get("title") if entry else None,
+        "duplicate_artist": entry.get("artist") if entry else None,
+    }
+
+
+def _duplicate_names(deps, tracks: list[dict]) -> dict:
+    """content_id -> collection row, for the tracks reported as duplicating a
+    collection entry ('Naming the duplicated entry', 5.7): the user is told
+    WHICH track they already own. ONE pass over the snapshot for the whole
+    event, never a lookup per track.
+
+    Best-effort BY DESIGN, exactly like _try_match_event: these two fields are
+    cosmetic, so a snapshot that cannot be read (Rekordbox not configured yet,
+    StaleSnapshotError, anything) leaves them null - reading an event must
+    never start failing on their account."""
+    wanted = {
+        str(track["content_id"])
+        for track in tracks
+        if track.get("content_id") and _event_track(track)["duplicates_collection"]
+    }
+    if not wanted:
+        return {}
+    try:
+        rows = deps.cache().get(deps.storage_root)
+    except Exception:
+        return {}
+    return {
+        str(row["content_id"]): row
+        for row in rows
+        if str(row.get("content_id")) in wanted
+    }
+
+
+def _event_tracks(deps, tracks: list[dict]) -> list[dict]:
+    names = _duplicate_names(deps, tracks)
+    return [_event_track(track, names) for track in tracks]
+
+
 def _matching_thresholds(deps: Deps) -> dict:
     """G4: the user-tunable matching knobs (SPEC-DESIGN 4), read live from
     settings and forwarded to matching.match / score_candidates. The
@@ -872,11 +926,25 @@ def events_list(deps, request, body):
     counts = {
         row["event_id"]: row
         for row in deps.conn.execute(
-            "SELECT event_id, COUNT(*) AS n_tracks, "
+            # 'ignored' rows (event-staged-file-adoption) survive only to keep
+            # their staged file referenced: the workspace never shows them, so
+            # the card badge must not count them either. 'removed_upstream'
+            # (event-playlist-refresh) is out of BOTH aggregates: a departure
+            # is not a track the event still carries, and re-apply will never
+            # write it - it gets its own count instead of inflating the +n.
+            # 'removed' (event-track-removal) is out of both aggregates for
+            # the same reason: the row survives only to keep its staged file
+            # referenced; the event no longer carries that track.
+            "SELECT event_id, "
+            "SUM(CASE WHEN status NOT IN "
+            "         ('ignored', 'removed_upstream', 'removed') "
+            "         THEN 1 ELSE 0 END) AS n_tracks, "
             "SUM(CASE WHEN status IN ('matched', 'ready') THEN 1 "
             "         WHEN added_after_apply = 1 "
             "              AND status IN ('missing', 'acquisition_failed') THEN 1 "
-            "         ELSE 0 END) AS pending_delta "
+            "         ELSE 0 END) AS pending_delta, "
+            "SUM(CASE WHEN status = 'removed_upstream' THEN 1 ELSE 0 END) "
+            "    AS removed_upstream "
             "FROM event_tracks GROUP BY event_id"
         )
     }
@@ -891,6 +959,9 @@ def events_list(deps, request, body):
                 "pending_delta": (row["pending_delta"] or 0)
                 if (row and applied)
                 else 0,
+                # Not gated on `applied`: a departure is worth showing on a
+                # pending event too, and it is never outstanding work.
+                "removed_upstream": (row["removed_upstream"] or 0) if row else 0,
             }
         )
     return {"events": out}
@@ -921,6 +992,7 @@ def events_create(deps, request, body):
             event,
             spotify_track_id=meta["spotify_track_id"],
             resolver=lambda tid, meta=meta: meta,
+            origin="playlist",  # 0010: the refresh diff owns these rows only
         )
     if imported:
         _try_match_event(deps, event)  # tracks land matched, not 'missing'
@@ -929,7 +1001,8 @@ def events_create(deps, request, body):
 
 def events_get(deps, request, body):
     event = _get_event(deps, request.path_params["event_id"])
-    return {**event, "tracks": events_service.list_event_tracks(deps.conn, event["id"])}
+    tracks = events_service.list_event_tracks(deps.conn, event["id"])
+    return {**event, "tracks": _event_tracks(deps, tracks)}
 
 
 def events_rename(deps, request, body):
@@ -963,15 +1036,10 @@ def events_add_track(deps, request, body):
     matched = _try_match_event(deps, event)
     if matched is not None:
         track = next((t for t in matched if t["id"] == track["id"]), track)
-    return 201, track
+    return 201, _event_track(track)
 
 
-def events_track_remove(deps, request, body):
-    """Owner-approved 2026-07-07: remove a NOT-YET-APPLIED track row from an
-    event (a mispasted link must not stay 'missing' forever). App-DB only —
-    an 'applied' row lives in Rekordbox and belongs to delete/reapply."""
-    event = _get_event(deps, request.path_params["event_id"])
-    track_id = request.path_params["track_id"]
+def _get_event_track(deps: Deps, event: dict, track_id: int) -> dict:
     row = next(
         (
             track
@@ -982,6 +1050,16 @@ def events_track_remove(deps, request, body):
     )
     if row is None:
         raise KeyError(f"event track {track_id} not found")
+    return row
+
+
+def events_track_remove(deps, request, body):
+    """Owner-approved 2026-07-07: remove a NOT-YET-APPLIED track row from an
+    event (a mispasted link must not stay 'missing' forever). App-DB only —
+    an 'applied' row lives in Rekordbox and belongs to delete/reapply."""
+    event = _get_event(deps, request.path_params["event_id"])
+    track_id = request.path_params["track_id"]
+    row = _get_event_track(deps, event, track_id)
     if row["status"] == "applied":
         # (was 'imported' — a status the events vocabulary never produces,
         # so the guard was dead; found in owner testing 2026-07-07)
@@ -989,8 +1067,99 @@ def events_track_remove(deps, request, body):
             "an applied track is in Rekordbox; the event delete/reapply "
             "flows own that transition"
         )
+    if _event_track(row)["adopted"]:
+        # Adopted row (event-staged-file-adoption): deleting it would leave
+        # its file unreferenced and the next claim would adopt it right back.
+        # 'ignored' is inert (never matched, claimed, applied nor counted)
+        # and the RETAINED staged path is what makes the rejection stick.
+        deps.conn.execute(
+            "UPDATE event_tracks SET status = 'ignored', "
+            "updated_at = datetime('now') WHERE id = ?",
+            (track_id,),
+        )
+        return {"removed": track_id}
     deps.conn.execute("DELETE FROM event_tracks WHERE id = ?", (track_id,))
     return {"removed": track_id}
+
+
+def events_track_restore(deps, request, body):
+    """Undo a rejection (5.7 'A rejection can be undone'): the row goes back
+    to 'missing' and through the SAME match-then-claim tail as events_claim,
+    so its state is RE-DERIVED from the collection and from the file as they
+    stand NOW - matching an entry or claiming its file exactly as a freshly
+    adopted row would.
+
+    Deliberately NOT the D22 library restore-to-prior_status (owner decision
+    2026-08-21): an adopted row's correctness depends on its file still being
+    there, so a track restored after its staged file vanished must come back
+    'missing', never a stale 'ready'. Re-deriving is self-healing; a stored
+    prior status is a lie waiting to happen. The staged path is kept - it is
+    still this row's file, and keeping it referenced keeps re-adoption out.
+    """
+    event = _get_event(deps, request.path_params["event_id"])
+    track_id = request.path_params["track_id"]
+    row = _get_event_track(deps, event, track_id)
+    if row["status"] != "ignored":
+        raise ConflictError(
+            "only a rejected track can be restored; this one is "
+            f"'{row['status']}'"
+        )
+    deps.conn.execute(
+        "UPDATE event_tracks SET status = 'missing', "
+        "updated_at = datetime('now') WHERE id = ?",
+        (track_id,),
+    )
+    _try_match_event(deps, event)  # best-effort, as everywhere else
+    events_service.claim_staged_files(deps.conn, event)
+    return _event_tracks(deps, [_get_event_track(deps, event, track_id)])[0]
+
+
+def events_track_keep(deps, request, body):
+    """Dismiss a departure signal (event-playlist-refresh): the row goes back
+    to the status it held before the refresh and becomes 'manual'.
+
+    The origin flip is the whole point: a track the user deliberately keeps
+    despite its absence from the playlist IS a manual track from now on, so
+    the NEXT refresh skips it by the existing origin rule instead of
+    re-signalling it. No second flag, no new exclusion list.
+    """
+    event = _get_event(deps, request.path_params["event_id"])
+    track_id = request.path_params["track_id"]
+    row = _get_event_track(deps, event, track_id)
+    if row["status"] != "removed_upstream":
+        raise ConflictError(
+            "only a track that left the playlist can be kept; this one is "
+            f"'{row['status']}'"
+        )
+    deps.conn.execute(
+        "UPDATE event_tracks SET status = ?, prior_status = NULL, "
+        "origin = 'manual', updated_at = datetime('now') WHERE id = ?",
+        (row["prior_status"] or "missing", track_id),
+    )
+    return _event_tracks(deps, [_get_event_track(deps, event, track_id)])[0]
+
+
+def events_refresh(deps, request, body):
+    """Re-read the event's Spotify playlist and reconcile it (5.7 +
+    event-playlist-refresh): {added, updated, removed}.
+
+    NO _require_rekordbox and no mutate(): the whole thing reads Spotify and
+    writes the app DB, so it stays available with Rekordbox open. Imported
+    rows go through the same best-effort _try_match_event as every other
+    event mutation, so they land matched rather than 'missing'.
+    """
+    event = _get_event(deps, request.path_params["event_id"])
+    if str(event["spotify_playlist_id"] or "").startswith("manual:"):
+        raise ConflictError(
+            "this event has no Spotify playlist: add its tracks by link or "
+            "by hand, there is nothing to refresh from"
+        )
+    result = events_service.refresh_from_playlist(
+        deps.conn, event, _sync_client(deps)
+    )
+    if result["added"]:
+        _try_match_event(deps, event)
+    return result
 
 
 def events_match(deps, request, body):
@@ -1003,7 +1172,7 @@ def events_match(deps, request, body):
         deps.storage_root,
         **_matching_thresholds(deps),
     )
-    return {"tracks": tracks}
+    return {"tracks": _event_tracks(deps, tracks)}
 
 
 def _try_match_event(deps, event):
@@ -1027,10 +1196,22 @@ def _try_match_event(deps, event):
 
 
 def events_claim(deps, request, body):
+    """claim -> adopt -> match -> claim (event-staged-file-adoption).
+
+    The FIRST claim runs before adoption so a dropped file that satisfies a
+    track already waiting for it is consumed by that track instead of being
+    adopted as a near-duplicate; matching then gives every adopted row its
+    chance to land on the collection entry the user already owns, and the
+    trailing claim readies what matched nothing. No _require_rekordbox and
+    no mutate(): all four steps read the snapshot and write the app DB, so
+    the whole thing runs with Rekordbox open.
+    """
     event = _get_event(deps, request.path_params["event_id"])
     claimed = events_service.claim_staged_files(deps.conn, event)
+    events_service.adopt_staged_files(deps.conn, event)
     _try_match_event(deps, event)  # any still-missing row re-matches too
-    return {"claimed": claimed}
+    claimed += events_service.claim_staged_files(deps.conn, event)
+    return {"claimed": _event_tracks(deps, claimed)}
 
 
 def _events_apply(deps, request, *, only_delta: bool):
@@ -1061,6 +1242,36 @@ def events_apply(deps, request, body):
 def events_reapply(deps, request, body):
     # 11.2: the same 5.7 apply pipeline restricted to the delta.
     return _events_apply(deps, request, only_delta=True)
+
+
+def events_tracks_remove(deps, request, body):
+    """Preview by default; execution must echo the complete displayed plan.
+
+    The Rekordbox guard is conditional (event-track-removal): a batch whose
+    entries were never applied has no Rekordbox footprint at all, so it must
+    not demand a configured/closed Rekordbox for nothing. Closed-ness itself
+    is enforced where every other write enforces it - inside mutate().
+    """
+    event = _get_event(deps, request.path_params["event_id"])
+    track_ids = _require_list(body, "track_ids")
+    _require_storage(deps)
+    tracks = events_service.list_event_tracks(deps.conn, event["id"])
+    if event_remove.needs_rekordbox(tracks, track_ids):
+        _require_rekordbox(deps)
+    return event_remove.remove_tracks(
+        deps.conn,
+        deps.db_path,
+        deps.backups_root,
+        deps.cache(),
+        deps.storage_root,
+        event,
+        track_ids=track_ids,
+        dry_run=bool(body.get("dry_run", True)),
+        plan=body.get("plan"),
+        consent_to_permanent_delete=bool(body.get("consent_to_permanent_delete")),
+        retention=deps.retention,
+        app_db_path=deps.app_db_path,
+    )
 
 
 def events_delete(deps, request, body):
@@ -2540,10 +2751,26 @@ def routes(deps: Deps) -> list[Route]:
             events_track_remove,
             ["DELETE"],
         ),
+        r(
+            "/api/events/{event_id:int}/tracks/{track_id:int}/restore",
+            events_track_restore,
+            ["POST"],
+        ),
+        r(
+            "/api/events/{event_id:int}/tracks/{track_id:int}/keep",
+            events_track_keep,
+            ["POST"],
+        ),
+        r("/api/events/{event_id:int}/refresh", events_refresh, ["POST"]),
         r("/api/events/{event_id:int}/match", events_match, ["POST"]),
         r("/api/events/{event_id:int}/claim", events_claim, ["POST"]),
         r("/api/events/{event_id:int}/apply", events_apply, ["POST"]),
         r("/api/events/{event_id:int}/reapply", events_reapply, ["POST"]),
+        r(
+            "/api/events/{event_id:int}/tracks/remove",
+            events_tracks_remove,
+            ["POST"],
+        ),
         r("/api/events/{event_id:int}/delete", events_delete, ["POST"]),
         r("/api/performances", performances_list, ["GET"]),
         r("/api/performances/live", performances_live, ["GET"]),
