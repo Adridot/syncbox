@@ -131,7 +131,15 @@ def plan_removal(
     # removable only when EVERY live row holding it is in the batch;
     # a partially covered group degrades to NO ACTION, never a partial one.
     contents: dict[str, tuple | None] = {}
-    if wants_rekordbox:
+    # Resolved whenever master.db is READABLE, not only when the batch writes
+    # to it: holders_by_file below needs the FolderPath of every live entry,
+    # including entries held by rows OUTSIDE the batch. Gating this on
+    # wants_rekordbox silently disabled the shared-file guard for a
+    # never-applied-only batch (review 2026-08-21) — a file could then be
+    # trashed while an entry held by a track staying in the event pointed at
+    # it. Reading is harmless with Rekordbox open; only writing is guarded.
+    unresolved_entries = query is None and any(row["content_id"] for row in live)
+    if query is not None:
         for content_id in dict.fromkeys(
             str(row["content_id"]) for row in live if row["content_id"]
         ):
@@ -245,7 +253,9 @@ def plan_removal(
             and file_key is not None
             and _inside_staging(source, staging)
         )
-        deletes = wants_file and file_removable
+        # Conservative: master.db was unreadable while live rows still hold
+        # entries, so no file can be PROVEN unreferenced. Keep it.
+        deletes = wants_file and file_removable and not unresolved_entries
         if entry is not None:
             # Every Rekordbox-side consequence — the untag included — needs
             # the whole entry group in the batch.
@@ -333,8 +343,13 @@ def plan_removal(
 
 def read_removal_plan(db_path, event, tracks, track_ids, storage_root) -> dict:
     """plan_removal over a stable master.db snapshot (or none at all)."""
-    if not needs_rekordbox(tracks, track_ids):
-        # No Rekordbox footprint: nothing to read, nothing to keep fresh.
+    live_entries = any(
+        row["content_id"] for row in tracks if row["status"] != REMOVED_STATUS
+    )
+    readable = bool(db_path) and Path(db_path).is_file()
+    if not needs_rekordbox(tracks, track_ids) and not (readable and live_entries):
+        # Nothing the batch writes to AND no live entry whose FolderPath the
+        # shared-file guard would need: nothing to read, nothing to keep fresh.
         return plan_removal(
             None, event, tracks, track_ids, storage_root, db_path, None
         )

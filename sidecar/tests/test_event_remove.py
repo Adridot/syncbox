@@ -241,6 +241,71 @@ def test_file_shared_with_a_row_outside_the_batch_is_kept(conn, tmp_path):
     assert plan["tracks"][0]["file_deleted"] is False
 
 
+def test_a_never_applied_batch_still_honours_the_file_group(conn, tmp_path):
+    """Review 2026-08-21: the entry-derived half of holders_by_file used to be
+    resolved only when the BATCH wrote to Rekordbox, so a never-applied-only
+    batch could trash a staged file that a live entry — held by a row staying
+    in the event, and carrying no staged path of its own — still pointed at.
+    The batch writes nothing to Rekordbox; the file must survive all the same."""
+    storage = tmp_path / "storage"
+    event, ids = seeded_event(
+        conn,
+        storage,
+        tracks=[
+            # holds the entry the previous apply created, no staged path
+            ("Matched Onto It", "matched", "C9", None, None),
+            # never applied, staged onto the very file that entry points at
+            ("Never Applied", "ready", None, "shared.mp3", None),
+        ],
+    )
+    tracks = list_event_tracks(conn, event["id"])
+    staged = Path(
+        next(t for t in tracks if t["staging_file_path"])["staging_file_path"]
+    )
+    db_path = tmp_path / "master.db"
+    db_path.write_bytes(b"not-read-by-plan_removal")
+    query = rb_query(contents=[("C9", "Matched Onto It", "Artist", str(staged))])
+
+    # the batch is the never-applied row alone, so it needs no Rekordbox write
+    assert event_remove.needs_rekordbox(tracks, [ids[1]]) is False
+    plan = event_remove.plan_removal(
+        query, event, tracks, [ids[1]], storage, db_path, None
+    )
+
+    assert plan["needs_rekordbox"] is False
+    assert plan["entries"] == []
+    assert plan["expected_file_deletions"] == []
+    assert plan["tracks"][0]["file_deleted"] is False
+    assert plan["tracks"][0]["shared_with_kept_track"] is True
+    assert staged.is_file()
+
+
+def test_a_never_applied_batch_reads_master_db_to_prove_the_file_is_free(
+    conn, tmp_path
+):
+    """The counterpart: read_removal_plan must OPEN master.db for a
+    never-applied batch when live rows still hold entries — otherwise the
+    guard above has nothing to work with."""
+    storage = tmp_path / "storage"
+    event, _ = seeded_event(
+        conn,
+        storage,
+        tracks=[
+            ("Matched Onto It", "matched", "C9", None, None),
+            ("Never Applied", "ready", None, "shared.mp3", None),
+        ],
+    )
+    tracks = list_event_tracks(conn, event["id"])
+    missing_db = tmp_path / "absent-master.db"
+
+    # master.db unreadable while live rows hold entries: nothing can be proven
+    # unreferenced, so no file is deleted (conservative, never optimistic).
+    plan = event_remove.plan_removal(
+        None, event, tracks, [tracks[1]["id"]], storage, missing_db, None
+    )
+    assert plan["expected_file_deletions"] == []
+
+
 def test_retained_by_another_mytag_blocks_the_batch(conn, tmp_path):
     storage = tmp_path / "storage"
     event, ids = seeded_event(
