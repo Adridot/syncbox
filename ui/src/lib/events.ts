@@ -20,8 +20,12 @@ const MISSING_FAMILY = new Set(['missing', 'acquisition_failed'])
       again on the next claim — never matched, claimed nor applied.
     - playlist refresh: a `removed_upstream` row left the Spotify playlist.
       Nothing was written and nothing will be — it is a signal awaiting the
-      user's decision, which is why it must never inflate the pending delta. */
-const SIDELINED = new Set(['ignored', 'removed_upstream'])
+      user's decision, which is why it must never inflate the pending delta.
+    - track removal: a `removed` row was withdrawn from the event by an
+      executed removal. The decision is made and done; the row survives only
+      so a staged file that was NOT trashed stays referenced (design.md
+      "The removed track's row"). */
+const SIDELINED = new Set(['ignored', 'removed_upstream', 'removed'])
 const isCounted = (track: EventTrack) => !SIDELINED.has(track.status)
 
 /** Event lifecycle: applied/partially_applied stay open to additions (§11.2). */

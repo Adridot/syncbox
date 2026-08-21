@@ -338,6 +338,59 @@ export const fr: typeof en = {
       note: 'Les migrations requises s’achèvent avant le nettoyage de l’événement. L’identité Rekordbox et les métadonnées conservées restent inchangées. Requiert Rekordbox fermé.',
       confirm: 'Supprimer l’événement',
     },
+    // add-event-track-removal : le seul geste destructif du plan de travail —
+    // chaque libellé doit dire exactement ce qui est perdu.
+    remove: {
+      title: 'Retirer des titres de « {name} »',
+      lead: 'Ce qui va se passer, titre par titre. Rien n’est écrit avant ta confirmation.',
+      untagLine: 'Titres retirés de l’événement',
+      rbDeleteLine: 'Entrées supprimées de Rekordbox',
+      trashLine: 'Fichiers envoyés à la corbeille',
+      tracksCount: '{n} titre dans le lot | {n} titres dans le lot',
+      noTracks: 'Aucun titre sélectionné.',
+      trashFlag: 'fichier à la corbeille',
+      action: {
+        already_permanent: 'Détagué · conservé',
+        keep_in_place: 'Détagué · conservé',
+        delete_with_event: 'Supprimé de Rekordbox · fichier à la corbeille',
+        never_applied: 'Jamais appliqué · fichier stagé à la corbeille',
+        shared_with_kept_track: 'Retiré de l’événement seulement',
+      },
+      actionHelp: {
+        already_permanent:
+          'Le MyTag de l’événement est retiré. Le titre reste dans Rekordbox et son fichier n’est pas touché.',
+        keep_in_place:
+          'Le MyTag de l’événement est retiré. Le titre reste dans Rekordbox et son fichier n’est pas touché.',
+        delete_with_event:
+          'Le MyTag de l’événement est retiré, l’entrée Rekordbox est supprimée et le fichier part à la corbeille. C’est la seule issue destructive de ce lot.',
+        never_applied:
+          'Le titre quitte l’événement et son fichier stagé part à la corbeille. Rekordbox n’est pas touché.',
+        shared_with_kept_track:
+          'Un titre qui reste dans l’événement partage son entrée Rekordbox ou son fichier. Rien n’est détagué, rien n’est supprimé : la ligne quitte l’événement, c’est tout.',
+      },
+      unresolved: '{n} cas non résolu | {n} cas non résolus',
+      issue: {
+        retained_by_other_mytag:
+          'Le fichier stagé de ce titre porte aussi un MyTag que tu as ajouté dans Rekordbox ({tags}). Tant qu’il reste, le lot ne peut pas s’exécuter.',
+      },
+      option: {
+        remove_other_mytag: 'Retirer cet autre MyTag dans Rekordbox, puis rouvrir cet aperçu.',
+        delete_event:
+          'Ou supprimer l’événement entier — la suppression d’événement migre le fichier vers Collection au lieu de le perdre.',
+        relink_in_rekordbox: 'Relier le fichier dans Rekordbox, puis rouvrir cet aperçu.',
+        remove_from_rekordbox: 'Retirer l’entrée dans Rekordbox, puis rouvrir cet aperçu.',
+      },
+      technicalDetails: 'Détails techniques',
+      resolveFirst: 'Résoudre les cas restants',
+      confirmCount: 'Retirer {n} titre | Retirer {n} titres',
+      filesCount: '{n} fichier à la corbeille | {n} fichiers à la corbeille',
+      note: 'Backup Rekordbox horodaté avant l’écriture. L’événement, son MyTag et sa playlist survivent : seuls les titres du lot partent. Requiert Rekordbox fermé.',
+      noteNoRb:
+        'Aucun de ces titres n’a été appliqué : rien n’est écrit dans Rekordbox, il peut rester ouvert.',
+      selectionCta: 'Retirer de l’événement · {n}',
+      selectAll: 'Tout sélectionner',
+      done: '{n} titre retiré de l’événement | {n} titres retirés de l’événement',
+    },
   },
   history: {
     tagline:

@@ -46,6 +46,7 @@ from syncbox import (
     acquisition_migration,
     appdb,
     dedup,
+    event_remove,
     events_service,
     library_service,
     matching,
@@ -931,8 +932,12 @@ def events_list(deps, request, body):
             # (event-playlist-refresh) is out of BOTH aggregates: a departure
             # is not a track the event still carries, and re-apply will never
             # write it - it gets its own count instead of inflating the +n.
+            # 'removed' (event-track-removal) is out of both aggregates for
+            # the same reason: the row survives only to keep its staged file
+            # referenced; the event no longer carries that track.
             "SELECT event_id, "
-            "SUM(CASE WHEN status NOT IN ('ignored', 'removed_upstream') "
+            "SUM(CASE WHEN status NOT IN "
+            "         ('ignored', 'removed_upstream', 'removed') "
             "         THEN 1 ELSE 0 END) AS n_tracks, "
             "SUM(CASE WHEN status IN ('matched', 'ready') THEN 1 "
             "         WHEN added_after_apply = 1 "
@@ -1237,6 +1242,36 @@ def events_apply(deps, request, body):
 def events_reapply(deps, request, body):
     # 11.2: the same 5.7 apply pipeline restricted to the delta.
     return _events_apply(deps, request, only_delta=True)
+
+
+def events_tracks_remove(deps, request, body):
+    """Preview by default; execution must echo the complete displayed plan.
+
+    The Rekordbox guard is conditional (event-track-removal): a batch whose
+    entries were never applied has no Rekordbox footprint at all, so it must
+    not demand a configured/closed Rekordbox for nothing. Closed-ness itself
+    is enforced where every other write enforces it - inside mutate().
+    """
+    event = _get_event(deps, request.path_params["event_id"])
+    track_ids = _require_list(body, "track_ids")
+    _require_storage(deps)
+    tracks = events_service.list_event_tracks(deps.conn, event["id"])
+    if event_remove.needs_rekordbox(tracks, track_ids):
+        _require_rekordbox(deps)
+    return event_remove.remove_tracks(
+        deps.conn,
+        deps.db_path,
+        deps.backups_root,
+        deps.cache(),
+        deps.storage_root,
+        event,
+        track_ids=track_ids,
+        dry_run=bool(body.get("dry_run", True)),
+        plan=body.get("plan"),
+        consent_to_permanent_delete=bool(body.get("consent_to_permanent_delete")),
+        retention=deps.retention,
+        app_db_path=deps.app_db_path,
+    )
 
 
 def events_delete(deps, request, body):
@@ -2731,6 +2766,11 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/events/{event_id:int}/claim", events_claim, ["POST"]),
         r("/api/events/{event_id:int}/apply", events_apply, ["POST"]),
         r("/api/events/{event_id:int}/reapply", events_reapply, ["POST"]),
+        r(
+            "/api/events/{event_id:int}/tracks/remove",
+            events_tracks_remove,
+            ["POST"],
+        ),
         r("/api/events/{event_id:int}/delete", events_delete, ["POST"]),
         r("/api/performances", performances_list, ["GET"]),
         r("/api/performances/live", performances_live, ["GET"]),

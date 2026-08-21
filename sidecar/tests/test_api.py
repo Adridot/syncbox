@@ -921,6 +921,149 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
     assert seen[-1] == {"dry_run": False, "plan": preview_plan, "consent": True}
 
 
+def _staged_event_track(env, event, title, *, status, content_id=None, filename=None):
+    """One event track row, with its staged file on disk when named."""
+    path = None
+    if filename is not None:
+        path = Path(event["staging_dir"]) / "audio" / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"audio-" + filename.encode())
+    cur = env.conn.execute(
+        "INSERT INTO event_tracks (event_id, title, status, content_id,"
+        " staging_file_path, origin) VALUES (?, ?, ?, ?, ?, 'manual')",
+        (event["id"], title, status, content_id, str(path) if path else None),
+    )
+    return cur.lastrowid, path
+
+
+def test_event_tracks_remove_guards_rekordbox_only_when_it_is_needed(tmp_path):
+    """event-track-removal 4.1: a batch of never-applied rows has no
+    Rekordbox footprint, so it must not demand a configured Rekordbox."""
+    env = make_env(tmp_path)
+    event = env.client.post("/api/events", json={"name": "Gig"}).json()
+    ready, _ = _staged_event_track(env, event, "Ready", status="ready", filename="r.mp3")
+    applied, _ = _staged_event_track(
+        env, event, "Applied", status="applied", content_id="C1", filename="a.mp3"
+    )
+    env.deps.settings.update({"rekordbox_db_path": ""})  # not configured yet
+
+    preview = env.client.post(
+        f"/api/events/{event['id']}/tracks/remove", json={"track_ids": [ready]}
+    )
+    assert preview.status_code == 200
+    assert preview.json()["needs_rekordbox"] is False
+
+    blocked = env.client.post(
+        f"/api/events/{event['id']}/tracks/remove", json={"track_ids": [applied]}
+    )
+    assert blocked.status_code == 400
+    assert "rekordbox_db_path" in blocked.json()["message"]
+    # An empty batch is a client bug, never an empty destructive run.
+    assert env.client.post(
+        f"/api/events/{event['id']}/tracks/remove", json={"track_ids": []}
+    ).status_code == 400
+
+
+def test_event_tracks_remove_round_trip_echoes_the_preview(tmp_path, monkeypatch):
+    env = make_env(tmp_path)
+    event = env.client.post("/api/events", json={"name": "Gig"}).json()
+    going, staged = _staged_event_track(
+        env, event, "Leaving", status="removed_upstream", filename="gone.mp3"
+    )
+    staying, kept = _staged_event_track(
+        env, event, "Staying", status="ready", filename="stays.mp3"
+    )
+    trashed = []
+    monkeypatch.setattr(
+        api.event_remove, "delete_file", lambda p, **kw: trashed.append(str(p))
+    )
+
+    preview = env.client.post(
+        f"/api/events/{event['id']}/tracks/remove", json={"track_ids": [going]}
+    ).json()
+    assert preview["dry_run"] is True
+    assert preview["expected_file_deletions"] == [str(staged)]
+
+    done = env.client.post(
+        f"/api/events/{event['id']}/tracks/remove",
+        json={
+            "track_ids": [going],
+            "dry_run": False,
+            "plan": preview,
+            "consent_to_permanent_delete": False,
+        },
+    )
+    assert done.status_code == 200
+    body = done.json()
+    assert body["dry_run"] is False
+    assert body["removed_tracks"] == [going] and body["removed_files"] == [str(staged)]
+    assert trashed == [str(staged)]
+    assert kept.is_file() and Path(event["staging_dir"]).is_dir()
+    rows = {t["id"]: t for t in env.client.get(f"/api/events/{event['id']}").json()["tracks"]}
+    assert rows[going]["status"] == "removed"
+    assert rows[staying]["status"] == "ready"
+    # A removed row leaves both events_list aggregates.
+    listed = next(
+        e for e in env.client.get("/api/events").json()["events"] if e["id"] == event["id"]
+    )
+    assert listed["n_tracks"] == 1 and listed["removed_upstream"] == 0
+
+    # The echoed plan is spent: replaying it is refused, nothing is redone.
+    replay = env.client.post(
+        f"/api/events/{event['id']}/tracks/remove",
+        json={"track_ids": [going], "dry_run": False, "plan": preview},
+    )
+    assert replay.status_code == 400
+    assert trashed == [str(staged)]
+
+
+def test_event_tracks_remove_refuses_a_batch_with_an_unresolved_track(
+    tmp_path, monkeypatch
+):
+    env = make_env(tmp_path)
+    event = env.client.post("/api/events", json={"name": "Gig"}).json()
+    track, _ = _staged_event_track(
+        env, event, "Retained", status="applied", content_id="C1", filename="k.mp3"
+    )
+    plan = {
+        "dry_run": True,
+        "plan_version": 1,
+        "event_id": event["id"],
+        "needs_rekordbox": True,
+        "fingerprint": [["1", "2"]],
+        "tag_id": "T1",
+        "tracks": [],
+        "entries": [],
+        "expected_file_deletions": [],
+        "unresolved": [
+            {
+                "id": "retained_by_other_mytag-C1",
+                "kind": "retained_by_other_mytag",
+                "title": "Retained",
+                "artist": None,
+                "content_id": "C1",
+                "retaining_mytags": ["Energy"],
+                "resolution_options": ["remove_other_mytag", "delete_event"],
+            }
+        ],
+        "validation": {},
+    }
+    monkeypatch.setattr(api.event_remove, "read_removal_plan", lambda *a: plan)
+
+    preview = env.client.post(
+        f"/api/events/{event['id']}/tracks/remove", json={"track_ids": [track]}
+    )
+    assert preview.status_code == 200
+    assert preview.json()["unresolved"][0]["kind"] == "retained_by_other_mytag"
+
+    blocked = env.client.post(
+        f"/api/events/{event['id']}/tracks/remove",
+        json={"track_ids": [track], "dry_run": False, "plan": plan},
+    )
+    assert blocked.status_code == 400
+    assert "unresolved" in blocked.json()["message"]
+
+
 # --- missing center ----------------------------------------------------------------
 
 

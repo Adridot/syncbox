@@ -141,6 +141,54 @@ export interface EventDeleteIssue {
   resolution_options: string[]
 }
 
+/** add-event-track-removal: the preview plan for a batch removal. Only
+    `needs_rekordbox`, `tracks` and `unresolved` are read — every other field
+    (validation, fingerprint, plan_version) is opaque and echoed VERBATIM. */
+export interface EventTrackRemovalPlan {
+  plan_version: number
+  event_id: number
+  /** false when every batch entry was never applied — no Rekordbox write, so
+      no closed-Rekordbox guard for that batch. */
+  needs_rekordbox: boolean
+  tracks: EventRemovalTrackPlan[]
+  expected_file_deletions: string[]
+  unresolved?: EventRemovalIssue[]
+  validation?: unknown
+  fingerprint?: Fingerprint
+}
+
+export type EventRemovalAction =
+  | 'already_permanent'
+  | 'keep_in_place'
+  | 'delete_with_event'
+  | 'never_applied'
+
+export interface EventRemovalTrackPlan {
+  track_id: number
+  content_id: string | null
+  title: string | null
+  artist: string | null
+  action: EventRemovalAction
+  source_path: string | null
+  file_deleted: boolean
+  /** One of this row's two groups refused the removal — its Rekordbox entry or
+      its staged file is still held by a track staying in the event (the
+      same-ISRC shared-file case). The row leaves the event and NOTHING else
+      happens: no untag, no delete, no file. Rendered as its own group, since
+      the `keep_in_place` wording would promise an untag that will not occur. */
+  shared_with_kept_track?: boolean
+}
+
+export interface EventRemovalIssue {
+  id: string
+  kind: string
+  title: string | null
+  artist: string | null
+  content_id: string | null
+  retaining_mytags: string[]
+  resolution_options: string[]
+}
+
 export interface MatchCandidate {
   content_id: string
   title: string | null

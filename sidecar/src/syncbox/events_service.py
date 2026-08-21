@@ -210,8 +210,11 @@ def add_track(
 _REFRESHED_COLUMNS = ("title", "artist", "duration_ms", "isrc")
 # A row the user already took a decision on is not re-signalled: 'ignored' is
 # a rejection that must stick (and its prior_status belongs to D22 unignore),
-# 'removed_upstream' is already signalled.
-_UNSIGNALLABLE = frozenset({"ignored", "removed_upstream"})
+# 'removed_upstream' is already signalled, and 'removed' (event-track-removal)
+# is a track that has LEFT the event - a departure signal on it would be
+# meaningless and would give it back a prior_status the 'keep' action would
+# then restore.
+_UNSIGNALLABLE = frozenset({"ignored", "removed_upstream", "removed"})
 
 
 def refresh_from_playlist(conn, event, spotify_client) -> dict:

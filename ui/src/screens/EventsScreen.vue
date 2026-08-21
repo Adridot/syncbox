@@ -17,6 +17,8 @@ import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import NewEventModal from '../components/NewEventModal.vue'
 import ReapplyEventModal from '../components/ReapplyEventModal.vue'
+import RemoveTracksModal from '../components/RemoveTracksModal.vue'
+import SelectionBar from '../components/SelectionBar.vue'
 import SpotifyAttributionLink from '../components/SpotifyAttributionLink.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import {
@@ -51,7 +53,7 @@ const filter = ref<EventFilter>('all')
 const loading = ref(true)
 const loadError = ref<string | null>(null)
 const banner = ref<{ tone: 'error' | 'success'; text: string } | null>(null)
-const modal = ref<null | 'new' | 'apply' | 'reapply' | 'delete'>(null)
+const modal = ref<null | 'new' | 'apply' | 'reapply' | 'delete' | 'remove'>(null)
 
 const link = ref('')
 const adding = ref(false)
@@ -127,6 +129,34 @@ const visibleFilters = computed(() =>
     (chip) => !OPT_IN_CHIPS.includes(chip) || chipCount(chip) > 0 || filter.value === chip,
   ),
 )
+
+// --- batch removal selection (task 5.1) -----------------------------------
+// Scoped to the departures chip: a departed track is the one row whose only
+// remaining moves are "keep it" or "get rid of it", and the removal API is
+// what makes the second one possible without deleting the event. The pick
+// column therefore exists only in that view — nowhere else would it ever be
+// used, and an affordance that always reads zero takes no space (owner).
+const selection = ref<Set<number>>(new Set())
+const picking = computed(() => filter.value === 'removed')
+const allVisibleSelected = computed(
+  () =>
+    visibleTracks.value.length > 0 &&
+    visibleTracks.value.every((track) => selection.value.has(track.id)),
+)
+function toggleAll() {
+  const next = new Set(selection.value)
+  if (allVisibleSelected.value) visibleTracks.value.forEach((track) => next.delete(track.id))
+  else visibleTracks.value.forEach((track) => next.add(track.id))
+  selection.value = next
+}
+function toggleOne(id: number) {
+  const next = new Set(selection.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selection.value = next
+}
+// a selection only means something inside the view that built it
+watch([selectedId, filter], () => (selection.value = new Set()))
 
 // windowed tracklist: the page scrolls in App's .main (nearest scrollable
 // ancestor), resolved by the wrapper; only ~viewport rows are in the DOM
@@ -448,6 +478,15 @@ async function onWriteDone() {
   modal.value = null
   await load()
 }
+
+/** Removal withdraws the rows (status `removed`, SIDELINED), so the counts,
+    the chips and the departure badge all move — load(), never a splice. */
+async function onRemoved(n: number) {
+  modal.value = null
+  selection.value = new Set()
+  await load()
+  banner.value = { tone: 'success', text: t('events.remove.done', n) }
+}
 </script>
 
 <template>
@@ -717,6 +756,14 @@ async function onWriteDone() {
 
         <div class="table">
           <div class="table-head">
+            <span v-if="picking" class="cell-pick">
+              <input
+                type="checkbox"
+                :checked="allVisibleSelected"
+                :aria-label="t('events.remove.selectAll')"
+                @change="toggleAll"
+              />
+            </span>
             <span class="cell-title">{{ t('events.columns.title') }}</span>
             <span class="cell-status">{{ t('events.columns.status') }}</span>
             <span class="cell-conf">{{ t('events.columns.conf') }}</span>
@@ -731,7 +778,16 @@ async function onWriteDone() {
             class="row hover-reveal"
             :data-pending="track.added_after_apply === 1"
             :style="rowStyle(item)"
+            :data-selected="selection.has(track.id)"
           >
+            <span v-if="picking" class="cell-pick">
+              <input
+                type="checkbox"
+                :checked="selection.has(track.id)"
+                :aria-label="track.title ?? ''"
+                @change="toggleOne(track.id)"
+              />
+            </span>
             <div class="cell-title">
               <div class="row-title-line">
                 <span class="row-title">{{ track.title }}</span>
@@ -845,6 +901,15 @@ async function onWriteDone() {
             {{ t('events.filterEmpty') }}
           </div>
         </div>
+
+        <!-- floating pill: the table never shifts when a selection starts -->
+        <div class="sel-float-anchor">
+          <SelectionBar :count="selection.size" @clear="selection = new Set()">
+            <button class="sel-remove" :disabled="jobs.jobRunning" @click="modal = 'remove'">
+              {{ t('events.remove.selectionCta', { n: selection.size }) }}
+            </button>
+          </SelectionBar>
+        </div>
       </section>
     </template>
 
@@ -868,6 +933,13 @@ async function onWriteDone() {
       :event="selected"
       @close="modal = null"
       @deleted="onWriteDone"
+    />
+    <RemoveTracksModal
+      v-if="modal === 'remove' && selected"
+      :event="selected"
+      :track-ids="[...selection]"
+      @close="modal = null"
+      @removed="onRemoved"
     />
     <DeezerSearchPanel
       v-if="searchTrack"
@@ -1384,6 +1456,15 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.cell-pick {
+  width: 18px;
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.row[data-selected='true'] {
+  background: rgba(77, 163, 255, 0.07);
+}
 .cell-status {
   width: 140px;
   flex: none;
@@ -1514,6 +1595,31 @@ h1 {
 .row-restore:hover {
   color: var(--accent-hover);
   border-color: var(--accent-border);
+}
+.sel-float-anchor {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  z-index: 6;
+}
+.sel-float-anchor:not(:empty) {
+  margin-top: 12px;
+}
+.sel-remove {
+  background: rgba(247, 110, 110, 0.12);
+  border: 1px solid rgba(247, 110, 110, 0.28);
+  color: var(--danger-text);
+  padding: 5px 11px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sel-remove:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .table-empty {
   padding: 34px;
