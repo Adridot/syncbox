@@ -1,6 +1,6 @@
 # Syncbox Provider Data and Privacy
 
-Includes the event link-import change under development for Syncbox 0.8.0.
+Includes the event link-import change under development for Syncbox 0.9.0.
 
 Syncbox is a local, single-user macOS application. It has no Syncbox cloud backend and does not create a Syncbox account.
 
