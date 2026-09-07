@@ -53,6 +53,7 @@ export const en = {
     "unsupported_music_resource": "Use a supported track, album or playlist link.",
     "invalid_music_link": "Enter a valid HTTPS music link.",
     "collection_item_limit": "This collection exceeds the 1,000-entry limit.",
+    "collection_incomplete": "The provider returned fewer entries than it reports for this collection. Retry later.",
     "metadata_time_limit": "Metadata resolution exceeded its time limit. Try a smaller collection.",
     "operation_cancelled": "The operation was cancelled.",
     "live_stream_unsupported": "Live and upcoming streams cannot be imported.",

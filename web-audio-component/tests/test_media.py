@@ -72,6 +72,8 @@ def test_supported_extension_cannot_hide_unsupported_codec(monkeypatch, tmp_path
 @pytest.mark.parametrize(('url', 'info', 'provider', 'kind', 'item_id'), [
     ('https://music.youtube.com/browse/MPREb_gTAcphH99wE', {'id': 'OLAK5uy_l1m0thk3g31NmIIz_vMIbWtyv7eZixlH0', 'entries': [{'id': 'XNEnEBrHws8', 'title': 'Flat track', 'uploader': 'Do not invent artist'}]}, 'youtube', 'album', 'XNEnEBrHws8'),
     ('https://soundcloud.com/artist/sets/album', {'id': '123', 'entries': [{'id': '456', 'url': 'https://soundcloud.com/artist/song', 'title': 'Album track'}]}, 'soundcloud', 'playlist', '456'),
+    # Set children beyond the first five are API stubs: no permalink, no title.
+    ('https://soundcloud.com/artist/sets/album', {'id': '123', 'entries': [{'id': '565801467', 'url': 'https://api-v2.soundcloud.com/tracks/565801467'}]}, 'soundcloud', 'playlist', '565801467'),
 ])
 def test_flat_collection_identity_is_preserved_without_fabricated_metadata(monkeypatch, url, info, provider, kind, item_id):
     monkeypatch.setattr(runner.yt_dlp.YoutubeDL, 'extract_info', lambda self, url, download: info)

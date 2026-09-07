@@ -87,6 +87,9 @@ def identity(url):
             return "youtube", "playlist", playlist, f"https://www.youtube.com/playlist?list={playlist}"
         if host == "music.youtube.com" and re.fullmatch(r"browse/MP[A-Za-z0-9_-]{5,150}", path):
             return "youtube", "album", path.split("/")[1], f"https://music.youtube.com/{path}"
+    if host == "api-v2.soundcloud.com" and re.fullmatch(r"tracks/[1-9][0-9]{0,19}", path):
+        # Flat set children without a permalink keep their numeric identity.
+        return "soundcloud", "track", path.split("/")[1], f"https://api-v2.soundcloud.com/{path}"
     if host in {"soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"}:
         parts = path.split("/")
         if len(parts) == 3 and parts[1] == "sets":

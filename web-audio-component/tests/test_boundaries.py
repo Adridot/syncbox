@@ -189,6 +189,9 @@ def test_video_playlist_choice_and_metadata_identity():
     with pytest.raises(runner.ComponentError, match="choice_required"):
         runner.identity("https://www.youtube.com/watch?v=f7NwyBnIRTE&list=PL6B3937A5D230E335")
     assert runner.identity("https://youtu.be/f7NwyBnIRTE?t=20")[2] == "f7NwyBnIRTE"
+    assert runner.identity("https://api-v2.soundcloud.com/tracks/565801467") == ("soundcloud", "track", "565801467", "https://api-v2.soundcloud.com/tracks/565801467")
+    with pytest.raises(runner.ComponentError, match="unsupported_resource"):
+        runner.identity("https://api-v2.soundcloud.com/playlists/1")
     child = runner.entry({"id": "1757017227", "url": "https://soundcloud.com/trackistador/kevin-macleod-all-this", "uploader": "Not the artist"}, "soundcloud", 3)
     assert child["artist"] is None
     assert child["item_id"] == "1757017227"

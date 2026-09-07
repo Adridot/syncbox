@@ -173,11 +173,23 @@ def test_migration_preserves_legacy_jobs_and_rows(tmp_path, monkeypatch):
     ("https://music.youtube.com/browse/MPREb_gTAcphH99wE", "youtube", "album"),
     ("https://soundcloud.com/artist/sets/album", "soundcloud", "playlist"),
     ("https://on.soundcloud.com/abc123", "soundcloud", "share"),
+    ("https://api-v2.soundcloud.com/tracks/565801467?tracking=1", "soundcloud", "track"),
 ])
 def test_canonical_links(url, provider, kind):
     result = parse_link(url)
     assert (result["provider"], result["resource_type"]) == (provider, kind)
     assert "tracking" not in result["url"]
+
+
+def test_soundcloud_set_stub_children_keep_numeric_identity():
+    # Sets beyond five tracks expose API stubs without a permalink (real set 1752070992).
+    manifest = {"provider": "soundcloud", "url": "https://soundcloud.com/artist/sets/album", "entries": [
+        {"item_id": "1706333112", "url": "https://soundcloud.com/artist/song", "available": True},
+        {"item_id": "565801467", "url": "https://api-v2.soundcloud.com/tracks/565801467", "available": True}]}
+    clean = link_imports.normalized_manifest(manifest)
+    assert [entry["url"] for entry in clean["entries"]] == ["https://soundcloud.com/artist/song", "https://api-v2.soundcloud.com/tracks/565801467"]
+    with pytest.raises(LinkError, match="invalid_manifest_identity"):
+        link_imports.normalized_manifest({**manifest, "entries": [{"item_id": "565801467", "url": "https://api-v2.soundcloud.com/tracks/2", "available": True}]})
 
 
 def test_ambiguous_video_and_unsupported_resource():

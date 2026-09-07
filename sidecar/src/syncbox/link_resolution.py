@@ -77,6 +77,10 @@ def resolve(url, *, spotify_client=None, web_runner=None, cancelled=lambda: Fals
         title = first.get("name") if provider == "spotify" else first.get("title")
         if kind == "track":
             pages = [{"data": [first], "next": None}]
+        elif provider == "deezer":
+            # The embedded `tracks` object stops at 400 entries without a `next`
+            # link; only the /tracks endpoint paginates and reports `total`.
+            pages = [catalogue_get(f"/{kind}/{item_id}/tracks?limit=100", provider)]
         else:
             page = first.get("items") if kind == "playlist" and isinstance(first.get("items"), dict) else first.get("tracks")
             if not isinstance(page, dict):
@@ -110,6 +114,9 @@ def resolve(url, *, spotify_client=None, web_runner=None, cancelled=lambda: Fals
                     raise LinkError("collection_page_limit")
                 seen.add(next_url)
                 pages.append(catalogue_get(next_url, provider))
+        total = pages[0].get("total")
+        if kind != "track" and isinstance(total, int) and total != len(entries):
+            raise LinkError("collection_incomplete")
     if provider == "spotify" and kind == "album":
         missing = [entry for entry in entries if entry["available"] and not entry.get("isrc")]
         for start in range(0, len(missing), 50):

@@ -48,9 +48,17 @@ def test_spotify_missing_items_and_mid_page_failure_never_succeed():
 
 def test_deezer_pages_and_child_identity_without_credentials(monkeypatch):
     calls = []
+    total = 2
     def request(url, **kwargs):
         calls.append((url, kwargs))
-        payload = {"title": "Album", "tracks": {"data": [{"id": 101, "title": "First", "artist": {"name": "Artist"}}], "next": "https://api.deezer.com/album/123/tracks?index=1"}} if len(calls) == 1 else {"data": [{"id": 202, "readable": False}], "next": None}
+        path = url.removeprefix("https://api.deezer.com")
+        if path == "/album/123":
+            # Real playlists embed at most 400 tracks with no `next`: the embedded list must be ignored.
+            payload = {"title": "Album", "nb_tracks": 2, "tracks": {"data": [{"id": 999, "title": "Truncated embed"}]}}
+        elif path == "/album/123/tracks?limit=100":
+            payload = {"data": [{"id": 101, "title": "First", "artist": {"name": "Artist"}}], "total": total, "next": "https://api.deezer.com/album/123/tracks?limit=100&index=1"}
+        else:
+            payload = {"data": [{"id": 202, "readable": False}], "total": total, "next": None}
         return 200, {}, json.dumps(payload).encode(), url
     monkeypatch.setattr(provider_http, "request", request)
     result = link_resolution.resolve("https://www.deezer.com/album/123")
@@ -58,6 +66,9 @@ def test_deezer_pages_and_child_identity_without_credentials(monkeypatch):
     assert [entry["available"] for entry in result["entries"]] == [True, False]
     assert all("headers" not in options for _, options in calls)
     assert result["entries"][0]["url"] == "https://www.deezer.com/track/101"
+    total = 3
+    with pytest.raises(LinkError, match="collection_incomplete"):
+        link_resolution.resolve("https://www.deezer.com/album/123")
 
 
 def test_share_redirect_refused_before_disallowed_host_is_fetched(monkeypatch):

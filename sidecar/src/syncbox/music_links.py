@@ -67,6 +67,12 @@ def parse_link(value, *, choice=None):
             provider, kind, item, url = "youtube", "playlist", playlist, f"https://www.youtube.com/playlist?list={playlist}"
         elif host == "music.youtube.com" and re.fullmatch(r"browse/MP[A-Za-z0-9_-]{5,150}", path):
             provider, kind, item, url = "youtube", "album", path.split("/")[1], f"https://music.youtube.com/{path}"
+    elif host == "api-v2.soundcloud.com":
+        # Set children beyond the first five are API stubs without a permalink;
+        # the numeric track id is the exact identity yt-dlp downloads from.
+        found = re.fullmatch(r"tracks/([1-9][0-9]{0,19})", path)
+        if found:
+            provider, kind, item, url = "soundcloud", "track", found.group(1), f"https://api-v2.soundcloud.com/tracks/{found.group(1)}"
     elif host in {"soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"}:
         parts = path.split("/")
         if all(re.fullmatch(r"[A-Za-z0-9_-]{1,200}", part) for part in parts):
