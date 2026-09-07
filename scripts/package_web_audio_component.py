@@ -139,10 +139,20 @@ def main():
                         **source_from_lock(lock[name], ROOT / "uv.lock"),
                         "files": files})
     (licenses / "python-inventory.json").write_text(json.dumps(entries, indent=2) + "\n")
-    reviewed = ROOT.parent / "release/licenses/optional/texts"
-    shutil.copytree(reviewed / "python-runtime", licenses / "python-runtime", dirs_exist_ok=True)
-    shutil.copytree(reviewed / "build-runtime/pyinstaller-bootloader-6.21.0",
-                    licenses / "pyinstaller-bootloader", dirs_exist_ok=True)
+    # python-build-standalone 3.13.11 notices (same runtime lane as the Deezer
+    # component) from the reviewed override source, and the PyInstaller
+    # bootloader notice from the distribution that froze this component
+    runtime = ROOT.parent / "release/license-overrides/python-build-standalone-20260127"
+    (licenses / "python-runtime").mkdir(exist_ok=True)
+    for notice in ("LICENSE.bzip2.txt", "LICENSE.cpython.txt", "LICENSE.expat.txt", "LICENSE.libffi.txt",
+                   "LICENSE.liblzma.txt", "LICENSE.libuuid.txt", "LICENSE.mpdecimal.txt", "LICENSE.openssl-3.txt",
+                   "LICENSE.sqlite.txt"):
+        shutil.copy2(runtime / notice, licenses / "python-runtime" / notice)
+    pyinstaller = distribution("pyinstaller")
+    (licenses / "pyinstaller-bootloader").mkdir(exist_ok=True)
+    for file in pyinstaller.files or []:
+        if file.name.lower().startswith(("license", "copying")):
+            shutil.copy2(pyinstaller.locate_file(file), licenses / "pyinstaller-bootloader" / f"{pyinstaller.version}-{file.name}")
     # same determinism knobs as build_macos_release.py: PyInstaller orders
     # base_library.zip from a set, so an unseeded hash randomizes the archive
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "syncbox-web-audio-component.spec"],

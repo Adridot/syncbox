@@ -51,12 +51,19 @@ def _source_tree_sha256(root: Path) -> str:
     return digest.hexdigest()
 
 
-def test_generated_license_material_is_current():
+@pytest.fixture(scope="module")
+def materialized():
+    """--check compares the committed inventory and writes the (uncommitted)
+    notice texts next to it; the tree-walking tests below need those texts."""
     subprocess.run(
         [sys.executable, REPO / "scripts/generate_release_licenses.py", "--check"],
         cwd=REPO,
         check=True,
     )
+
+
+def test_generated_license_material_is_current(materialized):
+    pass
 
 
 def test_release_scanner_rejects_python_optimization():
@@ -212,7 +219,7 @@ def test_frozen_distributions_must_match_locked_and_inventoried_versions(tmp_pat
         )
 
 
-def test_license_bundles_are_complete_and_policy_reviewed():
+def test_license_bundles_are_complete_and_policy_reviewed(materialized):
     scanner = _load_scanner()
     expected = {"base": (323, 590), "optional": (47, 87)}
     for target, (entries, files) in expected.items():
@@ -272,7 +279,7 @@ def test_license_policy_accepts_only_exact_review_and_custom_exceptions():
     }
 
 
-def test_inventory_paths_and_hashes_are_relocatable():
+def test_inventory_paths_and_hashes_are_relocatable(materialized):
     for target in ("base", "optional"):
         root = REPO / f"release/licenses/{target}"
         raw = (root / "dependency-inventory.json").read_bytes()

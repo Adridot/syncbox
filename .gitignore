@@ -13,6 +13,7 @@ web-audio-component/build/
 web-audio-component/dist/
 web-audio-component/vendor/
 # notice texts are materialized by scripts/package_web_audio_component.py from the pinned inventories
+release/licenses/*/texts/
 web-audio-component/licenses/**
 !web-audio-component/licenses/deno-inventory.json
 !web-audio-component/licenses/deno-native/

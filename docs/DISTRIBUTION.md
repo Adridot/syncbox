@@ -120,7 +120,9 @@ provenance while every project-controlled pin remains fail-closed.
    `shell/package.json`, `shell/src-tauri/Cargo.toml`,
    `shell/src-tauri/Cargo.lock`, `release-build.json`, the README release
    links, and versioned reproducibility expectations. Regenerate the release
-   license inventories. Do not edit any field in
+   license inventories (`release/licenses/*/texts/` is generated material,
+   not committed: `generate_release_licenses.py --check` verifies the committed
+   inventory and writes the texts the PyInstaller specs bundle). Do not edit any field in
    `sidecar/src/syncbox/optional_component.json`; the hosted workflow replaces
    the whole file in step 4.
 3. Run the dependency lock checks, release-license check, Cargo metadata
