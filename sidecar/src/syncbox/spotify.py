@@ -23,6 +23,7 @@ import hashlib
 import json
 import secrets as pysecrets
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -95,6 +96,10 @@ class SpotifyAuth:
     ):
         self._client_id = client_id_getter
         self._secrets = secrets
+        # The link-import worker uses the client outside the API lock; PKCE
+        # rotates refresh tokens, so two concurrent refreshes would revoke
+        # the session (invalid_grant on the second one).
+        self._refresh_lock = threading.Lock()
         self._transport = transport
         self._clock = clock
         self._verifier = None
@@ -192,20 +197,25 @@ class SpotifyAuth:
         self._secrets.delete(ACCESS_TOKEN)
         self._secrets.delete(REFRESH_TOKEN)
 
-    def refresh(self) -> None:
-        refresh_token = self._secrets.get(REFRESH_TOKEN)
-        if not refresh_token:
-            raise NotConnectedError("no refresh token stored")
-        try:
-            self._token_request(grant_type="refresh_token", refresh_token=refresh_token)
-        except SpotifyApiError as exc:
-            if exc.error_code != "invalid_grant":
-                raise
-            self._secrets.delete(ACCESS_TOKEN)
-            self._secrets.delete(REFRESH_TOKEN)
-            raise NotConnectedError(
-                "Spotify authorization expired or was revoked; reconnect the account"
-            ) from None
+    def refresh(self, stale_token: str | None = None) -> None:
+        """``stale_token``: the access token that just got a 401; when another
+        thread already replaced it, this refresh is redundant and skipped."""
+        with self._refresh_lock:
+            if stale_token is not None and self._secrets.get(ACCESS_TOKEN) not in (None, stale_token):
+                return
+            refresh_token = self._secrets.get(REFRESH_TOKEN)
+            if not refresh_token:
+                raise NotConnectedError("no refresh token stored")
+            try:
+                self._token_request(grant_type="refresh_token", refresh_token=refresh_token)
+            except SpotifyApiError as exc:
+                if exc.error_code != "invalid_grant":
+                    raise
+                self._secrets.delete(ACCESS_TOKEN)
+                self._secrets.delete(REFRESH_TOKEN)
+                raise NotConnectedError(
+                    "Spotify authorization expired or was revoked; reconnect the account"
+                ) from None
 
     def access_token(self) -> str:
         token = self._secrets.get(ACCESS_TOKEN)
@@ -253,15 +263,16 @@ class SpotifyClient:
         if not retry and time.monotonic() < getattr(self, "_retry_until", 0):
             raise SpotifyApiError(429, "provider_rate_limited")
         for attempt in range(MAX_ATTEMPTS):
+            token = self._auth.access_token()
             status, headers, body = self._transport(
                 url,
-                headers={"Authorization": f"Bearer {self._auth.access_token()}"},
+                headers={"Authorization": f"Bearer {token}"},
             )
             if status == 401:
                 # Force ONE refresh, only on the first attempt; a 401 later in
                 # the ladder means refresh did not help - never loop refreshes.
                 if attempt == 0:
-                    self._auth.refresh()
+                    self._auth.refresh(stale_token=token)
                     continue
                 raise SpotifyApiError(401, "unauthorized after refresh")
             if status == 429:
@@ -283,11 +294,13 @@ class SpotifyClient:
                         "This is a Spotify-owned editorial playlist; the "
                         "Spotify API no longer exposes these (since Nov 2024).",
                     )
-                raise SpotifyApiError(
-                    404,
-                    "Playlist not found or private. Connect your Spotify "
-                    "account to access your private playlists.",
-                )
+                if "/playlists/" in url:
+                    raise SpotifyApiError(
+                        404,
+                        "Playlist not found or private. Connect your Spotify "
+                        "account to access your private playlists.",
+                    )
+                raise SpotifyApiError(404, "Spotify resource not found")
             if status >= 400:
                 raise SpotifyApiError(status, f"Spotify API error {status}")
             return json.loads(body)
@@ -321,6 +334,10 @@ def resolve_track_meta(ids, client, transport=None) -> dict:
                         "duration_ms": track.get("duration_ms"),
                         "isrc": (track.get("external_ids") or {}).get("isrc"),
                     }
+            except SpotifyApiError as exc:
+                if exc.status_code in {400, 404}:
+                    continue  # this id only (removed or malformed); the batch endpoint returned null for it
+                break
             except Exception:
                 break
     transport = transport or _default_transport

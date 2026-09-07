@@ -22,7 +22,7 @@ async function setup(history = true, state = 'ready') {
   return wrapper
 }
 const button = (wrapper: ReturnType<typeof mount>, text: string) => wrapper.findAll('button').find(value => value.text() === text)!
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => { vi.clearAllMocks(); i18n.global.locale.value = 'en' })
 afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers.length = 0; vi.useRealTimers() })
 
 test('restores a preview in source order, excludes duplicate/private/removed entries, and commits only the selected subset', async () => {

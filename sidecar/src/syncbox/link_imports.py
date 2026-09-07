@@ -61,7 +61,8 @@ def start(conn, event_id, url, request_token, *, choice=None):
         if prior["request_url"] != source["url"]:
             raise LinkError("request_identity_conflict")
         return _decode(prior)
-    pending = conn.execute("SELECT COUNT(*) FROM event_link_imports WHERE state IN ('queued', 'resolving', 'ready')").fetchone()[0]
+    # Bound outstanding work only; a ready preview costs nothing until confirmed or dismissed.
+    pending = conn.execute("SELECT COUNT(*) FROM event_link_imports WHERE state IN ('queued', 'resolving')").fetchone()[0]
     if pending >= 20:
         raise LinkError("pending_import_limit")
     import_id = uuid.uuid4().hex

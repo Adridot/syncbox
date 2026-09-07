@@ -196,6 +196,19 @@ def test_refresh_overwrites_when_rotated():
     assert secrets.get(spotify.REFRESH_TOKEN) == "ref-new"
 
 
+def test_refresh_skips_when_another_thread_already_replaced_the_token():
+    secrets = FakeSecrets()
+    secrets.set(spotify.ACCESS_TOKEN, "acc-fresh")
+    secrets.set(spotify.REFRESH_TOKEN, "ref-1")
+    auth, transport, secrets = make_auth(token_response("acc-3", "ref-3"), secrets=secrets)
+    auth.refresh(stale_token="acc-stale")  # a concurrent refresh already rotated the tokens
+    assert transport.calls == []
+    assert secrets.get(spotify.REFRESH_TOKEN) == "ref-1"
+    auth.refresh(stale_token="acc-fresh")
+    assert [c["url"] for c in transport.calls] == [spotify.TOKEN_URL]
+    assert secrets.get(spotify.ACCESS_TOKEN) == "acc-3"
+
+
 def test_refresh_without_stored_token_raises():
     auth, _, _ = make_auth()
     with pytest.raises(NotConnectedError):
@@ -298,6 +311,14 @@ def test_404_carries_actionable_message():
         client.get("/playlists/private")
     assert info.value.status_code == 404
     assert "Connect your Spotify account" in str(info.value)
+
+
+def test_404_track_does_not_talk_about_playlists():
+    client, _, _ = make_client((404, {}, b""))
+    with pytest.raises(SpotifyApiError) as info:
+        client.get("/tracks/4uLU6hMCjMI75M1A2tKUQC")
+    assert info.value.status_code == 404
+    assert "laylist" not in str(info.value)
 
 
 def test_404_editorial_playlist_names_the_real_cause():
@@ -417,6 +438,24 @@ def test_resolve_track_meta_partial_api_failure_falls_back_to_oembed():
     meta = spotify.resolve_track_meta(ids, Flaky(), transport=transport)
     assert meta["i0"]["title"] == "I0"  # resolved prefix kept
     assert meta["i49"] == {"title": "via-oembed", "artist": None}
+
+
+def test_resolve_track_meta_skips_a_removed_id_and_keeps_resolving():
+    class Catalogue:
+        def get(self, path):
+            i = path.rsplit("/", 1)[1]
+            if i == "gone":
+                raise SpotifyApiError(404, "Spotify resource not found")
+            return {"id": i, "name": i.upper(), "artists": [{"name": "A"}]}
+
+    fallback = []
+    def transport(url, data=None, headers=None, method="GET"):
+        fallback.append(url)
+        return 404, {}, b""
+
+    meta = spotify.resolve_track_meta(["a", "gone", "b"], Catalogue(), transport=transport)
+    assert set(meta) == {"a", "b"}  # a deleted track no longer strands the ids after it
+    assert fallback == [spotify._OEMBED_URL + "gone"]  # only the unknown id reaches the title-only fallback
 
 
 def test_metadata_rate_limit_never_sleeps_and_retains_retry_guidance():
