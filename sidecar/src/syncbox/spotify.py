@@ -29,6 +29,7 @@ import urllib.parse
 import urllib.request
 
 import certifi
+from syncbox import provider_http
 
 AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -79,13 +80,11 @@ class NotConnectedError(RuntimeError):
 
 def _default_transport(url, data=None, headers=None, method="GET"):
     """(status_code, headers dict, body bytes) - never raises on HTTP >= 400."""
-    request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
-    context = ssl.create_default_context(cafile=certifi.where())
-    try:
-        with urllib.request.urlopen(request, context=context, timeout=30) as response:
-            return response.status, dict(response.headers), response.read()
-    except urllib.error.HTTPError as exc:
-        return exc.code, dict(exc.headers), exc.read()
+    status, response_headers, body, _ = provider_http.request(
+        url, data=data, headers=headers, method=method,
+        hosts={"api.spotify.com", "accounts.spotify.com", "open.spotify.com"},
+    )
+    return status, response_headers, body
 
 
 class SpotifyAuth:
@@ -246,8 +245,13 @@ class SpotifyClient:
         self._transport = transport
         self._sleep = sleep
 
-    def get(self, path: str) -> dict:
+    def get(self, path: str, *, retry=True) -> dict:
         url = path if path.startswith("http") else f"{API_BASE}{path}"
+        parsed = provider_http.validate_url(url, {"api.spotify.com"})
+        if not parsed.path.startswith("/v1/"):
+            raise ValueError("unsupported_spotify_api_path")
+        if not retry and time.monotonic() < getattr(self, "_retry_until", 0):
+            raise SpotifyApiError(429, "provider_rate_limited")
         for attempt in range(MAX_ATTEMPTS):
             status, headers, body = self._transport(
                 url,
@@ -261,13 +265,16 @@ class SpotifyClient:
                     continue
                 raise SpotifyApiError(401, "unauthorized after refresh")
             if status == 429:
-                retry_after = int(headers.get("Retry-After", 1))
+                retry_after = max(1, int(headers.get("Retry-After", 1)))
+                self._retry_until = time.monotonic() + retry_after
+                if not retry:
+                    raise SpotifyApiError(429, "provider_rate_limited")
                 self._sleep(retry_after + attempt)
                 continue
             if status == 204:
                 return {}
             if status == 404:
-                # ponytail: prefix sniff — Spotify's Web API 404s all
+                # Spotify's Web API 404s all
                 # editorial/algorithmic playlists (37i9dQZF*) since Nov 2024;
                 # connecting an account does not help, say so.
                 if "/playlists/37i9dQZF" in url:
@@ -290,40 +297,38 @@ class SpotifyClient:
 def resolve_track_meta(ids, client, transport=None) -> dict:
     """Spotify track ids -> {id: {"title", "artist", ...}}, the one shared
     resolution ladder (Prestations history, event track additions):
-    - a session -> batched GET /tracks (API cap: 50 ids/call), title AND
+    - a session -> bounded individual GET /tracks/{id}, title AND
       artist, plus duration_ms/isrc for consumers that keep them;
     - no session, or the API ladder failing -> the anonymous oEmbed
       endpoint, title only, at most _OEMBED_BATCH ids; a network error
       stops that loop silently.
     Best-effort: never raises, unresolved ids are absent from the result
-    (partial API batches keep their resolved prefix), callers retry later."""
-    ids = [track_id for track_id in ids if track_id]
+    (completed requests keep their metadata), callers retry later."""
+    ids = list(dict.fromkeys(track_id for track_id in ids if track_id))[:50]
     out = {}
+    deadline = time.monotonic() + 20
     if client is not None:
-        try:
-            for start in range(0, len(ids), 50):
-                chunk = ids[start : start + 50]
-                payload = client.get("/tracks?ids=" + ",".join(chunk))
-                for track in payload.get("tracks") or []:
-                    if not track:
-                        continue
-                    out[track.get("id")] = {
+        for track_id in ids:
+            if time.monotonic() >= deadline:
+                break
+            try:
+                path = "/tracks/" + urllib.parse.quote(str(track_id), safe="")
+                track = client.get(path, retry=False) if isinstance(client, SpotifyClient) else client.get(path)
+                if track and track.get("name"):
+                    out[track_id] = {
                         "title": track.get("name"),
-                        "artist": ", ".join(
-                            a.get("name", "") for a in track.get("artists", [])
-                        )
-                        or None,
+                        "artist": ", ".join(a.get("name", "") for a in track.get("artists", [])) or None,
                         "duration_ms": track.get("duration_ms"),
-                        # D20: external_ids.isrc ONLY - never the barcode tag.
                         "isrc": (track.get("external_ids") or {}).get("isrc"),
                     }
-            return out
-        except (NotConnectedError, SpotifyApiError):
-            pass  # fall through to the anonymous title-only ladder
+            except Exception:
+                break
     transport = transport or _default_transport
     for track_id in [i for i in ids if i not in out][:_OEMBED_BATCH]:
+        if time.monotonic() >= deadline:
+            break
         try:
-            status, _headers, body = transport(_OEMBED_URL + track_id)
+            status, _headers, body = transport(_OEMBED_URL + urllib.parse.quote(str(track_id), safe=""))
             if status != 200:
                 continue
             title = json.loads(body).get("title")

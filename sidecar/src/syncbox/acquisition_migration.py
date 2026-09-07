@@ -723,9 +723,12 @@ def execute(
             for item in plan["items"]:
                 conn.execute(
                     "UPDATE acquisition_jobs SET legacy_output_path = ?, output_path = ?, "
+                    "published_path = CASE WHEN published_path = ? THEN ? ELSE published_path END, "
                     "stored_path = CASE WHEN stored_path = ? THEN ? ELSE stored_path END, "
                     "updated_at = datetime('now') WHERE id = ?",
                     (
+                        item["source_path"],
+                        item["destination_path"],
                         item["source_path"],
                         item["destination_path"],
                         item["source_path"],
@@ -742,6 +745,8 @@ def execute(
                         "updated_at = datetime('now') WHERE id = ?",
                         (item["destination_path"], item["ref"]),
                     )
+                    if item["scope"] == "event":
+                        conn.execute("UPDATE event_tracks SET selected_local_path = ? WHERE id = ? AND selected_local_path = ?", (item["destination_path"], item["ref"], item["source_path"]))
                 if item["event_id"] and item["staging_dir"]:
                     conn.execute(
                         "UPDATE events SET staging_dir = ? WHERE id = ?",

@@ -4,7 +4,7 @@
 // POST before any execution.
 import { afterEach, expect, test, vi } from 'vitest'
 
-import { useAcquisitionQueue } from '../acquisition'
+import { acquisitionDetails, useAcquisitionQueue } from '../acquisition'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -108,4 +108,33 @@ test('run() persists the whole batch through one transactional POST', async () =
   expect(result).toEqual({ ok: 1, failed: 1 })
   expect(queue.states.value['library:1']).toEqual({ phase: 'downloaded', quality: 1 })
   expect(queue.states.value['library:2']).toEqual({ phase: 'failed', error: 'no isrc' })
+})
+
+test('maps reversed mixed-provider results by explicit owner, never array position', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(() => jsonResponse({ jobs: [
+    { id: 8, scope: 'event', ref: '2', event_track_id: 2, provider: 'soundcloud', status: 'failed', error: 'provider_item_unavailable' },
+    { id: 7, scope: 'event', ref: '1', event_track_id: 1, provider: 'youtube', status: 'downloaded', processing: 'transcode', source_properties: JSON.stringify({ codec: 'opus', bitrate_kbps: null }), output_properties: JSON.stringify({ codec: 'mp3', sample_rate: 48000 }) },
+  ] })))
+  const queue = useAcquisitionQueue()
+  expect(await queue.run([{ key: 'first', body: { scope: 'event', row_id: 1 } }, { key: 'second', body: { scope: 'event', row_id: 2 } }], String)).toEqual({ ok: 1, failed: 1 })
+  expect(queue.states.value.first).toMatchObject({ phase: 'downloaded', processing: 'transcode' })
+  expect(queue.states.value.second).toEqual({ phase: 'failed', error: 'provider_item_unavailable' })
+})
+
+test('refuses duplicate owner responses instead of counting a job twice', async () => {
+  const job = { id: 7, scope: 'event', ref: '1', event_track_id: 1, status: 'downloaded' }
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(() => jsonResponse({ jobs: [job, job] })))
+  const queue = useAcquisitionQueue()
+  expect(await queue.run([{ key: 'first', body: { scope: 'event', row_id: 1 } }], String)).toEqual({ ok: 0, failed: 1 })
+  expect(queue.states.value.first?.phase).toBe('failed')
+})
+
+
+test('reports unknown source bitrate separately from converted output quality', () => {
+  const translate = (key: string, values?: Record<string, string>) => `${key}: ${JSON.stringify(values)}`
+  const details = acquisitionDetails(translate, { phase: 'downloaded', processing: 'transcode', sourceProperties: JSON.stringify({ codec: 'opus', bitrate_kbps: null }), outputProperties: JSON.stringify({ codec: 'mp3', sample_rate: 48000, bitrate: 320000 }) })
+  expect(details).toContain('"codec":"opus","bitrate":"—"')
+  expect(details).toContain('"codec":"mp3","rate":"48000 Hz"')
+  expect(details).toContain('linkImport.transcoded')
+  expect(details).not.toContain('320')
 })

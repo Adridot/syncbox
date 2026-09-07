@@ -8,6 +8,10 @@ sidecar/dist/
 optional-component/.venv/
 optional-component/build/
 optional-component/dist/
+web-audio-component/.venv/
+web-audio-component/build/
+web-audio-component/dist/
+web-audio-component/vendor/
 *.spec.bak
 
 # Rust / Tauri

@@ -162,15 +162,11 @@ def test_spotify_titles_resolved_through_client(conn):
 
     class FakeClient:
         def get(self, path):
-            assert path == "/tracks?ids=190jyVPHYjAqEaOGmMzdyk"
+            assert path == "/tracks/190jyVPHYjAqEaOGmMzdyk"
             return {
-                "tracks": [
-                    {
                         "id": "190jyVPHYjAqEaOGmMzdyk",
                         "name": "Le titre résolu",
                         "artists": [{"name": "A"}, {"name": "B"}],
-                    }
-                ]
             }
 
     assert resolve_spotify_titles(conn, FakeClient()) == 1
@@ -203,13 +199,9 @@ def test_spotify_title_fallback_via_oembed_without_session(conn):
     class FakeClient:
         def get(self, path):
             return {
-                "tracks": [
-                    {
                         "id": "190jyVPH",
                         "name": "Beauty And A Beat",
                         "artists": [{"name": "Justin Bieber"}, {"name": "Nicki Minaj"}],
-                    }
-                ]
             }
 
     assert resolve_spotify_titles(conn, FakeClient()) == 1

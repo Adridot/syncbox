@@ -1,0 +1,14 @@
+[project]
+name = "syncbox-web-audio-component"
+version = "0.8.0"
+description = "Isolated YouTube and SoundCloud audio component for Syncbox"
+license = "MIT"
+requires-python = ">=3.13,<3.14"
+dependencies = ["yt-dlp[default]==2026.08.19"]
+
+[dependency-groups]
+dev = ["pyinstaller==6.21.0", "pytest"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

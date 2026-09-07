@@ -1,0 +1,106 @@
+{
+  "signature_kind": "ad-hoc",
+  "notarized": false,
+  "verified": [
+    "syncbox-web-audio-component",
+    "_internal/vendor/deno",
+    "_internal/vendor/ffmpeg",
+    "_internal/vendor/ffprobe",
+    "_internal/vendor/libavcodec.63.1.101.dylib",
+    "_internal/vendor/libavfilter.12.1.101.dylib",
+    "_internal/vendor/libavformat.63.1.101.dylib",
+    "_internal/vendor/libavutil.61.1.101.dylib",
+    "_internal/vendor/libmp3lame.0.dylib",
+    "_internal/vendor/libswresample.7.1.101.dylib"
+  ],
+  "vendor_dependencies": {
+    "deno": [
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1345.120.2)",
+      "\t/usr/lib/libobjc.A.dylib (compatibility version 1.0.0, current version 228.0.0)",
+      "\t/usr/lib/libiconv.2.dylib (compatibility version 7.0.0, current version 7.0.0)"
+    ],
+    "ffmpeg": [
+      "\t@rpath/libavfilter.12.1.101.dylib (compatibility version 12.0.0, current version 12.1.101)",
+      "\t@rpath/libavformat.63.1.101.dylib (compatibility version 63.0.0, current version 63.1.101)",
+      "\t@rpath/libavcodec.63.1.101.dylib (compatibility version 63.0.0, current version 63.1.101)",
+      "\t@rpath/libswresample.7.1.101.dylib (compatibility version 7.0.0, current version 7.1.101)",
+      "\t@rpath/libavutil.61.1.101.dylib (compatibility version 61.0.0, current version 61.1.101)",
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)",
+      "\t@rpath/libmp3lame.0.dylib (compatibility version 1.0.0, current version 1.0.0)",
+      "\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 4424.1.255)",
+      "\t/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 734.4.0)",
+      "\t/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia (compatibility version 1.0.0, current version 3305.24.5)"
+    ],
+    "ffprobe": [
+      "\t@rpath/libavfilter.12.1.101.dylib (compatibility version 12.0.0, current version 12.1.101)",
+      "\t@rpath/libavformat.63.1.101.dylib (compatibility version 63.0.0, current version 63.1.101)",
+      "\t@rpath/libavcodec.63.1.101.dylib (compatibility version 63.0.0, current version 63.1.101)",
+      "\t@rpath/libswresample.7.1.101.dylib (compatibility version 7.0.0, current version 7.1.101)",
+      "\t@rpath/libavutil.61.1.101.dylib (compatibility version 61.0.0, current version 61.1.101)",
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)",
+      "\t@rpath/libmp3lame.0.dylib (compatibility version 1.0.0, current version 1.0.0)",
+      "\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 4424.1.255)",
+      "\t/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 734.4.0)",
+      "\t/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia (compatibility version 1.0.0, current version 3305.24.5)"
+    ],
+    "libavcodec.63.1.101.dylib": [
+      "\t@rpath/libavcodec.63.1.101.dylib (compatibility version 63.0.0, current version 63.1.101)",
+      "\t@rpath/libswresample.7.1.101.dylib (compatibility version 7.0.0, current version 7.1.101)",
+      "\t@rpath/libavutil.61.1.101.dylib (compatibility version 61.0.0, current version 61.1.101)",
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)",
+      "\t@rpath/libmp3lame.0.dylib (compatibility version 1.0.0, current version 1.0.0)",
+      "\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 4424.1.255)",
+      "\t/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 734.4.0)",
+      "\t/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia (compatibility version 1.0.0, current version 3305.24.5)"
+    ],
+    "libavfilter.12.1.101.dylib": [
+      "\t@rpath/libavfilter.12.1.101.dylib (compatibility version 12.0.0, current version 12.1.101)",
+      "\t@rpath/libswresample.7.1.101.dylib (compatibility version 7.0.0, current version 7.1.101)",
+      "\t@rpath/libavutil.61.1.101.dylib (compatibility version 61.0.0, current version 61.1.101)",
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)",
+      "\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 4424.1.255)",
+      "\t/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 734.4.0)",
+      "\t/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia (compatibility version 1.0.0, current version 3305.24.5)"
+    ],
+    "libavformat.63.1.101.dylib": [
+      "\t@rpath/libavformat.63.1.101.dylib (compatibility version 63.0.0, current version 63.1.101)",
+      "\t@rpath/libavcodec.63.1.101.dylib (compatibility version 63.0.0, current version 63.1.101)",
+      "\t@rpath/libswresample.7.1.101.dylib (compatibility version 7.0.0, current version 7.1.101)",
+      "\t@rpath/libavutil.61.1.101.dylib (compatibility version 61.0.0, current version 61.1.101)",
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)",
+      "\t@rpath/libmp3lame.0.dylib (compatibility version 1.0.0, current version 1.0.0)",
+      "\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 4424.1.255)",
+      "\t/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 734.4.0)",
+      "\t/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia (compatibility version 1.0.0, current version 3305.24.5)"
+    ],
+    "libavutil.61.1.101.dylib": [
+      "\t@rpath/libavutil.61.1.101.dylib (compatibility version 61.0.0, current version 61.1.101)",
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)",
+      "\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 4424.1.255)",
+      "\t/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 734.4.0)",
+      "\t/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia (compatibility version 1.0.0, current version 3305.24.5)"
+    ],
+    "libmp3lame.0.dylib": [
+      "\t@rpath/libmp3lame.0.dylib (compatibility version 1.0.0, current version 1.0.0)",
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)"
+    ],
+    "libswresample.7.1.101.dylib": [
+      "\t@rpath/libswresample.7.1.101.dylib (compatibility version 7.0.0, current version 7.1.101)",
+      "\t@rpath/libavutil.61.1.101.dylib (compatibility version 61.0.0, current version 61.1.101)",
+      "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)",
+      "\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 4424.1.255)",
+      "\t/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 734.4.0)",
+      "\t/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia (compatibility version 1.0.0, current version 3305.24.5)"
+    ]
+  },
+  "component_check": {
+    "result": "ok",
+    "protocol_version": 1,
+    "versions": {
+      "yt-dlp": "2026.8.19",
+      "yt-dlp-ejs": "0.8.0"
+    },
+    "ffmpeg": "ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers",
+    "deno": "deno 2.9.5 (stable, release, aarch64-apple-darwin)"
+  }
+}

@@ -38,6 +38,7 @@ interface DeezerStatus {
   enabled: boolean
   has_arl: boolean
   component: { installed: boolean; streamrip_commit?: string }
+  web_audio?: { enabled: boolean; component: { installed: boolean } }
 }
 
 const clientId = ref('')
@@ -48,6 +49,8 @@ const margin = ref(6)
 const weights = reactive<MatchWeights>({ ...DEFAULTS.match_weights })
 const isrcPolicy = ref<string>('guarded')
 const deezerEnabled = ref(false)
+const webEnabled = ref(false)
+const webBusy = ref(false)
 const deezerArl = ref('')
 const deezerStatus = ref<DeezerStatus | null>(null)
 const deezerBusy = ref(false)
@@ -78,6 +81,7 @@ function syncFromStore() {
   Object.assign(weights, values.match_weights)
   isrcPolicy.value = values.isrc_collision_policy
   deezerEnabled.value = values.deezer_acquisition_enabled
+  webEnabled.value = Boolean(values.web_audio_enabled)
 }
 
 // same lifecycle a remount had (re-validate paths, re-sync fields, refresh
@@ -152,6 +156,17 @@ const saveAdvanced = () =>
 
 async function loadDeezerStatus() {
   deezerStatus.value = await api.get<DeezerStatus>('/api/acquisition/deezer')
+}
+
+async function installWebAudio() {
+  webBusy.value = true
+  try {
+    await api.post('/api/acquisition/web-audio/install')
+    await loadDeezerStatus()
+    banner.value = { tone: 'success', text: t('linkImport.webInstalled') }
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally { webBusy.value = false }
 }
 
 async function saveDeezerEnabled() {
@@ -380,6 +395,14 @@ const derivedRows = computed(() => {
           {{ t('settings.spotify.privacy') }} ↗
         </button>
       </div>
+    </section>
+
+    <section class="card">
+      <h3>{{ t('linkImport.webTitle') }}</h3>
+      <p class="card-sub">{{ t('linkImport.webSub') }}</p>
+      <label class="toggle-row"><input v-model="webEnabled" type="checkbox" @change="saveSetting({ web_audio_enabled: webEnabled })" />{{ t('linkImport.webEnable') }}</label>
+      <p v-if="deezerStatus?.web_audio?.component.installed">{{ t('linkImport.webInstalled') }}</p>
+      <button class="btn-secondary" :disabled="!webEnabled || webBusy" @click="installWebAudio">{{ t('linkImport.webInstall') }}</button>
     </section>
 
     <!-- Optional Deezer acquisition: disabled until explicit enablement. -->

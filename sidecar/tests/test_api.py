@@ -504,17 +504,13 @@ def test_event_create_add_manual_track_and_detail(tmp_path, monkeypatch):
 
 def test_event_add_track_via_spotify_metadata_d20(tmp_path):
     payloads = {
-        "/tracks?ids=x1": {
-            "tracks": [
-                {
+        "/tracks/x1": {
                     "id": "x1",
                     "name": "Linked",
                     "artists": [{"name": "B"}],
                     "duration_ms": 111_000,
                     # D20: barcode must NEVER be used as an ISRC stand-in.
                     "external_ids": {"barcode": "0000", "isrc": "GBXXX7654321"},
-                }
-            ]
         }
     }
     env = make_env(tmp_path, spotify_client=SimpleNamespace(get=lambda p: payloads[p]))
@@ -803,9 +799,7 @@ def test_event_restore_refuses_a_track_that_was_not_rejected(tmp_path):
 
 def test_event_remove_still_deletes_a_spotify_track_and_refuses_applied(tmp_path):
     payloads = {
-        "/tracks?ids=x1": {
-            "tracks": [{"id": "x1", "name": "Linked", "artists": [{"name": "B"}]}]
-        }
+        "/tracks/x1": {"id": "x1", "name": "Linked", "artists": [{"name": "B"}]}
     }
     env = make_env(tmp_path, spotify_client=SimpleNamespace(get=lambda p: payloads[p]))
     event = env.client.post("/api/events", json={"name": "Gig"}).json()
@@ -2562,9 +2556,9 @@ class FakePlaylistClient:
         if self.fail is not None:
             raise self.fail
         if path.startswith("/tracks"):
-            # resolve_track_meta's batched ladder (a track added by LINK)
-            ids = path.split("ids=", 1)[1].split(",")
-            return {"tracks": [{"id": i, "name": i.title(), "artists": []} for i in ids]}
+            # Shared individual track resolution for a track added by link.
+            i = path.rsplit("/", 1)[1]
+            return {"id": i, "name": i.title(), "artists": []}
         return {"items": {"items": list(self.items), "next": None}}
 
 

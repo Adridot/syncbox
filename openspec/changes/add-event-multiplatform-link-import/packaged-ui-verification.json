@@ -1,0 +1,54 @@
+{
+  "environment": "built Vue UI in browser against frozen macOS arm64 sidecar; isolated temporary application database; no real Rekordbox fixture",
+  "deezer_album": "302127",
+  "deezer_selected_positions": [
+    1,
+    3
+  ],
+  "spotify_anonymous_track": "4uLU6hMCjMI75M1A2tKUQC",
+  "committed_rows": [
+    {
+      "source_provider": "deezer",
+      "source_item_id": "3135553",
+      "source_position": 1,
+      "origin": "manual",
+      "status": "missing"
+    },
+    {
+      "source_provider": "deezer",
+      "source_item_id": "3135555",
+      "source_position": 3,
+      "origin": "manual",
+      "status": "missing"
+    },
+    {
+      "source_provider": "spotify",
+      "source_item_id": "4uLU6hMCjMI75M1A2tKUQC",
+      "source_position": 1,
+      "origin": "manual",
+      "status": "missing"
+    }
+  ],
+  "imports": [
+    {
+      "provider": "spotify",
+      "state": "committed"
+    },
+    {
+      "provider": "deezer",
+      "state": "committed"
+    }
+  ],
+  "acquisition_jobs": 0,
+  "audio_files": 0,
+  "rekordbox_fixture_unchanged": true,
+  "keyboard_selection": true,
+  "reload_restored_committed_result": true,
+  "limitations": [
+    "No native Tauri/Rekordbox workflow was exercised.",
+    "No connected Spotify album/playlist session was available.",
+    "Web component installation remains distribution-gated.",
+    "Browser screenshots timed out; Spotify confirmation pointer automation reported interception despite matching DOM hit-test geometry. Keyboard confirmation passed. Native pointer/visual verification remains open.",
+    "Initial Deezer enumeration exceeded the intended transport bound; connection deadline accumulation was fixed and the rebuilt backend resolved the album successfully."
+  ]
+}

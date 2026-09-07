@@ -93,5 +93,13 @@ export function useVirtualRows<T extends { id: number }>(
     return { transform: `translateY(${item.start - virtualizer.value.options.scrollMargin}px)` }
   }
 
-  return { rowItems, totalSize, measure, rowStyle }
+  /** Collection previews can move an event table substantially after mount. */
+  function refreshLayout() {
+    const margin = scrollMargin()
+    if (virtualizer.value.options.scrollMargin === margin) return
+    virtualizer.value.setOptions({ ...virtualizer.value.options, scrollMargin: margin })
+    virtualizer.value.measure()
+  }
+
+  return { rowItems, totalSize, measure, rowStyle, refreshLayout }
 }

@@ -1091,6 +1091,7 @@ def delete_event(
         _assert_guarded_cleanup(db_path, plan)
         _verify_migration_destinations(plan)
         _restore_playlist_xml(plan, db_path, event.get("delete_backup"))
+        _relocate_source_provenance(conn, plan)
         removed = _cleanup_planned_files(
             event, plan, consent=consent_to_permanent_delete
         )
@@ -1249,6 +1250,7 @@ def delete_event(
     _assert_guarded_cleanup(db_path, plan)
     _verify_migration_destinations(plan)
     _restore_playlist_xml(plan, db_path, backup_path)
+    _relocate_source_provenance(conn, plan)
     removed = _cleanup_planned_files(event, plan, consent=consent_to_permanent_delete)
     conn.execute("DELETE FROM events WHERE id = ?", (event["id"],))
     _release_backup(backup_path)
@@ -1259,6 +1261,13 @@ def delete_event(
         "removed_files": removed,
         "cleanup_only": False,
     }
+
+
+def _relocate_source_provenance(conn, plan):
+    from syncbox.source_identity import relocate_provenance
+    for track in plan["tracks"]:
+        if track["action"] == "migrate_to_collection":
+            relocate_provenance(conn, track["source_path"], track["destination_path"])
 
 
 def _get_event(conn, event_id):

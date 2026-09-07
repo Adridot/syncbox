@@ -132,6 +132,7 @@ def list_missing(
                 "artist": row["artist"],
                 "isrc": row["isrc"],
                 "spotify_track_id": row["spotify_track_id"],
+                **({key: row[key] for key in ("source_provider", "source_item_id", "source_url")} if scope == "event" else {}),
                 "status": row["status"],
             }
             for row in rows

@@ -48,6 +48,9 @@ sqlcipher_metadata = sqlcipher_info / "METADATA"
 if not sqlcipher_metadata.is_file():
     raise RuntimeError("missing sqlcipher3-wheels METADATA")
 runtime_metadata.append((str(sqlcipher_metadata), sqlcipher_info.name))
+web_manifest = Path("src/syncbox/web_audio_component.json")
+if web_manifest.is_file():
+    runtime_metadata.append((str(web_manifest), "syncbox"))
 
 a = Analysis(
     ["src/syncbox/__main__.py"],

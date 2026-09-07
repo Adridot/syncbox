@@ -1,8 +1,9 @@
-import type { en } from './en'
+import { en } from './en'
 
 // typeof en enforces key parity both ways at compile time; the runtime
 // parity test covers what the compiler cannot see through vue-i18n.
 export const fr: typeof en = {
+  linkImport: en.linkImport,
   app: {
     title: 'Syncbox',
   },

@@ -15,6 +15,7 @@ import { ApiError, api, requestConsent } from '../api/client'
 import type { DeezerSearchResult, MissingEntry } from '../api/types'
 import {
   acquisitionLabelKey,
+  acquisitionDetails,
   humanizeAcquisitionError,
   useAcquisitionQueue,
 } from '../lib/acquisition'
@@ -100,6 +101,7 @@ const searchQuery = computed(() =>
     : '',
 )
 const searchable = (entry: MissingEntry) =>
+  !['deezer', 'youtube', 'soundcloud'].includes(entry.source_provider ?? '') &&
   Boolean(entry.acquisition?.available || entry.acquisition?.reason === 'missing_isrc')
 
 function acquisitionBody(entry: MissingEntry, deezerTrackId?: number): Record<string, unknown> {
@@ -299,7 +301,7 @@ async function pickRelink(path: string) {
       await api.post(`/api/missing/collection/${entry.content_id}/relink`, { path })
     } else {
       // app-side §5.5 transition: the user relinked it lawfully
-      await api.post(`/api/missing/${entry.scope}/${entry.id}/status`, { status: 'relinked' })
+      await api.post(`/api/missing/${entry.scope}/${entry.id}/status`, { status: 'relinked', path })
     }
     relinkEntry.value = null
     banner.value = { tone: 'success', text: t('missing.relinked', { title: entry.title ?? '' }) }
@@ -383,6 +385,7 @@ async function markNone() {
           <div v-if="acqStates[entryKey(entry)]?.error" class="row-error">
             {{ humanizeAcquisitionError(t, acqStates[entryKey(entry)]?.error) }}
           </div>
+          <small v-if="acquisitionDetails(t, acqStates[entryKey(entry)])" style="white-space: pre-line">{{ acquisitionDetails(t, acqStates[entryKey(entry)]) }}</small>
         </div>
         <ScopeBadge v-if="showScope" :scope="entry.scope" />
         <span
@@ -445,7 +448,7 @@ async function markNone() {
                 :disabled="jobs.jobRunning || acqRunning"
                 @click="acquire(entry)"
               >
-                {{ t('missing.acquireDeezer') }}
+                {{ entry.acquisition?.provider === 'deezer' ? t('missing.acquireDeezer') : t('linkImport.acquireSource', { provider: entry.acquisition?.provider }) }}
               </button>
               <button
                 v-if="searchable(entry)"

@@ -192,6 +192,8 @@ def main(argv=None) -> int:
         return 1
     app.state.deps.acquisition_worker = api.AcquisitionWorker(app.state.deps)
     app.state.deps.acquisition_worker.start()
+    app.state.deps.link_import_worker = api.LinkImportWorker(app.state.deps)
+    app.state.deps.link_import_worker.start()
     log.info("syncbox sidecar starting on http://%s:%s", server.HOST, server.PORT)
     try:
         asyncio.run(server.serve(app, sockets=[api_socket]))
@@ -202,12 +204,13 @@ def main(argv=None) -> int:
             app.state.deps.acquisition_worker is None
             or app.state.deps.acquisition_worker.stop()
         )
+        preview_stopped = app.state.deps.link_import_worker.stop()
         app.state.deps.oauth_listener.stop()
         app.state.deps.oauth_listener.wait_closed()
         # 6.6 handshake tail: SQLCipher secrets store and app DB closed
         # before the process exits, so a clean stop never needs the shell's
         # kill of last resort to reclaim them.
-        if worker_stopped:
+        if worker_stopped and preview_stopped:
             app.state.secrets.close()
             app.state.deps.conn.close()
         else:

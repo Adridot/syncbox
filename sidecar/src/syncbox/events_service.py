@@ -19,7 +19,7 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-from syncbox import event_delete, library_service, relink
+from syncbox import event_delete, library_service, relink, source_identity
 from syncbox.matching import match
 from syncbox.rb_write import (
     add_content,
@@ -32,7 +32,7 @@ from syncbox.rb_write import (
     tag_content,
 )
 from syncbox.safety.mutate import mutate
-from syncbox.safety.paths import SYNC_DIR_NAME, stored_form
+from syncbox.safety.paths import SYNC_DIR_NAME, stored_form, resolve_stored_path
 from syncbox.staging import reclassify_stale_ready, staged_file_ok
 
 EVENT_FOLDER_NAME = "Event Imports"
@@ -162,6 +162,7 @@ def add_track(
     title=None,
     artist=None,
     origin="manual",
+    resolved_source=None,
 ) -> dict:
     """Add a track: Spotify metadata via the injected ``resolver`` callable
     (the API layer wires SpotifyClient - 11.1), or manual {title, artist}.
@@ -174,10 +175,20 @@ def add_track(
     refresh), 'manual' for anything the user asked for by hand or by link.
     """
     event = get_event(conn, event["id"])
-    if spotify_track_id is not None:
+    if event is None or event.get("delete_phase"):
+        raise ValueError("event is unavailable")
+    source = resolved_source or {}
+    if resolved_source is not None:
+        if source.get("provider") not in {"spotify", "deezer", "youtube", "soundcloud"} or not source.get("item_id"):
+            raise ValueError("invalid resolved source identity")
+        meta = source
+        spotify_track_id = source["item_id"] if source["provider"] == "spotify" else None
+    elif spotify_track_id is not None:
         if resolver is None:
             raise ValueError("spotify_track_id requires a resolver callable")
         meta = resolver(spotify_track_id) or {}
+        source = {"provider": "spotify", "item_id": spotify_track_id,
+                  "url": f"https://open.spotify.com/track/{spotify_track_id}"}
     else:
         if not title:
             raise ValueError("manual entry requires at least a title")
@@ -185,8 +196,9 @@ def add_track(
     delta = 1 if event["status"] in APPLIED_EVENT_STATUSES else 0
     cur = conn.execute(
         "INSERT INTO event_tracks (event_id, spotify_track_id, title, artist,"
-        " duration_ms, isrc, status, added_after_apply, origin, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, 'missing', ?, ?, ?)",
+        " duration_ms, isrc, status, added_after_apply, origin, updated_at,"
+        " source_provider, source_item_id, source_url, source_import_id, source_position)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'missing', ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             event["id"],
             spotify_track_id,
@@ -197,6 +209,11 @@ def add_track(
             delta,
             origin,
             _now(),
+            source.get("provider"),
+            source.get("item_id"),
+            source.get("url"),
+            source.get("import_id"),
+            source.get("position"),
         ),
     )
     row = conn.execute(
@@ -334,6 +351,19 @@ def match_event_tracks(conn, event, cache, storage_root, **thresholds) -> list[d
         if track["status"] not in REMATCHED_STATUSES:
             out.append(track)
             continue
+        if source_identity.exact_source(track):
+            path = source_identity.known_file(conn, track)
+            candidate = next((r for r in candidates if path and r.get("file_path") and
+                              resolve_stored_path(r["file_path"], storage_root) == Path(path)), None)
+            status = "matched" if candidate else "ready" if path else "missing"
+            content_id = candidate["content_id"] if candidate else None
+            confidence = 100 if path else None
+            conn.execute(
+                "UPDATE event_tracks SET status = ?, content_id = ?, confidence = ?, staging_file_path = ?, updated_at = ? WHERE id = ?",
+                (status, content_id, confidence, path, now, track["id"]),
+            )
+            out.append({**track, "status": status, "content_id": content_id, "confidence": confidence, "staging_file_path": path})
+            continue
         result = match(
             {
                 "title": track["title"],
@@ -389,6 +419,12 @@ def claim_staged_files(conn, event) -> list[dict]:
     claimed = []
     for track in tracks:
         if track["status"] not in CLAIMABLE_STATUSES:
+            continue
+        if source_identity.exact_source(track):
+            path = source_identity.known_file(conn, track)
+            if path:
+                conn.execute("UPDATE event_tracks SET status = 'ready', staging_file_path = ?, confidence = 100, updated_at = ? WHERE id = ?", (path, now, track["id"]))
+                claimed.append({**track, "status": "ready", "staging_file_path": path, "confidence": 100})
             continue
         if staged_file_ok(track["staging_file_path"]):
             conn.execute(
@@ -552,12 +588,22 @@ def apply_event(
     db_path = Path(db_path)
     tracks = list_event_tracks(conn, event["id"])
     applicable = [t for t in tracks if t["status"] in ("matched", "ready")]
+    direct_matches = [track for track in applicable if track["status"] == "matched" and source_identity.exact_source(track)]
+    current_paths = {str(row["content_id"]): row.get("file_path") for row in cache.get(storage_root)} if direct_matches else {}
+    invalid_matches = []
+    for track in direct_matches:
+        stored_path = current_paths.get(str(track["content_id"]))
+        path = resolve_stored_path(stored_path, storage_root) if stored_path else None
+        if not source_identity.eligible_file(conn, track, path):
+            conn.execute("UPDATE event_tracks SET status = 'missing', content_id = NULL, confidence = NULL WHERE id = ?", (track["id"],))
+            track["status"] = "missing"
+            invalid_matches.append(track["id"])
     # staged-file-integrity: a 'ready' track whose staged file vanished is
     # reclassified 'missing' + excluded BEFORE any Rekordbox write; the rest
     # applies normally (no FileNotFoundError, no rollback). Event status is
     # unaffected by the reclassification itself: ready and missing are both
     # pending (11.2).
-    reclassified = [t["id"] for t in reclassify_stale_ready(conn, "event_tracks", applicable)]
+    reclassified = invalid_matches + [t["id"] for t in reclassify_stale_ready(conn, "event_tracks", applicable)]
     applicable = [t for t in applicable if t["status"] in ("matched", "ready")]
     if not applicable and (only_delta or event["status"] in APPLIED_EVENT_STATUSES):
         return {
