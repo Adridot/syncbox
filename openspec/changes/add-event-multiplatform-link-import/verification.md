@@ -1,5 +1,9 @@
 # Implementation verification — 2026-09-07
 
+The current review outcome and regression results are recorded in
+[review-followup.md](review-followup.md) (2026-09-08). The executed checks below
+remain historical evidence for their original builds.
+
 ## Outcome
 
 The application implementation is present: persistent collection previews,
@@ -8,9 +12,10 @@ acquisition, provider-specific setup, durable publication recovery, and event UI
 integration. Spotify keeps its existing Deezer association policy. Imports do
 not create audio jobs or bypass the guarded Rekordbox apply/reapply flow.
 
-This change is **not ready for distribution or archival**. Tasks 1.3, 7.1 and
-7.3 remain open. The approved Deno runtime choice is retained; complete notices
-and the full packaged native workflow remain outstanding.
+This change is **not ready for distribution or archival**. Tasks 7.1 and 7.3
+remain open (33/35 complete). The approved Deno runtime choice is retained;
+notice inventories were subsequently completed. Component publication and the
+full packaged native workflow remain outstanding.
 
 ## Executed checks
 

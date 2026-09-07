@@ -277,11 +277,13 @@ const downloadable = computed(() =>
 )
 
 function pruneAcqBadges() {
-  // downloaded rows now show status 'ready' — keep only the failures' badges
+  // Keep measured audio properties after publication; the row's own status
+  // replaces the transient download badge once it is ready.
   pruneAcq(
     new Set(
       selectedTracks.value
-        .filter((track) => MISSING_TRACK_STATUSES.includes(track.status))
+        .filter((track) => MISSING_TRACK_STATUSES.includes(track.status) ||
+          (['ready', 'matched', 'applied'].includes(track.status) && acqStates.value[String(track.id)]?.outputProperties))
         .map((track) => String(track.id)),
     ),
   )
@@ -812,7 +814,7 @@ async function onRemoved(n: number) {
             </div>
             <span class="cell-status">
               <span
-                v-if="acqStates[String(track.id)]"
+                v-if="acqStates[String(track.id)] && MISSING_TRACK_STATUSES.includes(track.status)"
                 class="acq-badge"
                 :data-phase="acqStates[String(track.id)]?.phase"
               >

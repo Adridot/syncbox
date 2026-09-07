@@ -1,12 +1,37 @@
 """Tests for the encrypted secrets store - unsigned path (SPEC-UNIFIED 6.7/3.6)."""
 
 import stat
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 import pytest
 
 from syncbox.secrets import SecretsStore
 
 TOKEN = "spotify-refresh-token-EXTREMELY-SECRET-0123456789"
+
+
+def test_shared_store_serializes_worker_and_handler_operations(tmp_path):
+    store = SecretsStore(tmp_path)
+    barrier = threading.Barrier(4)
+
+    def worker(index):
+        barrier.wait(timeout=5)
+        for turn in range(20):
+            name = f"fixture-{index}-{turn}"
+            store.set(name, "fixture value")
+            assert store.get(name) == "fixture value"
+            store.delete(name)
+            assert store.get(name) is None
+        store.set(f"result-{index}", str(index))
+
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(worker, range(4)))
+        store.close()
+        assert [store.get(f"result-{i}") for i in range(4)] == [str(i) for i in range(4)]
+    finally:
+        store.close()
 
 
 def test_round_trip_and_delete(tmp_path):

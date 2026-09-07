@@ -3,9 +3,9 @@
 // or playlist link from a supported provider, preview its entries, pick some,
 // confirm. Same add-row geometry the Spotify-only field had, so the workspace
 // keeps its rhythm; the preview is a table section, not a card in a card.
-import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ApiError, api } from '../api/client'
+import { NetworkError, api } from '../api/client'
 import type { EventLinkImport, LinkImportEntry } from '../api/types'
 import { openExternal } from '../shell'
 
@@ -14,12 +14,15 @@ const emit = defineEmits<{ committed: []; layout: [] }>()
 const { t, te } = useI18n()
 const link = ref('')
 const current = ref<EventLinkImport | null>(null)
-const history = ref<Pick<EventLinkImport, 'id' | 'state' | 'source_provider'>[]>([])
+const history = ref<Pick<EventLinkImport, 'id' | 'state' | 'source_provider' | 'canonical_url'>[]>([])
 const selected = ref<string[]>([])
 const readd = ref(false)
 const busy = ref(false)
-const error = ref('')
 const errorCode = ref('')
+const readErrorId = ref<string | null>(null)
+const opening = ref(false)
+const input = ref<HTMLInputElement | null>(null)
+const previewHeading = ref<HTMLElement | null>(null)
 const needsChoice = ref(false)
 let token = crypto.randomUUID()
 function changedLink() { token = crypto.randomUUID(); needsChoice.value = false }
@@ -35,8 +38,9 @@ const resolving = computed(() => ['queued', 'resolving'].includes(current.value?
 const hasInactive = computed(() => entries.value.some(entry => inactive.has(entry.existing_status ?? '')))
 const unavailable = computed(() => entries.value.filter(entry => !entry.available).length)
 // a component/setup failure gets a shortcut to Settings next to the message
-const needsSetup = computed(() => /web_audio|component/.test(errorCode.value))
+const needsSetup = computed(() => /web_audio|component|spotify_authentication_required/.test(errorCode.value))
 const humanize = (code: string) => te(`linkImport.errors.${code}`) ? t(`linkImport.errors.${code}`) : code
+const error = computed(() => errorCode.value === 'network_error' ? t('common.networkError') : humanize(errorCode.value))
 const providerLabel = (provider: string) => te(`providers.${provider}`) ? t(`providers.${provider}`) : provider
 const stateLabel = (state: string) => te(`linkImport.states.${state}`) ? t(`linkImport.states.${state}`) : state
 
@@ -50,11 +54,10 @@ function entryNote(entry: LinkImportEntry): { key: string; tone: 'danger' | 'mut
 
 function setError(code: string) {
   errorCode.value = code
-  error.value = code ? humanize(code) : ''
 }
 
 function report(cause: unknown) {
-  const code = cause instanceof ApiError ? cause.message : cause instanceof Error ? cause.message : String(cause)
+  const code = cause instanceof NetworkError ? 'network_error' : cause instanceof Error ? cause.message : String(cause)
   needsChoice.value = code === 'video_or_playlist_choice_required'
   setError(needsChoice.value ? '' : code)
 }
@@ -62,17 +65,30 @@ function report(cause: unknown) {
 async function read(id: string) {
   const reading = ++revision
   clearTimeout(timer)
+  if (current.value?.id !== id) {
+    current.value = null
+    selected.value = []
+    readd.value = false
+    opening.value = true
+  }
   try {
     const row = await api.get<EventLinkImport>(`${root}/${id}`)
     if (disposed || reading !== revision) return
+    readErrorId.value = null
     const firstReady = current.value?.id !== id || current.value?.state !== 'ready'
     if (current.value?.id !== id) readd.value = false
     current.value = row
     history.value = history.value.map(item => item.id === id ? row : item)
     if (row.state === 'ready' && firstReady) selected.value = row.manifest?.entries.filter(selectable).map(entry => entry.entry_key) ?? []
     setError(row.state === 'failed' ? row.error ?? 'provider_metadata_unavailable' : '')
+    if (row.state === 'ready' && firstReady) {
+      await nextTick()
+      if (!disposed && reading === revision) previewHeading.value?.focus()
+    }
     if (resolving.value) timer = setTimeout(() => void read(id), 500)
-  } catch (cause) { if (!disposed && reading === revision) report(cause) }
+  } catch (cause) {
+    if (!disposed && reading === revision) { readErrorId.value = id; report(cause) }
+  } finally { if (reading === revision) opening.value = false }
 }
 
 async function restore() {
@@ -82,13 +98,17 @@ async function restore() {
     if (disposed || restoring !== revision) return
     history.value = result.imports ?? []
     if (history.value[0]) await read(history.value[0].id)
-  } catch (cause) { if (!disposed) report(cause) }
+  } catch (cause) {
+    if (!disposed && restoring === revision) { readErrorId.value = ''; report(cause) }
+  }
 }
 
 async function start(choice?: 'track' | 'playlist') {
   if (!link.value.trim() || busy.value) return
   busy.value = true
   setError('')
+  readErrorId.value = null
+  opening.value = false
   needsChoice.value = false
   ++revision
   clearTimeout(timer)
@@ -100,6 +120,8 @@ async function start(choice?: 'track' | 'playlist') {
     readd.value = false
     selected.value = row.state === 'ready' ? row.manifest?.entries.filter(selectable).map(entry => entry.entry_key) ?? [] : []
     await read(row.id)
+    await nextTick()
+    if (!disposed && current.value?.state === 'ready') previewHeading.value?.focus()
   } catch (cause) { report(cause) }
   finally { busy.value = false }
 }
@@ -110,11 +132,16 @@ async function commit() {
   setError('')
   const id = current.value.id
   try {
-    await api.post(`${root}/${current.value.id}/commit`, { selected_keys: selectedKeys.value, readd_keys: readd.value ? selectedKeys.value.filter(key => inactive.has(entries.value.find(entry => entry.entry_key === key)?.existing_status ?? '')) : [] })
+    const result = await api.post<EventLinkImport['result']>(`${root}/${id}/commit`, { selected_keys: selectedKeys.value, readd_keys: readd.value ? selectedKeys.value.filter(key => inactive.has(entries.value.find(entry => entry.entry_key === key)?.existing_status ?? '')) : [] })
+    if (disposed) return
+    current.value = { ...current.value, state: 'committed', result }
+    history.value = history.value.map(item => item.id === id ? { ...item, state: 'committed' } : item)
     link.value = ''
     token = crypto.randomUUID()
-    await read(id)
     emit('committed')
+    busy.value = false
+    await nextTick()
+    input.value?.focus()
   } catch (cause) { report(cause) }
   finally { busy.value = false }
 }
@@ -124,12 +151,19 @@ async function dismiss() {
   busy.value = true
   ++revision
   clearTimeout(timer)
+  const id = current.value.id
   try {
-    await api.delete(`${root}/${current.value.id}`)
+    await api.delete(`${root}/${id}`)
+    if (disposed) return
     clearTimeout(timer)
     current.value = null
+    history.value = history.value.filter(item => item.id !== id)
+    readErrorId.value = null
     setError('')
     token = crypto.randomUUID()
+    busy.value = false
+    await nextTick()
+    input.value?.focus()
   } catch (cause) { report(cause) }
   finally { busy.value = false }
 }
@@ -156,20 +190,41 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
   <section class="link-import" :aria-label="t('linkImport.title')">
     <form class="add-row" @submit.prevent="start()">
       <div class="link-box">
-        <span class="glyph">🔗</span>
+        <span class="glyph" aria-hidden="true">🔗</span>
         <input
+          ref="input"
           v-model="link"
           type="text"
           class="mono"
           :placeholder="t('linkImport.placeholder')"
+          :aria-label="t('linkImport.title')"
+          :aria-invalid="!!error || undefined"
+          autocomplete="off"
+          :spellcheck="false"
           :disabled="busy"
           @input="changedLink"
         />
       </div>
       <button class="btn-primary add-btn" type="submit" :disabled="busy || !link.trim()">
-        {{ busy ? t('linkImport.busy') : t('linkImport.preview') }}
+        {{ busy ? t('common.loading') : t('linkImport.preview') }}
       </button>
     </form>
+
+    <div v-if="history.length" class="history-row">
+      <label :for="`import-history-${eventId}`">{{ t('linkImport.recent') }}</label>
+      <select
+        :id="`import-history-${eventId}`"
+        class="history"
+        :disabled="busy"
+        :value="current?.id ?? ''"
+        @change="read(($event.target as HTMLSelectElement).value)"
+      >
+        <option v-if="!current" value="" disabled>{{ t('linkImport.recent') }}</option>
+        <option v-for="item in history" :key="item.id" :value="item.id">
+          {{ providerLabel(item.source_provider) }} · {{ stateLabel(item.state) }} · {{ item.canonical_url }}
+        </option>
+      </select>
+    </div>
 
     <div v-if="needsChoice" class="choice-row" role="group" :aria-label="t('linkImport.chooseScope')">
       <span class="choice-text">{{ t('linkImport.chooseScope') }}</span>
@@ -183,32 +238,25 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
 
     <div v-if="error" class="banner" data-tone="error" role="alert">
       <span class="banner-text">{{ error }}</span>
+      <button v-if="readErrorId !== null" class="banner-link" :disabled="busy" @click="readErrorId ? read(readErrorId) : restore()">{{ t('linkImport.retry') }}</button>
       <router-link v-if="needsSetup" class="banner-link" to="/settings">{{ t('linkImport.setup') }}</router-link>
       <button class="banner-close" :aria-label="t('common.close')" @click="setError('')">✕</button>
     </div>
 
+    <div v-if="opening && !current" class="preview-status" role="status">
+      <span class="spinner" aria-hidden="true" />{{ t('common.loading') }}
+    </div>
+
     <div v-if="current && current.state !== 'dismissed'" class="preview">
       <header class="preview-head">
-        <div class="preview-text">
-          <div class="preview-title">{{ current.manifest?.title || current.canonical_url }}</div>
+        <div ref="previewHeading" class="preview-text" tabindex="-1">
+          <h3 class="preview-title" :title="current.manifest?.title || current.canonical_url">{{ current.manifest?.title || current.canonical_url }}</h3>
           <div class="preview-sub">
             {{ providerLabel(current.source_provider) }}
             <template v-if="entries.length"> · {{ t('linkImport.entries', entries.length) }}</template>
           </div>
         </div>
         <button class="action-link" @click="openSource">{{ t('linkImport.open') }} ↗</button>
-        <select
-          v-if="history.length > 1"
-          class="history"
-          :disabled="busy"
-          :value="current.id"
-          :aria-label="t('linkImport.recent')"
-          @change="read(($event.target as HTMLSelectElement).value)"
-        >
-          <option v-for="item in history" :key="item.id" :value="item.id">
-            {{ providerLabel(item.source_provider) }} · {{ stateLabel(item.state) }}
-          </option>
-        </select>
         <button
           v-if="current.state !== 'committed'"
           class="preview-close"
@@ -221,7 +269,7 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
         </button>
       </header>
 
-      <div v-if="resolving" class="preview-status" role="status">
+      <div v-if="resolving && !readErrorId" class="preview-status" role="status">
         <span class="spinner" aria-hidden="true" />{{ t('linkImport.resolving') }}
       </div>
       <div v-else-if="current.state === 'committed'" class="preview-status" data-tone="success" role="status">
@@ -244,7 +292,7 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
             <span>{{ t('linkImport.readd') }}</span>
           </label>
           <span class="spacer" />
-          <span class="counts">
+          <span class="counts" role="status" aria-live="polite" aria-atomic="true">
             {{ t('linkImport.counts', { selected: selectedKeys.length, total: entries.length }) }}
             <template v-if="unavailable"> · {{ t('linkImport.unavailableCount', unavailable) }}</template>
           </span>
@@ -253,8 +301,8 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
           <label v-for="entry in entries" :key="entry.entry_key" class="entry" :data-off="!selectable(entry) || undefined">
             <input v-model="selected" type="checkbox" :value="entry.entry_key" :disabled="!selectable(entry) || busy" />
             <span class="cell-title">
-              <span class="row-title">{{ entry.position }}. {{ entry.title || entry.item_id || t('linkImport.unavailable') }}</span>
-              <span v-if="entry.artist" class="row-artist">{{ entry.artist }}</span>
+              <span class="row-title" :title="entry.title || undefined">{{ entry.position }}. {{ entry.title || entry.item_id || t('linkImport.unavailable') }}</span>
+              <span v-if="entry.artist" class="row-artist" :title="entry.artist">{{ entry.artist }}</span>
             </span>
             <span v-if="entryNote(entry)" class="entry-chip" :data-tone="entryNote(entry)!.tone">
               {{ t(`linkImport.${entryNote(entry)!.key}`) }}
@@ -311,6 +359,27 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
 .link-box input.mono {
   font-family: var(--font-mono);
 }
+.link-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint);
+}
+.link-import :is(button, select, input[type='checkbox']):focus-visible,
+.preview-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted-bright);
+  font-size: 12px;
+}
+.history-row label {
+  flex: none;
+}
 .add-btn {
   padding: 8px 15px;
   font-size: 12.5px;
@@ -349,6 +418,9 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
   color: inherit;
   font-weight: 600;
   white-space: nowrap;
+  background: transparent;
+  border: none;
+  cursor: pointer;
 }
 .banner-close,
 .preview-close {
@@ -375,6 +447,7 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
   min-width: 0;
 }
 .preview-title {
+  margin: 0;
   font-size: 13.5px;
   font-weight: 600;
   white-space: nowrap;
@@ -399,7 +472,9 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
 /* the app's select vocabulary (base.css) with a compact height; the extra
    right padding keeps the native chevron off the border */
 .history {
-  max-width: 200px;
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
   padding: 5px 16px 5px 10px;
   font-size: 12px;
 }
@@ -530,5 +605,19 @@ onUnmounted(() => { disposed = true; ++revision; clearTimeout(timer) })
   min-width: 0;
   font-size: 11.5px;
   color: var(--text-muted-bright);
+}
+@media (max-width: 900px) {
+  .preview-head, .preview-foot, .choice-row, .banner {
+    flex-wrap: wrap;
+  }
+  .preview-text, .foot-note, .banner-text {
+    flex-basis: 60%;
+  }
+  .choice-text { flex-basis: 100%; }
+  .entry { gap: 8px; }
+  .entry-chip { max-width: 35%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
 }
 </style>

@@ -3,10 +3,12 @@
 
 Concurrency model (deliberately simple and correct for a single-user
 loopback app):
-- EVERY handler body is a plain sync function executed via
+- Handler bodies are plain sync functions executed via
   run_in_threadpool under ONE app-wide lock (Deps.lock): the asyncio loop
   is never blocked, so the canonical /events SSE stream keeps flowing
   while a long job (sync, apply, dedup scan) runs;
+- performance metadata handlers own short DB lock sections and release the
+  lock for Spotify network requests;
 - long jobs publish REAL progress on the JobBus from the worker thread via
   anyio.from_thread.run - 'job.progress' with pct derived from actual work
   units (F16: never faked), then 'job.done'.
@@ -166,6 +168,7 @@ class Deps:
         self.web_audio_runner = web_audio_runner or web_audio.run
         self.db_generation = 0
         self.lock = threading.RLock()
+        self.performance_metadata_lock = threading.Lock()
         self._injected_cache = cache  # tests inject a fake snapshot cache
         self._cache = None
         self._cache_db = None
@@ -463,9 +466,9 @@ def _error_response(exc) -> JSONResponse | None:
     return None
 
 
-def _endpoint(deps: Deps, handler):
-    """handler(deps, request, body) runs sync, in the threadpool, under the
-    app-wide lock. It returns a JSON-serializable payload or (status, payload)."""
+def _endpoint(deps: Deps, handler, *, owns_lock=False):
+    """Run the sync handler in the threadpool, acquiring the app-wide lock
+    unless it owns its lock sections. Return JSON payload or (status, payload)."""
 
     async def route(request):
         body = {}
@@ -489,6 +492,8 @@ def _endpoint(deps: Deps, handler):
                     )
 
         def work():
+            if owns_lock:
+                return handler(deps, request, body)
             with deps.lock:
                 return handler(deps, request, body)
 
@@ -2594,23 +2599,38 @@ def readouts_get(deps, request, body):
 def _performances_refresh(deps) -> dict:
     """Read-only ingest from master.db - deliberately NOT process-guarded:
     running while Rekordbox plays is the point (crash-proof live view)."""
-    if not deps.db_path:
-        raise ValueError("configure rekordbox_db_path in Settings first")
-    return performances.refresh(deps.conn, deps.db_path, deps.spotify_client)
+    with deps.lock:
+        if not deps.db_path:
+            raise ValueError("configure rekordbox_db_path in Settings first")
+        info = performances.refresh(deps.conn, deps.db_path, resolve_metadata=False)
+        conn, generation, client = deps.conn, deps.db_generation, deps.spotify_client
+    # Concurrent live/list refreshes may ingest, but do not repeat the same
+    # network batch. Reset/import can replace the DB while resolution runs.
+    if deps.performance_metadata_lock.acquire(blocking=False):
+        try:
+            info['resolved_titles'] = performances.resolve_spotify_titles(
+                conn, client, lock=deps.lock,
+                current=lambda: deps.conn is conn and deps.db_generation == generation,
+            )
+        finally:
+            deps.performance_metadata_lock.release()
+    return info
 
 
 def performances_list(deps, request, body):
     refresh_info = _performances_refresh(deps)
     include_hidden = request.query_params.get("hidden") == "1"
-    return {
-        "performances": performances.list_performances(deps.conn, include_hidden),
-        **refresh_info,
-    }
+    with deps.lock:
+        return {
+            "performances": performances.list_performances(deps.conn, include_hidden),
+            **refresh_info,
+        }
 
 
 def performances_live(deps, request, body):
     _performances_refresh(deps)
-    return performances.live_status(deps.conn)
+    with deps.lock:
+        return performances.live_status(deps.conn)
 
 
 def performances_get(deps, request, body):
@@ -2972,8 +2992,8 @@ def spotify_playlist_preview(deps, request, body):
 
 
 def routes(deps: Deps) -> list[Route]:
-    def r(path: str, handler, methods: list[str]) -> Route:
-        return Route(path, _endpoint(deps, handler), methods=methods)
+    def r(path: str, handler, methods: list[str], *, owns_lock=False) -> Route:
+        return Route(path, _endpoint(deps, handler, owns_lock=owns_lock), methods=methods)
 
     return [
         r("/api/status", status_get, ["GET"]),
@@ -3030,8 +3050,8 @@ def routes(deps: Deps) -> list[Route]:
             ["POST"],
         ),
         r("/api/events/{event_id:int}/delete", events_delete, ["POST"]),
-        r("/api/performances", performances_list, ["GET"]),
-        r("/api/performances/live", performances_live, ["GET"]),
+        r("/api/performances", performances_list, ["GET"], owns_lock=True),
+        r("/api/performances/live", performances_live, ["GET"], owns_lock=True),
         r("/api/performances/{performance_id:int}", performances_get, ["GET"]),
         r("/api/performances/{performance_id:int}", performances_update, ["PATCH"]),
         r(

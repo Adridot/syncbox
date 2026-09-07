@@ -1,15 +1,49 @@
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
 
-from syncbox import api, appdb, link_imports, link_resolution, provider_http
+from syncbox import api, appdb, link_imports, link_resolution, performances, provider_http
 from syncbox.music_links import LinkError
 from test_api import make_env
 
 SPOTIFY_ID = "A" * 22
+
+
+@pytest.mark.parametrize('reset', [False, True])
+def test_history_metadata_does_not_block_imports_and_discards_reset_results(tmp_path, monkeypatch, reset):
+    env = make_env(tmp_path)
+    performances.ingest(env.conn, [{
+        'uuid': 'fixture-play', 'rb_history_id': '1', 'rb_history_name': 'Fixture',
+        'content_id': '42', 'track_no': 1, 'title': None, 'artist': None,
+        'spotify_track_id': SPOTIFY_ID, 'played_at': '2026-09-08 00:00:00',
+    }])
+    monkeypatch.setattr(performances, 'refresh', lambda *args, **kwargs: {'ingested': 0, 'resolved_titles': 0})
+    entered, release = threading.Event(), threading.Event()
+
+    def resolve(ids, client, **kwargs):
+        kwargs['on_attempt'](SPOTIFY_ID)
+        entered.set()
+        assert release.wait(5)
+        return {SPOTIFY_ID: {'title': 'Resolved title', 'artist': 'Fixture artist'}}
+
+    monkeypatch.setattr(performances, 'resolve_track_meta', resolve)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending = pool.submit(env.client.get, '/api/performances')
+        try:
+            assert entered.wait(2)
+            assert pool.submit(env.client.get, '/api/settings').result(timeout=2).status_code == 200
+            assert pool.submit(env.client.get, '/api/performances/live').result(timeout=2).status_code == 200
+            with env.deps.lock:
+                if reset:
+                    env.deps.db_generation += 1
+        finally:
+            release.set()
+        assert pending.result(timeout=2).status_code == 200
+    assert env.conn.execute('SELECT title FROM plays').fetchone()[0] == (None if reset else 'Resolved title')
 
 
 def test_album_pages_hydrate_simplified_spotify_tracks():

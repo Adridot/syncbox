@@ -89,12 +89,12 @@ function syncFromStore() {
 useRefreshOnReturn(async () => {
   try {
     await paths.init()
+    syncFromStore()
+    await loadDeezerStatus()
   } catch (cause) {
     banner.value = { tone: 'error', text: describe(cause) }
     return
   }
-  syncFromStore()
-  await loadDeezerStatus()
 })
 
 async function saveSetting(partial: Record<string, unknown>, success?: string) {
@@ -161,23 +161,31 @@ async function loadDeezerStatus() {
 // the sidecar reports why the component cannot be installed as a code; the
 // card shows it in words and the install button follows
 const webComponent = computed(() => deezerStatus.value?.web_audio?.component)
+const webSaving = ref(false)
 const webInstallable = computed(
   () =>
-    !webComponent.value?.installed &&
-    !['unsupported_platform', 'web_audio_release_unavailable'].includes(webComponent.value?.reason ?? ''),
+    Boolean(webComponent.value && !webComponent.value.installed &&
+    (!webComponent.value.reason || webComponent.value.reason === 'web_audio_component_missing')),
 )
 const webComponentText = computed(() => {
+  if (!webComponent.value) return t('common.loading')
   const reason = webComponent.value?.reason
   if (webComponent.value?.installed) return t('linkImport.webComponentInstalled')
   if (reason === 'unsupported_platform') return t('linkImport.webComponentUnsupported')
-  if (reason === 'web_audio_release_unavailable') return t('linkImport.webComponentUnavailable')
+  if (reason === 'web_audio_release_unavailable' || reason === 'web_audio_manifest_invalid') return t('linkImport.webComponentUnavailable')
+  if (reason && reason !== 'web_audio_component_missing') return te(`linkImport.errors.${reason}`) ? t(`linkImport.errors.${reason}`) : reason
   return t('linkImport.webComponentMissing')
 })
 
 async function saveWebEnabled() {
-  if (await saveSetting({ web_audio_enabled: webEnabled.value })) {
-    await loadDeezerStatus()
-  }
+  if (webSaving.value) return
+  webSaving.value = true
+  try {
+    if (await saveSetting({ web_audio_enabled: webEnabled.value })) await loadDeezerStatus()
+    else webEnabled.value = Boolean(settings.values?.web_audio_enabled)
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally { webSaving.value = false }
 }
 
 async function installWebAudio() {
@@ -490,7 +498,7 @@ const derivedRows = computed(() => {
       <h3>{{ t('linkImport.webTitle') }}</h3>
       <p class="card-sub">{{ t('linkImport.webSub') }}</p>
       <label class="toggle-row">
-        <input v-model="webEnabled" type="checkbox" @change="saveWebEnabled" />
+        <input v-model="webEnabled" type="checkbox" :disabled="webBusy || webSaving" @change="saveWebEnabled" />
         <span>{{ t('linkImport.webEnable') }}</span>
       </label>
       <div class="client-id">
@@ -506,10 +514,10 @@ const derivedRows = computed(() => {
           </div>
           <button
             class="btn-secondary small"
-            :disabled="!webEnabled || webBusy || !webInstallable"
+            :disabled="!webEnabled || webBusy || webSaving || !webInstallable"
             @click="installWebAudio"
           >
-            {{ t('linkImport.webInstall') }}
+            {{ webBusy ? t('common.loading') : t('linkImport.webInstall') }}
           </button>
         </div>
       </div>
