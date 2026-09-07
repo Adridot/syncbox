@@ -97,6 +97,8 @@ async function restore() {
     const result = await api.get<{ imports: typeof history.value }>(root)
     if (disposed || restoring !== revision) return
     history.value = result.imports ?? []
+    readErrorId.value = null
+    setError('')
     if (history.value[0]) await read(history.value[0].id)
   } catch (cause) {
     if (!disposed && restoring === revision) { readErrorId.value = ''; report(cause) }

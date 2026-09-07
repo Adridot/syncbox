@@ -178,14 +178,15 @@ test('switching history hides the previous selection until the requested preview
   expect(api.post).not.toHaveBeenCalled()
 })
 
-test('a failed history restore has an explicit retry without creating an import', async () => {
+test.each([false, true])('a failed history restore can retry without creating an import (empty: %s)', async empty => {
   vi.mocked(api.get).mockRejectedValueOnce(new NetworkError('fixture outage'))
   const wrapper = mount(EventLinkImport, { props: { eventId: 1 }, global: { plugins: [i18n], stubs: { RouterLink: true } } })
   wrappers.push(wrapper)
   await flushPromises()
-  vi.mocked(api.get).mockImplementation(async path => path.endsWith('/link-imports') ? { imports: [row('committed')] } : row('committed'))
+  vi.mocked(api.get).mockImplementation(async path => path.endsWith('/link-imports') ? { imports: empty ? [] : [row('committed')] } : row('committed'))
   await button(wrapper, 'Retry preview').trigger('click')
   await flushPromises()
-  expect(wrapper.text()).toContain('2 tracks added to the event.')
+  expect(wrapper.text().includes('2 tracks added to the event.')).toBe(!empty)
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   expect(api.post).not.toHaveBeenCalled()
 })

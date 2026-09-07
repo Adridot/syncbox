@@ -26,8 +26,8 @@ or additional dependency was needed.
   import by provider, state, and URL. Hide the old selection while opening a
   different snapshot, preventing confirmation of an unintended snapshot.
 - Retry failed snapshot reads/history restoration without creating another
-  import. Ignore superseded responses and stop displaying a progress spinner
-  after a polling failure.
+  import, including recovery to an empty history. Ignore superseded responses
+  and stop displaying a progress spinner after a polling failure.
 - Apply the successful confirmation response immediately, refresh event rows,
   and return focus to the input without depending on another successful GET.
   Add input labels, visible focus, selection announcements, title tooltips,
@@ -66,7 +66,7 @@ or additional dependency was needed.
 | Check | Result |
 | --- | --- |
 | Full sidecar suite | 809 passed, 11 skipped |
-| Full UI suite | 142 passed across 32 files |
+| Full UI suite | 143 passed across 32 files |
 | UI build | Vue/TypeScript checking and production build passed |
 | Full web-audio wrapper suite | 31 passed |
 | Concurrent regression cases | Secret-store persistence, responsive API during history resolution, late-result rejection after reset |
@@ -82,6 +82,15 @@ The existing real-provider/frozen-component evidence retains its recorded build
 and date; those downloads were not rerun for this follow-up.
 
 ## Remaining delivery work
+
+Hosted Release Pin passed for `da21201`. CodeQL's aggregate check still reports
+the same three alerts seen before this follow-up: two ECB alerts on the fixed
+synthetic round-trip in `scripts/run_b1_deezer_acquisition.py::_check`, and a
+logging alert in `sidecar/src/syncbox/__main__.py`'s packaging diagnostic. The
+latter initializes an in-memory database with a fixed synthetic key and prints
+provider/version/status metadata, not stored user credentials. Static inspection
+indicates contextual false positives; no alert was dismissed or suppressed.
+Their repository review disposition remains outstanding.
 
 1. Complete task 7.1 through the normal component release process, with matching
    published archives and manifests and the required packaging checks.
