@@ -1267,7 +1267,8 @@ def _relocate_source_provenance(conn, plan):
     from syncbox.source_identity import relocate_provenance
     for track in plan["tracks"]:
         if track["action"] == "migrate_to_collection":
-            relocate_provenance(conn, track["source_path"], track["destination_path"])
+            relocate_provenance(conn, track["source_path"], track["destination_path"],
+                                collection_content_id=track["content_id"])
 
 
 def _get_event(conn, event_id):

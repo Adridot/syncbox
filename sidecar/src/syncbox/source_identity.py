@@ -51,7 +51,7 @@ def known_file(conn, track):
     return None
 
 
-def relocate_provenance(conn, source, destination):
+def relocate_provenance(conn, source, destination, *, collection_content_id=None):
     """Carry verified associations across an already verified managed-file move."""
     source, destination = Path(source).resolve(), Path(destination).resolve()
     if not destination.is_file():
@@ -64,6 +64,14 @@ def relocate_provenance(conn, source, destination):
         for job in conn.execute("SELECT id, provider, effective_source_item_id, published_path, published_sha256 FROM acquisition_jobs WHERE published_path IS NOT NULL"):
             if Path(job["published_path"]).resolve() == source and job["published_sha256"] == digest:
                 conn.execute("UPDATE acquisition_jobs SET published_path = ?, output_path = ? WHERE id = ?", (str(destination), str(destination), job["id"]))
+                if collection_content_id is not None:
+                    # Retained audio now belongs to the collection; its proof must
+                    # survive the event/event-track ON DELETE CASCADE actions.
+                    conn.execute(
+                        "UPDATE acquisition_jobs SET scope = 'collection', ref = ?, "
+                        "event_id = NULL, event_track_id = NULL WHERE id = ? AND scope = 'event'",
+                        (str(collection_content_id), job["id"]),
+                    )
                 identities.add((job["provider"], job["effective_source_item_id"]))
         for row in conn.execute("SELECT * FROM event_tracks WHERE source_provider IN ('deezer', 'youtube', 'soundcloud')"):
             track = dict(row)

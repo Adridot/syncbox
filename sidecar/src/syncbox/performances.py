@@ -147,29 +147,28 @@ def resolve_spotify_titles(conn, client, transport=None) -> int:
     fills both fields (completing artist-less oEmbed rows later); a
     title-only oEmbed result fills title-less rows and nothing else.
     Best-effort throughout; unresolved rows retry on a later refresh."""
-    titleless = [
-        row[0]
+    # Least-attempted IDs first, including failures. Title-less rows win ties,
+    # but unavailable titles must not starve later titles or missing artists.
+    pending = {
+        row["spotify_track_id"]: row["attempts"]
         for row in conn.execute(
-            "SELECT DISTINCT spotify_track_id FROM plays"
-            " WHERE spotify_track_id IS NOT NULL AND title IS NULL"
+            "SELECT spotify_track_id, MAX(spotify_metadata_attempts) AS attempts FROM plays "
+            "WHERE spotify_track_id IS NOT NULL AND (title IS NULL OR artist IS NULL) "
+            "GROUP BY spotify_track_id "
+            "ORDER BY attempts, MIN(title IS NOT NULL), spotify_track_id LIMIT 50"
         )
-    ]
-    artistless = [
-        row[0]
-        for row in conn.execute(
-            "SELECT DISTINCT spotify_track_id FROM plays"
-            " WHERE spotify_track_id IS NOT NULL"
-            " AND title IS NOT NULL AND artist IS NULL"
-        )
-    ]
-    # titleless first: only they can benefit from the capped oEmbed fallback
-    pending = titleless + artistless
+    }
     if not pending:
         return 0
     resolved = 0
-    meta = resolve_track_meta(pending, client, transport=transport)
+    attempted = set()
+    meta = resolve_track_meta(pending, client, transport=transport, on_attempt=attempted.add)
     conn.execute("BEGIN")
     try:
+        conn.executemany(
+            "UPDATE plays SET spotify_metadata_attempts = ? WHERE spotify_track_id = ?",
+            [(pending[track_id] + 1, track_id) for track_id in attempted],
+        )
         for track_id, fields in meta.items():
             if fields.get("artist") is not None:
                 conn.execute(

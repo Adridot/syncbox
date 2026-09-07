@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from syncbox import appdb, performances
+from syncbox import appdb, performances, spotify
 from syncbox.performances import (
     _norm_ts,
     export_plan,
@@ -207,6 +207,80 @@ def test_spotify_title_fallback_via_oembed_without_session(conn):
     assert resolve_spotify_titles(conn, FakeClient()) == 1
     row = conn.execute("SELECT artist FROM plays WHERE uuid = 'u1'").fetchone()
     assert row["artist"] == "Justin Bieber, Nicki Minaj"
+
+
+@pytest.mark.parametrize("authenticated", [True, False])
+def test_spotify_resolution_advances_past_unavailable_titles_after_reopen(conn, tmp_path, authenticated):
+    ids = [f"a-removed-{i:02}" for i in range(50)] + ["z-available"]
+    ingest(conn, [play(item, "s1", "2026-07-05 03:32:00", title=None, artist=None,
+                       spotify_track_id=item) for item in ids])
+    calls = []
+    class Catalogue:
+        def get(self, path):
+            calls.append(path)
+            if path.endswith("z-available"):
+                return {"name": "Available title", "artists": [{"name": "Artist"}]}
+            raise spotify.SpotifyApiError(404, "Unavailable fixture")
+
+    def transport(url):
+        if not authenticated:
+            calls.append(url)
+        if url.endswith("z-available"):
+            return 200, {}, b'{"title":"Available title"}'
+        return 404, {}, b""
+
+    client = Catalogue() if authenticated else None
+    assert resolve_spotify_titles(conn, client, transport=transport) == 0
+    assert len(calls) == 50
+    reopened = appdb.open_app_db(tmp_path / "app.db")
+    try:
+        assert resolve_spotify_titles(reopened, client, transport=transport) == 1
+        assert calls[50].endswith("z-available")
+        assert len(calls) == 100
+        row = reopened.execute("SELECT title, artist FROM plays WHERE uuid = 'z-available'").fetchone()
+        assert row["title"] == "Available title"
+        assert row["artist"] == ("Artist" if authenticated else None)
+    finally:
+        reopened.close()
+
+
+def test_spotify_resolution_rotates_only_attempted_ids_when_time_runs_out(conn, monkeypatch):
+    ingest(conn, [play(item, "s1", "2026-07-05 03:32:00", title=None, artist=None,
+                       spotify_track_id=item) for item in ("a-slow", "b-available")])
+    clock = [0]
+    calls = []
+    monkeypatch.setattr(spotify.time, "monotonic", lambda: clock[0])
+    class Catalogue:
+        def get(self, path):
+            calls.append(path)
+            if path.endswith("a-slow"):
+                clock[0] += 21
+                raise spotify.SpotifyApiError(404, "Unavailable fixture")
+            return {"name": "Available title", "artists": [{"name": "Artist"}]}
+
+    assert resolve_spotify_titles(conn, Catalogue()) == 0
+    assert dict(conn.execute("SELECT spotify_track_id, spotify_metadata_attempts FROM plays")) == {
+        "a-slow": 1, "b-available": 0,
+    }
+    assert resolve_spotify_titles(conn, Catalogue()) == 1
+    assert calls[:2] == ["/tracks/a-slow", "/tracks/b-available"]
+
+
+def test_metadata_attempt_migration_preserves_existing_history(tmp_path, monkeypatch):
+    scripts = appdb._scripts()
+    monkeypatch.setattr(appdb, "_scripts", lambda: scripts[:11])
+    connection = appdb.open_app_db(tmp_path / "legacy.db")
+    try:
+        ingest(connection, [play("fixture", "s1", "2026-07-05 03:32:00",
+                                 title=None, artist=None, spotify_track_id="pending")])
+        before = dict(connection.execute("SELECT * FROM plays").fetchone())
+        monkeypatch.setattr(appdb, "_scripts", lambda: scripts)
+        appdb.migrate(connection)
+        after = dict(connection.execute("SELECT * FROM plays").fetchone())
+        assert after.pop("spotify_metadata_attempts") == 0
+        assert after == before
+    finally:
+        connection.close()
 
 
 def test_oembed_fallback_stops_cleanly_when_offline(conn):

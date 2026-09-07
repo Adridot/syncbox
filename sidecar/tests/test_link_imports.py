@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from syncbox import appdb, events_service, link_imports, source_identity, staging
+from syncbox import appdb, event_delete, events_service, link_imports, source_identity, staging
 from syncbox.music_links import LinkError, parse_link
 
 
@@ -221,6 +221,46 @@ def test_verified_provenance_follows_retained_file_migration(conn, tmp_path):
     # Replaying deletion cleanup preserves the same proof without moving it again.
     source_identity.relocate_provenance(conn, source, destination)
     assert source_identity.eligible_file(conn, stored, destination)
+
+
+def test_retained_acquisition_survives_owner_deletion_and_reopen(conn, tmp_path):
+    source = {"provider": "youtube", "item_id": "f7NwyBnIRTE",
+              "url": "https://www.youtube.com/watch?v=f7NwyBnIRTE"}
+    owner = events_service.add_track(conn, events_service.get_event(conn, 1), resolved_source=source)
+    conn.execute("INSERT INTO events (name, slug, default_tag) VALUES ('Next', 'next', 'Next')")
+    consumer = events_service.add_track(conn, events_service.get_event(conn, 2), resolved_source=source)
+    original, retained = tmp_path / "staged.mp3", tmp_path / "retained.mp3"
+    original.write_bytes(b"owned recording")
+    retained.write_bytes(original.read_bytes())
+    digest = hashlib.sha256(original.read_bytes()).hexdigest()
+    job_id = conn.execute(
+        "INSERT INTO acquisition_jobs (provider, scope, ref, status, event_id, event_track_id, "
+        "phase, effective_source_item_id, published_path, published_sha256) "
+        "VALUES ('youtube', 'event', ?, 'downloaded', 1, ?, 'published', ?, ?, ?)",
+        (str(owner["id"]), owner["id"], source["item_id"], str(original), digest),
+    ).lastrowid
+    conn.execute("UPDATE event_tracks SET status = 'ready', staging_file_path = ? WHERE id = ?",
+                 (str(original), consumer["id"]))
+    plan = {"tracks": [{"action": "migrate_to_collection", "content_id": "99",
+                        "source_path": str(original), "destination_path": str(retained)}]}
+    event_delete._relocate_source_provenance(conn, plan)
+    original.unlink()
+    # Cleanup may be retried after the source was removed, before deleting its owner.
+    event_delete._relocate_source_provenance(conn, plan)
+    conn.execute("DELETE FROM events WHERE id = 1")
+
+    reopened = appdb.open_app_db(tmp_path / "app.db")
+    try:
+        track = dict(reopened.execute("SELECT * FROM event_tracks WHERE id = ?", (consumer["id"],)).fetchone())
+        assert source_identity.known_file(reopened, track) == str(retained)
+        job = reopened.execute("SELECT * FROM acquisition_jobs WHERE id = ?", (job_id,)).fetchone()
+        assert (job["scope"], job["ref"], job["event_id"], job["event_track_id"]) == ("collection", "99", None, None)
+        fresh = events_service.add_track(reopened, events_service.get_event(reopened, 2), resolved_source=source)
+        assert source_identity.known_file(reopened, fresh) == str(retained)
+        retained.write_bytes(b"different recording")
+        assert not source_identity.eligible_file(reopened, track, retained)
+    finally:
+        reopened.close()
 
 
 def test_apply_refuses_a_matched_content_id_that_now_points_to_another_file(conn, tmp_path, monkeypatch):

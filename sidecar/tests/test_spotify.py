@@ -4,7 +4,9 @@
 import base64
 import hashlib
 import json
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -194,6 +196,35 @@ def test_refresh_overwrites_when_rotated():
     )
     auth.refresh()
     assert secrets.get(spotify.REFRESH_TOKEN) == "ref-new"
+
+
+def test_disconnect_wins_over_an_inflight_refresh():
+    started, release, disconnected = threading.Event(), threading.Event(), threading.Event()
+    secrets = FakeSecrets({spotify.ACCESS_TOKEN: "old-access", spotify.REFRESH_TOKEN: "old-refresh"})
+
+    def transport(*args, **kwargs):
+        started.set()
+        assert release.wait(3)
+        return token_response("new-access", "new-refresh")
+
+    auth = SpotifyAuth(lambda: "client-123", secrets, transport=transport)
+    def disconnect():
+        auth.disconnect()
+        disconnected.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        refreshing = pool.submit(auth.refresh)
+        try:
+            assert started.wait(3)
+            disconnecting = pool.submit(disconnect)
+            assert not disconnected.wait(.1)
+        finally:
+            release.set()
+        refreshing.result(timeout=3)
+        disconnecting.result(timeout=3)
+    assert not auth.connected()
+    assert secrets.get(spotify.ACCESS_TOKEN) is None
+    assert secrets.get(spotify.REFRESH_TOKEN) is None
 
 
 def test_refresh_skips_when_another_thread_already_replaced_the_token():

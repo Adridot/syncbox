@@ -190,12 +190,14 @@ class SpotifyAuth:
 
     def disconnect(self) -> None:
         """Forget the local Spotify session and any pending PKCE exchange."""
-        self._state = None
-        self._verifier = None
-        self._deadline = None
-        self._authorization_result = None
-        self._secrets.delete(ACCESS_TOKEN)
-        self._secrets.delete(REFRESH_TOKEN)
+        # A refresh must finish publishing its tokens before we erase them.
+        with self._refresh_lock:
+            self._state = None
+            self._verifier = None
+            self._deadline = None
+            self._authorization_result = None
+            self._secrets.delete(ACCESS_TOKEN)
+            self._secrets.delete(REFRESH_TOKEN)
 
     def refresh(self, stale_token: str | None = None) -> None:
         """``stale_token``: the access token that just got a 401; when another
@@ -307,7 +309,7 @@ class SpotifyClient:
         raise SpotifyApiError(429, "rate limited after retries")
 
 
-def resolve_track_meta(ids, client, transport=None) -> dict:
+def resolve_track_meta(ids, client, transport=None, *, on_attempt=None) -> dict:
     """Spotify track ids -> {id: {"title", "artist", ...}}, the one shared
     resolution ladder (Prestations history, event track additions):
     - a session -> bounded individual GET /tracks/{id}, title AND
@@ -316,7 +318,9 @@ def resolve_track_meta(ids, client, transport=None) -> dict:
       endpoint, title only, at most _OEMBED_BATCH ids; a network error
       stops that loop silently.
     Best-effort: never raises, unresolved ids are absent from the result
-    (completed requests keep their metadata), callers retry later."""
+    (completed requests keep their metadata), callers retry later.
+    ``on_attempt`` reports only attempted IDs so callers can rotate retries
+    without skipping IDs excluded by the request or elapsed-time limit."""
     ids = list(dict.fromkeys(track_id for track_id in ids if track_id))[:50]
     out = {}
     deadline = time.monotonic() + 20
@@ -324,6 +328,8 @@ def resolve_track_meta(ids, client, transport=None) -> dict:
         for track_id in ids:
             if time.monotonic() >= deadline:
                 break
+            if on_attempt is not None:
+                on_attempt(track_id)
             try:
                 path = "/tracks/" + urllib.parse.quote(str(track_id), safe="")
                 track = client.get(path, retry=False) if isinstance(client, SpotifyClient) else client.get(path)
@@ -344,6 +350,8 @@ def resolve_track_meta(ids, client, transport=None) -> dict:
     for track_id in [i for i in ids if i not in out][:_OEMBED_BATCH]:
         if time.monotonic() >= deadline:
             break
+        if on_attempt is not None:
+            on_attempt(track_id)
         try:
             status, _headers, body = transport(_OEMBED_URL + urllib.parse.quote(str(track_id), safe=""))
             if status != 200:
