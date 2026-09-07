@@ -20,7 +20,7 @@ import { confirmDialog, hasShell, openExternal, pickFile, pickSaveFile } from '.
 import { type MatchWeights, useSettingsStore } from '../stores/settings'
 import { useStatusStore } from '../stores/status'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const settings = useSettingsStore()
 const status = useStatusStore()
 const spotify = useSpotifyConnect()
@@ -38,7 +38,7 @@ interface DeezerStatus {
   enabled: boolean
   has_arl: boolean
   component: { installed: boolean; streamrip_commit?: string }
-  web_audio?: { enabled: boolean; component: { installed: boolean } }
+  web_audio?: { enabled: boolean; component: { installed: boolean; reason?: string } }
 }
 
 const clientId = ref('')
@@ -158,15 +158,44 @@ async function loadDeezerStatus() {
   deezerStatus.value = await api.get<DeezerStatus>('/api/acquisition/deezer')
 }
 
+// the sidecar reports why the component cannot be installed as a code; the
+// card shows it in words and the install button follows
+const webComponent = computed(() => deezerStatus.value?.web_audio?.component)
+const webInstallable = computed(
+  () =>
+    !webComponent.value?.installed &&
+    !['unsupported_platform', 'web_audio_release_unavailable'].includes(webComponent.value?.reason ?? ''),
+)
+const webComponentText = computed(() => {
+  const reason = webComponent.value?.reason
+  if (webComponent.value?.installed) return t('linkImport.webComponentInstalled')
+  if (reason === 'unsupported_platform') return t('linkImport.webComponentUnsupported')
+  if (reason === 'web_audio_release_unavailable') return t('linkImport.webComponentUnavailable')
+  return t('linkImport.webComponentMissing')
+})
+
+async function saveWebEnabled() {
+  if (await saveSetting({ web_audio_enabled: webEnabled.value })) {
+    await loadDeezerStatus()
+  }
+}
+
 async function installWebAudio() {
+  banner.value = null
   webBusy.value = true
   try {
     await api.post('/api/acquisition/web-audio/install')
     await loadDeezerStatus()
     banner.value = { tone: 'success', text: t('linkImport.webInstalled') }
   } catch (cause) {
-    banner.value = { tone: 'error', text: describe(cause) }
-  } finally { webBusy.value = false }
+    const code = cause instanceof ApiError ? cause.message : ''
+    banner.value = {
+      tone: 'error',
+      text: te(`linkImport.errors.${code}`) ? t(`linkImport.errors.${code}`) : describe(cause),
+    }
+  } finally {
+    webBusy.value = false
+  }
 }
 
 async function saveDeezerEnabled() {
@@ -397,14 +426,6 @@ const derivedRows = computed(() => {
       </div>
     </section>
 
-    <section class="card">
-      <h3>{{ t('linkImport.webTitle') }}</h3>
-      <p class="card-sub">{{ t('linkImport.webSub') }}</p>
-      <label class="toggle-row"><input v-model="webEnabled" type="checkbox" @change="saveSetting({ web_audio_enabled: webEnabled })" />{{ t('linkImport.webEnable') }}</label>
-      <p v-if="deezerStatus?.web_audio?.component.installed">{{ t('linkImport.webInstalled') }}</p>
-      <button class="btn-secondary" :disabled="!webEnabled || webBusy" @click="installWebAudio">{{ t('linkImport.webInstall') }}</button>
-    </section>
-
     <!-- Optional Deezer acquisition: disabled until explicit enablement. -->
     <section class="card">
       <h3>{{ t('settings.deezer.title') }}</h3>
@@ -459,6 +480,38 @@ const derivedRows = computed(() => {
         >
           {{ t('settings.deezer.install') }}
         </button>
+      </div>
+    </section>
+
+    <!-- Optional web-audio acquisition (YouTube / SoundCloud): same shape as
+         the Deezer card — explicit enablement, then a separately installed,
+         pinned component. -->
+    <section class="card">
+      <h3>{{ t('linkImport.webTitle') }}</h3>
+      <p class="card-sub">{{ t('linkImport.webSub') }}</p>
+      <label class="toggle-row">
+        <input v-model="webEnabled" type="checkbox" @change="saveWebEnabled" />
+        <span>{{ t('linkImport.webEnable') }}</span>
+      </label>
+      <div class="client-id">
+        <div class="transfer-row">
+          <div class="transfer-text">
+            <div class="transfer-label">{{ t('linkImport.webComponentLabel') }}</div>
+            <div
+              class="transfer-desc"
+              :data-tone="webComponent?.installed || webInstallable ? undefined : 'warning'"
+            >
+              {{ webComponentText }}
+            </div>
+          </div>
+          <button
+            class="btn-secondary small"
+            :disabled="!webEnabled || webBusy || !webInstallable"
+            @click="installWebAudio"
+          >
+            {{ t('linkImport.webInstall') }}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -972,6 +1025,10 @@ h1 {
   color: var(--text-muted-bright);
   margin-top: 2px;
   line-height: 1.5;
+}
+/* nothing to install: the reason is the whole story, so it reads as a gate */
+.transfer-desc[data-tone='warning'] {
+  color: var(--warning-text);
 }
 .transfer-actions {
   display: flex;

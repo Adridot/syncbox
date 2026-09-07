@@ -12,7 +12,7 @@ import time
 from syncbox import acquisition
 
 NAME = "syncbox-web-audio-component"
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 
 def component_root(data_dir):
@@ -114,8 +114,9 @@ def invoke(executable, request, *, cancelled=lambda: False):
 
 
 def run(data_dir, request, *, cancelled=lambda: False):
-    if not component_status(data_dir)["installed"]:
-        raise ValueError("web_audio_component_missing")
+    status = component_status(data_dir)
+    if not status["installed"]:
+        raise ValueError(status.get("reason") or "web_audio_component_missing")
     result = invoke(component_root(data_dir) / NAME, request, cancelled=cancelled)
     if request["operation"] == "download":
         filename = result.get("output_filename")

@@ -13,8 +13,8 @@
   "python_version": "3.13.11",
   "root": "syncbox-deezer-component",
   "schema": 1,
-  "sha256": "b9fc57b4d96cc1ad443bcfa00957e062e46452b8fed62ce44528d7c7785d0b69",
-  "size": 17343075,
+  "sha256": "77b6e3c5158bf76aa73743f4b489d14bee1f20fea33fd6b11f7931e305f13a84",
+  "size": 17466794,
   "streamrip_commit": "189acda489927719aa8591f6acdd7d67aecf929b",
   "streamrip_version": "2.2.0"
 }

@@ -385,7 +385,9 @@ async function markNone() {
           <div v-if="acqStates[entryKey(entry)]?.error" class="row-error">
             {{ humanizeAcquisitionError(t, acqStates[entryKey(entry)]?.error) }}
           </div>
-          <small v-if="acquisitionDetails(t, acqStates[entryKey(entry)])" style="white-space: pre-line">{{ acquisitionDetails(t, acqStates[entryKey(entry)]) }}</small>
+          <div v-if="acquisitionDetails(t, acqStates[entryKey(entry)])" class="row-detail">
+            {{ acquisitionDetails(t, acqStates[entryKey(entry)]) }}
+          </div>
         </div>
         <ScopeBadge v-if="showScope" :scope="entry.scope" />
         <span
@@ -448,7 +450,13 @@ async function markNone() {
                 :disabled="jobs.jobRunning || acqRunning"
                 @click="acquire(entry)"
               >
-                {{ entry.acquisition?.provider === 'deezer' ? t('missing.acquireDeezer') : t('linkImport.acquireSource', { provider: entry.acquisition?.provider }) }}
+                {{
+                  entry.acquisition?.provider === 'deezer'
+                    ? t('missing.acquireDeezer')
+                    : t('linkImport.acquireSource', {
+                        provider: t(`providers.${entry.acquisition?.provider}`),
+                      })
+                }}
               </button>
               <button
                 v-if="searchable(entry)"
@@ -647,6 +655,12 @@ async function markNone() {
   font-size: 11.5px;
   color: var(--danger-text);
   margin-top: 2px;
+}
+.row-detail {
+  font-size: 11.5px;
+  color: var(--text-muted-bright);
+  margin-top: 2px;
+  white-space: pre-line;
 }
 .acq-badge {
   font-size: var(--size-meta);

@@ -27,7 +27,7 @@ afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers.lengt
 
 test('restores a preview in source order, excludes duplicate/private/removed entries, and commits only the selected subset', async () => {
   const wrapper = await setup()
-  expect(wrapper.findAll('.entry span').map(value => value.text())).toEqual(['1. First remix', '2. Repeated remix', '3. Private', '4. Removed', '5. Second remix'])
+  expect(wrapper.findAll('.entry .row-title').map(value => value.text())).toEqual(['1. First remix', '2. Repeated remix', '3. Private', '4. Removed', '5. Second remix'])
   const checks = wrapper.findAll('.entry input')
   expect(checks.map(value => (value.element as HTMLInputElement).checked)).toEqual([true, false, false, false, true])
   expect(checks.map(value => value.attributes('disabled') !== undefined)).toEqual([false, true, true, true, false])
@@ -72,7 +72,7 @@ test('a dismissed preview cannot reappear when its in-flight poll completes', as
   vi.mocked(api.get).mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
   await vi.advanceTimersByTimeAsync(500)
   vi.mocked(api.delete).mockResolvedValue({})
-  await button(wrapper, 'Dismiss preview').trigger('click')
+  await wrapper.get('[aria-label="Dismiss preview"]').trigger('click')
   await flushPromises()
   complete(row())
   await flushPromises()

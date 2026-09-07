@@ -264,6 +264,12 @@ function canAcquire(track: EventTrack) {
   if (track.source_provider === 'deezer') return strictDeezerReady.value
   return acqReady.value && Boolean(track.isrc)
 }
+function openSource(track: EventTrack) {
+  if (!track.source_url) return
+  openExternal(track.source_url).catch((cause) => {
+    banner.value = { tone: 'error', text: describe(cause) }
+  })
+}
 const downloadable = computed(() =>
   selectedTracks.value.filter(
     (track) => MISSING_TRACK_STATUSES.includes(track.status) && canAcquire(track),
@@ -767,7 +773,16 @@ async function onRemoved(n: number) {
                   kind="track"
                   :spotify-id="track.spotify_track_id"
                 />
-                <button v-if="exactSource(track) && track.source_url" class="action-link" @click.stop="openExternal(track.source_url).catch(cause => banner = { tone: 'error', text: describe(cause) })">{{ track.source_provider }} ↗</button>
+                <!-- exact-source rows (Deezer/YouTube/SoundCloud) link back
+                     to the item they were imported from -->
+                <button
+                  v-if="exactSource(track) && track.source_url"
+                  class="source-chip"
+                  :title="t('linkImport.open')"
+                  @click.stop="openSource(track)"
+                >
+                  {{ t(`providers.${track.source_provider}`) }} ↗
+                </button>
                 <!-- §5.7 adoption: an adopted row has no Spotify provenance,
                      so its marker takes the exact slot the attribution link
                      would have — the title line's geometry is the same either
@@ -791,7 +806,9 @@ async function onRemoved(n: number) {
               <div v-if="acqStates[String(track.id)]?.error" class="row-error">
                 {{ humanizeAcquisitionError(t, acqStates[String(track.id)]?.error) }}
               </div>
-              <small v-if="acquisitionDetails(t, acqStates[String(track.id)])" style="white-space: pre-line">{{ acquisitionDetails(t, acqStates[String(track.id)]) }}</small>
+              <div v-if="acquisitionDetails(t, acqStates[String(track.id)])" class="row-detail">
+                {{ acquisitionDetails(t, acqStates[String(track.id)]) }}
+              </div>
             </div>
             <span class="cell-status">
               <span
@@ -1269,46 +1286,6 @@ h1 {
   cursor: pointer;
   padding: 0 2px;
 }
-.add-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border-subtle-2);
-  background: #0a0d14;
-}
-.link-box {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--surface-raised);
-  border: 1px solid #2a3140;
-  border-radius: 8px;
-  padding: 8px 12px;
-  min-width: 0;
-}
-.link-box .glyph {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-.link-box input {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text-secondary-bright);
-  font-size: 12.5px;
-}
-.link-box input.mono {
-  font-family: var(--font-mono);
-}
-.add-btn {
-  padding: 8px 15px;
-  font-size: 12.5px;
-  flex: none;
-}
 .toolbar {
   display: flex;
   align-items: center;
@@ -1495,6 +1472,31 @@ h1 {
   font-size: 11.5px;
   color: var(--danger-text);
   margin-top: 2px;
+}
+/* measured source/output audio properties after an exact-source download */
+.row-detail {
+  font-size: 11.5px;
+  color: var(--text-muted-bright);
+  margin-top: 2px;
+  white-space: pre-line;
+}
+/* clickable twin of .adopted-chip: provenance that opens the source item */
+.source-chip {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted-bright);
+  background: var(--surface-raised);
+  border: none;
+  border-radius: 4px;
+  padding: 1px 5px;
+  cursor: pointer;
+}
+.source-chip:hover {
+  color: var(--accent-hover);
+  background: var(--accent-tint);
 }
 /* discreet: the outcome is fine, only the drop was pointless */
 .row-note {

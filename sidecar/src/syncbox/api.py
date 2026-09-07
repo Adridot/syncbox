@@ -358,6 +358,9 @@ class LinkImportWorker:
                     manifest = None
                     if isinstance(exc, SpotifyApiError):
                         error = "provider_rate_limited" if exc.status_code == 429 else "spotify_collection_inaccessible"
+                    elif isinstance(exc, NotConnectedError):
+                        # the UI already translates this into "connect Spotify in Settings"
+                        error = "spotify_authentication_required"
                     else:
                         text = str(exc)
                         error = text if isinstance(exc, ValueError) and re.fullmatch(r"[a-z_]{1,100}", text) else "provider_metadata_unavailable"
@@ -1561,9 +1564,10 @@ def _decorate_acquisition(deps, entries: list[dict]) -> None:
         provider = entry.get("source_provider") if source_identity.exact_source(entry) else "deezer"
         if provider in {"youtube", "soundcloud"}:
             web_enabled = deps.settings.get("web_audio_enabled")
-            installed = web_audio.component_status(deps.data_dir)["installed"]
+            web_status = web_audio.component_status(deps.data_dir)
+            installed = web_status["installed"]
             entry["acquisition"] = {"provider": provider, "available": web_enabled and installed,
-                                    "reason": None if web_enabled and installed else "web_audio_component_missing" if web_enabled else "web_audio_component_disabled"}
+                                    "reason": None if web_enabled and installed else (web_status.get("reason") or "web_audio_component_missing") if web_enabled else "web_audio_component_disabled"}
             continue
         if not enabled:
             reason = "disabled"
@@ -1999,8 +2003,9 @@ def _require_acquisition_ready(deps, provider="deezer", *, exact=False) -> None:
     if provider in {"youtube", "soundcloud"}:
         if not deps.settings.get("web_audio_enabled"):
             raise ValueError("web_audio_component_disabled")
-        if not web_audio.component_status(deps.data_dir)["installed"]:
-            raise ValueError("web_audio_component_missing")
+        web_status = web_audio.component_status(deps.data_dir)
+        if not web_status["installed"]:
+            raise ValueError(web_status.get("reason") or "web_audio_component_missing")
         _require_storage(deps)
         return
     if not deps.settings.get("deezer_acquisition_enabled"):
