@@ -128,14 +128,11 @@ Test paths are relative to the repository root.
 
 ## Remaining release work
 
-1. **Tasks 1.3 and 7.1:** complete the corresponding Deno notices and native-binary
-   dependency inventory. The conservative Cargo graph has 834 packages; 41 lack
-   retrieved corresponding notices, and V8/native coverage remains incomplete.
-   Some declared source commits are unavailable from their upstream repositories.
-   The known seven MPL packages and focused LGPL FFmpeg/LAME build are already
-   approved; missing notice evidence must not be replaced by another approval.
-   Both draft inventories deliberately remain incomplete. The packager must
-   continue to refuse an installable manifest until the inventory is complete.
+1. **Task 7.1 (remaining part):** the Deno/native notice inventory was completed
+   on 2026-09-07 (see `component-evidence.md`) and the packager now generates
+   `sidecar/src/syncbox/web_audio_component.json`. The archive it describes still
+   has to be uploaded as the release asset named in the manifest; developer ID
+   signing/notarization remain out of scope.
 2. **Task 7.3:** exercise the installed native Tauri/Rekordbox workflow for single
    items and collections on all four providers, including authenticated Spotify
    collections and native pointer/visual interaction. The isolated wrapper and
@@ -143,6 +140,8 @@ Test paths are relative to the repository root.
    gate currently also prevents a normal installed web-component proof.
 
 No archive was published, no release was created, and the change was not archived.
+For local testing before publication, point `SYNCBOX_WEB_AUDIO_COMPONENT_ARCHIVE`
+at the locally packaged archive; the manifest checksum must match it.
 The updated local Deezer manifest must follow the normal release version/checksum
 flow before publication; an existing published asset must not be overwritten.
 Rollback guidance is in `web-audio-component/README.md`. Unrelated archived user

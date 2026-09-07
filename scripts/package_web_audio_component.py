@@ -1,19 +1,98 @@
-"""Inventory and package the isolated web-audio component; never modify the base bundle."""
+"""Inventory and package the isolated web-audio component; never modify the base bundle.
+
+Notice texts are not committed: the two inventories pin every text by source and
+sha256, and this script materializes them into `licenses/` before packaging.
+"""
 
 import argparse
+import base64
 import hashlib
 from importlib.metadata import distribution
+import io
 import json
+import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tomllib
+import urllib.request
 
 from reproducible_archive import write_tree_archive
 from generate_release_licenses import installed_license, normalized_license, source_from_lock
 
 ROOT = Path(__file__).resolve().parents[1] / "web-audio-component"
+INVENTORIES = ("deno-inventory.json", "deno-native/inventory.json")
+CACHE = ROOT / "vendor/notice-cache"
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def download(url: str, name: str, checksum: str | None = None) -> Path:
+    """Cached download under vendor/ (ignored by git); a pinned checksum is enforced."""
+    CACHE.mkdir(parents=True, exist_ok=True)
+    target = CACHE / name
+    if not target.is_file():
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "syncbox-packager"}), timeout=120) as response:
+            target.write_bytes(response.read())
+    if checksum and sha256(target.read_bytes()) != checksum:
+        target.unlink()
+        raise SystemExit(f"archive checksum mismatch: {url}")
+    return target
+
+
+_indexes: dict[Path, dict[tuple[str, str], bytes]] = {}
+
+
+def archive_member(archive: Path, basename: str, checksum: str) -> bytes | None:
+    """Find a file in a tarball by name and sha256 (works for .crate and GitHub source archives)."""
+    if archive not in _indexes:
+        index = {}
+        with tarfile.open(archive) as bundle:
+            for member in bundle:
+                if member.isfile() and member.size <= 4 * 1024 * 1024:
+                    data = bundle.extractfile(member).read()
+                    index[(Path(member.name).name, sha256(data))] = data
+        _indexes[archive] = index
+    return _indexes[archive].get((basename, checksum))
+
+
+def fetch_notice(record: dict, item: dict) -> bytes | None:
+    source, basename = item["source"], Path(item["path"]).name
+    if source.startswith("release/"):
+        return (ROOT.parent / source).read_bytes()
+    if source.startswith("https://crates.io/crates/"):
+        name, version = record["name"], record["version"]
+        crate = download(f"https://static.crates.io/crates/{name}/{name}-{version}.crate",
+                         f"{name}-{version}.crate", record.get("crate_checksum"))
+        return archive_member(crate, basename, item["sha256"])
+    tree = re.fullmatch(r"https://github\.com/([^/]+)/([^/]+)/tree/([^/]+)", source)
+    if tree:
+        owner, repo, ref = tree.groups()
+        tarball = download(f"https://github.com/{owner}/{repo}/archive/{ref}.tar.gz", f"{owner}-{repo}-{ref}.tar.gz")
+        return archive_member(tarball, basename, item["sha256"])
+    with urllib.request.urlopen(urllib.request.Request(source, headers={"User-Agent": "syncbox-packager"}), timeout=60) as response:
+        data = response.read()
+    return base64.b64decode(data) if source.endswith("?format=TEXT") else data
+
+
+def materialize(licenses: Path, inventories: list[dict]) -> None:
+    """Every inventoried notice ends up in licenses/ with its pinned sha256; existing matches are kept."""
+    for inventory in inventories:
+        for record in inventory.get("packages", []) if "packages" in inventory else [inventory]:
+            for item in record.get("files", []):
+                target = licenses / item["path"]
+                if target.is_file() and sha256(target.read_bytes()) == item["sha256"]:
+                    continue
+                content = fetch_notice(record, item)
+                if content is None or sha256(content) != item["sha256"]:
+                    raise SystemExit(f"notice unavailable or checksum mismatch: {item['path']} from {item['source']}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
 
 
 def main():
@@ -22,10 +101,11 @@ def main():
     args = parser.parse_args()
     licenses = ROOT / "licenses"
     licenses.mkdir(exist_ok=True)
-    inventories = [json.loads((licenses / name).read_text()) for name in ("deno-inventory.draft.json", "deno-native/inventory.draft.json")]
+    inventories = [json.loads((licenses / name).read_text()) for name in INVENTORIES]
     complete = all(value.get("complete") is True for value in inventories)
     if not complete and not args.draft:
         raise SystemExit("Deno runtime/native license inventory is incomplete; use --draft for local tests only")
+    materialize(licenses, inventories)
     for inventory in inventories:
         records = inventory.get("packages", []) if "packages" in inventory else [inventory]
         for record in records:
@@ -33,7 +113,7 @@ def main():
                 raise SystemExit(f"missing notices for {record.get('name', 'native runtime')}")
             for item in record.get("files", []):
                 path = (licenses / item["path"]).resolve(strict=True)
-                if not path.is_relative_to(licenses.resolve()) or hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]:
+                if not path.is_relative_to(licenses.resolve()) or sha256(path.read_bytes()) != item["sha256"]:
                     raise SystemExit("Deno notice path or checksum mismatch")
     lock = {item["name"]: item for item in tomllib.loads((ROOT / "uv.lock").read_text())["package"]}
     names = ("yt-dlp", "yt-dlp-ejs", "brotli", "certifi", "charset-normalizer",
@@ -63,8 +143,11 @@ def main():
     shutil.copytree(reviewed / "python-runtime", licenses / "python-runtime", dirs_exist_ok=True)
     shutil.copytree(reviewed / "build-runtime/pyinstaller-bootloader-6.21.0",
                     licenses / "pyinstaller-bootloader", dirs_exist_ok=True)
-    subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm",
-                    "syncbox-web-audio-component.spec"], cwd=ROOT, check=True)
+    # same determinism knobs as build_macos_release.py: PyInstaller orders
+    # base_library.zip from a set, so an unseeded hash randomizes the archive
+    subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "syncbox-web-audio-component.spec"],
+                   cwd=ROOT, check=True,
+                   env={**os.environ, "PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1", "TZ": "UTC", "LC_ALL": "C"})
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     name = project["name"]
     bundle = ROOT / "dist" / name
@@ -72,7 +155,7 @@ def main():
     write_tree_archive(archive, bundle, name)
     result = {"component": name, "version": project["version"], "protocol_version": 1,
               "platform": "macos-arm64", "archive": archive.name, "size": archive.stat().st_size,
-              "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(), "license_inventory_complete": complete}
+              "sha256": sha256(archive.read_bytes()), "license_inventory_complete": complete}
     if not args.draft:
         checked = subprocess.run([str(bundle / name)], input='{"operation":"check"}', text=True, capture_output=True, check=True, timeout=40)
         check = json.loads(checked.stdout)

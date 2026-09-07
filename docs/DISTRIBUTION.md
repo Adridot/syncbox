@@ -158,6 +158,13 @@ provenance while every project-controlled pin remains fail-closed.
 8. Verify that the Release is public, non-draft, non-prerelease, points to the
    merged commit, and exposes uploaded assets whose size and SHA-256 match the
    committed manifest and `SHA256SUMS.txt`.
+9. Upload the web-audio component. The release workflow does not build it:
+   package it locally from the tagged commit with
+   `SOURCE_DATE_EPOCH=<release-build.json source_date_epoch> uv run --project web-audio-component python scripts/package_web_audio_component.py`,
+   check that the archive size and SHA-256 equal the committed
+   `sidecar/src/syncbox/web_audio_component.json`, then
+   `gh release upload vX.Y.Z web-audio-component/dist/<archive>`. Never replace
+   an asset that is already published.
 
 ## Verification
 

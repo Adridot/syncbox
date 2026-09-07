@@ -2,7 +2,7 @@
 
 - [x] 1.1 Prove metadata enumeration and exact-item acquisition for representative YouTube/YouTube Music and SoundCloud track/collection links using authorized samples; deliver an evidence note with tested IDs, selected identities, output properties, and known access limitations.
 - [x] 1.2 Prove streamrip's requested-versus-effective Deezer item detection and strict rejection while retaining the existing Spotify fallback; verify separate strict/legacy cases with deterministic component checks.
-- [ ] 1.3 Pin a compatible web-audio runtime/dependency set and build a minimal frozen wrapper on the supported packaged macOS target; verify metadata-only and audio operations with FFmpeg/Deno absent from the host PATH and record archive size and dependency licenses.
+- [x] 1.3 Pin a compatible web-audio runtime/dependency set and build a minimal frozen wrapper on the supported packaged macOS target; verify metadata-only and audio operations with FFmpeg/Deno absent from the host PATH and record archive size and dependency licenses.
 - [x] 1.4 Prove bounded provider network handling, including share/child/media redirects, and subprocess-tree timeout/cancellation in the chosen wrapper; verify with controlled local fixtures rather than third-party probing, including refusal before a disallowed destination is fetched.
 
 ## 2. Add durable source and import state

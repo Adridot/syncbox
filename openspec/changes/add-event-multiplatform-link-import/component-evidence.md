@@ -3,8 +3,8 @@
 ## Scope and status
 
 Tasks 1.1, 1.2 and 1.4 passed on macOS arm64. The initial source proof used host
-tools; the separate frozen-component proof below uses bundled runtimes. Task 1.3
-remains open because Deno's complete dependency notices are still unavailable.
+tools; the separate frozen-component proof below uses bundled runtimes. Deno's
+dependency/native notice inventory was completed on 2026-09-07 (see below).
 The owner approved Deno and the seven explicitly scoped MPL dependencies.
 Initial component checks did not involve application data. Later integration
 checks used an isolated temporary application database and a dummy Rekordbox
@@ -141,8 +141,8 @@ Pinned sources and runtimes:
   URLs and SHA-256 pins are in `web-audio-component/native-lock.json`.
 - The archive includes FFmpeg/LAME original source tarballs, the LAME export-list
   patch needed by the encoder-only build, build flags, license texts, and Python
-  dependency notices. Packaging checks notice paths and hashes and refuses
-  release-manifest generation while the Deno inventories are incomplete.
+  dependency notices. Packaging checks notice paths and hashes; with the
+  completed inventories it generates `sidecar/src/syncbox/web_audio_component.json`.
 
 Build command from the repository root:
 
@@ -195,21 +195,34 @@ recorded in `docs/SPEC-UNIFIED.md`; no further runtime-choice approval is pendin
 The exact Deno tag's conservative macOS runtime graph contains 834 package
 entries, including proc macros. The original [deno-license-review.json](deno-license-review.json)
 is historical investigation evidence. The current inventories are
-`web-audio-component/licenses/deno-inventory.draft.json` and
-`web-audio-component/licenses/deno-native/inventory.draft.json`.
+`web-audio-component/licenses/deno-inventory.json` and
+`web-audio-component/licenses/deno-native/inventory.json`.
 All 775 registry source archives were checked against Cargo.lock checksums;
-59 workspace packages were also inventoried. Corresponding notices remain
-missing for 41 packages. Several declared crate VCS references return 404/422;
-for example SWC commit `00ec64fe9a4da0973f14721d7b6dc1f13cd75413` could not be
-retrieved from its declared repository. A declared SPDX identifier alone does
-not supply the missing corresponding copyright notice.
+59 workspace packages were also inventoried. The 41 packages that initially
+lacked notices were completed on 2026-09-07: 30 root LICENSE files were retrieved
+from the declared repositories' default branch (their declared VCS commits are not
+retrievable, e.g. SWC `00ec64fe9a4da0973f14721d7b6dc1f13cd75413`; the
+checksum-verified crate archives contain no notice file). The remaining 11 crates
+(`aead-gcm-stream`, `deno_native_certs`, `deno_tunnel`, `derive-io`,
+`derive-io-macros`, `fqdn`, `rustls-tokio-stream`, `sacabase`, `sptr`,
+`sys_traits`, `sys_traits_macros`) ship no notice text at all — neither in the
+crate archive nor in their repositories (listings checked 2026-09-07) — so the
+SPDX 3.28.0 text of their declared license is attached and the declared license
+and authors are recorded in `license_evidence`, following the existing
+`release/license-overrides/rust` practice.
 
-The native inventory contains 26 retrieved notices and pinned submodule
-references, but complete coverage of the distributed V8/native binary is still
-unverified, including LLVM/libc++, libunwind, llvm-libc, partition_alloc and
-dragonbox. Both inventories therefore retain `complete: false`.
-The default packager refuses release generation; `--draft` permits local proof
-only. No installable `web_audio_component.json` is generated from this evidence.
+The native inventory now holds 32 notices. libc++, libc++abi, libunwind and
+dragonbox notices were added (rusty_v8 uses its custom libc++; the shipped binary
+links no system libc++ and carries libc++/libunwind strings; dragonbox is a
+header-only `v8_base` dependency). llvm-libc's notice is attached although no
+symbols appear in the binary. `partition_alloc` (off for standalone V8, no
+strings in the binary), `third_party/rust` (V8 Temporal is compiled from the
+Cargo graph: `temporal_capi`/`temporal_rs` 0.2.3 and icu4x are in the Deno
+inventory) and the build-only submodules are recorded as not distributed with
+their evidence. Both inventories are `complete: true`; the default packager
+generates `web_audio_component.json`. The notice texts themselves are no longer
+committed: the inventories pin each text by source and SHA-256 and the packager
+materializes them (checksum-verified) before bundling.
 
 The native build now uses a temporary cache path instead of a personal checkout
 path, and its dynamic libraries use loader-relative or system paths.

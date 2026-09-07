@@ -2,9 +2,10 @@
 
 This optional macOS 14+ arm64 component resolves public YouTube/YouTube Music
 and SoundCloud links and acquires an explicitly selected item. It is isolated
-from the base application and the optional Deezer component. The current
-archive is a **local experimental build**: the Deno dependency/native notice
-inventory is incomplete, so no installable web-audio manifest is shipped yet.
+from the base application and the optional Deezer component. The Deno
+dependency/native notice inventory was completed on 2026-09-07, so the packager
+generates the installable manifest; the archive still has to be published as a
+release asset before end users can install it.
 
 ## User workflow
 
@@ -44,9 +45,14 @@ uv run --project web-audio-component python -m pytest web-audio-component/tests 
 SOURCE_DATE_EPOCH=1788739200 uv run --project web-audio-component python scripts/package_web_audio_component.py --draft
 ```
 
-The packager verifies collected notice hashes. Without `--draft`, it refuses an
-incomplete inventory; only a complete reviewed inventory permits generation of
-`sidecar/src/syncbox/web_audio_component.json`. Draft archives are never accepted
+Notice texts are not committed. `licenses/deno-inventory.json` and
+`licenses/deno-native/inventory.json` pin every text by source URL and SHA-256;
+the packager materializes them into `licenses/` (crate archives and the Deno
+source tarball are cached under `vendor/notice-cache/`, texts already present
+with the right hash are kept) and refuses any text whose hash does not match.
+Packaging therefore needs network access the first time. Without `--draft`, it
+refuses an incomplete inventory; only a complete reviewed inventory permits
+generation of `sidecar/src/syncbox/web_audio_component.json`. Draft archives are never accepted
 as proof that the distribution gate passed. Release URLs and versions follow
 the existing application release flow; do not replace an already published
 asset under an existing checksum. No artifact was published by this change.
