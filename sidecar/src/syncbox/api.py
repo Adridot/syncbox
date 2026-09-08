@@ -524,6 +524,14 @@ class _Progress:
         self.job_id = uuidlib.uuid4().hex
         self.kind = kind
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if exc_type is not None:
+            # HTTP remains the error authority; never broadcast exception text.
+            self.done(status="failed")
+
     def _publish(self, event_type: str, payload: dict) -> None:
         payload = {"job": self.job_id, "kind": self.kind, **payload}
         anyio.from_thread.run(self._bus.publish, event_type, payload)
@@ -738,52 +746,52 @@ def sources_sync_one(deps, request, body):
     source = _get_source(deps, request.path_params["source_id"])
     _require_rekordbox(deps)
     client = _sync_client(deps)
-    progress = _Progress(deps.bus, "sources.sync")
-    progress.publish(0, 1)
-    result = library_service.sync_one_source(
-        deps.conn,
-        client,
-        deps.cache(),
-        deps.storage_root,
-        source,
-        **_matching_thresholds(deps),
-    )
-    progress.publish(1, 1)
-    progress.done(source_id=source["id"], **result["stats"])
-    return result
+    with _Progress(deps.bus, "sources.sync") as progress:
+        progress.publish(0, 1)
+        result = library_service.sync_one_source(
+            deps.conn,
+            client,
+            deps.cache(),
+            deps.storage_root,
+            source,
+            **_matching_thresholds(deps),
+        )
+        progress.publish(1, 1)
+        progress.done(source_id=source["id"], **result["stats"])
+        return result
 
 
 def sources_sync_all(deps, request, body):
     _require_rekordbox(deps)
     client = _sync_client(deps)
     sources = [s for s in repos.list_sources(deps.conn) if s["enabled"]]
-    progress = _Progress(deps.bus, "sources.sync_all")
-    results = []
-    thresholds = _matching_thresholds(deps)
-    for done, source in enumerate(sources, start=1):
-        try:
-            result = library_service.sync_one_source(
-                deps.conn,
-                client,
-                deps.cache(),
-                deps.storage_root,
-                source,
-                **thresholds,
-            )
-            results.append({"source_id": source["id"], **result})
-        except SpotifyApiError as exc:
-            # One unreachable playlist (404 private, rate-limit exhausted)
-            # must not abort the other sources; report it in the results.
-            results.append(
-                {
-                    "source_id": source["id"],
-                    "error": str(exc),
-                    "status_code": exc.status_code,
-                }
-            )
-        progress.publish(done, len(sources))  # real unit: one source synced
-    progress.done(synced=len(sources))
-    return {"results": results}
+    with _Progress(deps.bus, "sources.sync_all") as progress:
+        results = []
+        thresholds = _matching_thresholds(deps)
+        for done, source in enumerate(sources, start=1):
+            try:
+                result = library_service.sync_one_source(
+                    deps.conn,
+                    client,
+                    deps.cache(),
+                    deps.storage_root,
+                    source,
+                    **thresholds,
+                )
+                results.append({"source_id": source["id"], **result})
+            except SpotifyApiError as exc:
+                # One unreachable playlist (404 private, rate-limit exhausted)
+                # must not abort the other sources; report it in the results.
+                results.append(
+                    {
+                        "source_id": source["id"],
+                        "error": str(exc),
+                        "status_code": exc.status_code,
+                    }
+                )
+            progress.publish(done, len(sources))  # real unit: one source synced
+        progress.done(synced=len(sources))
+        return {"results": results}
 
 
 def source_tracks(deps, request, body):
@@ -823,23 +831,23 @@ def source_apply(deps, request, body):
     source = _get_source(deps, request.path_params["source_id"])
     _require_rekordbox(deps)
     track_ids = [int(t) for t in _require_list(body, "track_ids")]
-    progress = _Progress(deps.bus, "sources.apply")
-    progress.publish(0, 1)
-    # ONE mutate() inside; ConflictError (wrong status / missing MyTag) -> 409.
-    result = library_service.apply_to_rekordbox(
-        deps.conn,
-        deps.db_path,
-        deps.backups_root,
-        deps.cache(),
-        deps.storage_root,
-        source["id"],
-        track_ids,
-        retention=deps.retention,
-        app_db_path=deps.app_db_path,
-    )
-    progress.publish(1, 1)
-    progress.done(source_id=source["id"], **result)
-    return result
+    with _Progress(deps.bus, "sources.apply") as progress:
+        progress.publish(0, 1)
+        # ONE mutate() inside; ConflictError (wrong status / missing MyTag) -> 409.
+        result = library_service.apply_to_rekordbox(
+            deps.conn,
+            deps.db_path,
+            deps.backups_root,
+            deps.cache(),
+            deps.storage_root,
+            source["id"],
+            track_ids,
+            retention=deps.retention,
+            app_db_path=deps.app_db_path,
+        )
+        progress.publish(1, 1)
+        progress.done(source_id=source["id"], **result)
+        return result
 
 
 # --- status (G1) --------------------------------------------------------------------
@@ -1374,22 +1382,22 @@ def events_claim(deps, request, body):
 def _events_apply(deps, request, *, only_delta: bool):
     event = _get_event(deps, request.path_params["event_id"])
     _require_rekordbox(deps)
-    progress = _Progress(deps.bus, "events.reapply" if only_delta else "events.apply")
-    progress.publish(0, 1)
-    result = events_service.apply_event(
-        deps.conn,
-        deps.db_path,
-        deps.backups_root,
-        deps.cache(),
-        deps.storage_root,
-        event,
-        only_delta=only_delta,
-        retention=deps.retention,
-        app_db_path=deps.app_db_path,
-    )
-    progress.publish(1, 1)
-    progress.done(event_id=event["id"], **{k: result[k] for k in ("noop", "applied")})
-    return result
+    with _Progress(deps.bus, "events.reapply" if only_delta else "events.apply") as progress:
+        progress.publish(0, 1)
+        result = events_service.apply_event(
+            deps.conn,
+            deps.db_path,
+            deps.backups_root,
+            deps.cache(),
+            deps.storage_root,
+            event,
+            only_delta=only_delta,
+            retention=deps.retention,
+            app_db_path=deps.app_db_path,
+        )
+        progress.publish(1, 1)
+        progress.done(event_id=event["id"], **{k: result[k] for k in ("noop", "applied")})
+        return result
 
 
 def events_apply(deps, request, body):
@@ -2211,43 +2219,43 @@ def duplicates_scan(deps, request, body):
     rows = [r for r in cache.get(deps.storage_root) if not r.get("spotify_track_id")]
     groups = dedup.find_duplicate_groups(rows, repos.list_dismissed_groups(deps.conn))
     by_id = {row["content_id"]: row for row in rows}
-    progress = _Progress(deps.bus, "duplicates.scan")
-    total = sum(len(g.content_ids) for g in groups)
-    done = 0
-    out = []
-    for group in groups:
-        members = []
-        for content_id in group.content_ids:
-            member = dict(by_id[content_id])  # copy: cache rows stay verdict-free
-            if member.get("resolved_path"):
-                verdict = quality.analyze(member["resolved_path"])
-                member["quality_verdict"] = verdict.verdict
-                member["quality_reason"] = verdict.reason
-            else:
-                member["quality_verdict"] = "ok"  # 5.12: neutral by default
-                member["quality_reason"] = "no_local_path_neutral"
-            members.append(member)
-            done += 1
-            progress.publish(done, total)
-        keeper, reason = dedup.choose_keeper(members)
-        out.append(
-            {
-                "key": group.key,
-                "method": group.method,
-                "confidence": group.confidence,
-                "warning": group.warning,
-                "members": members,
-                "keeper": {"content_id": keeper["content_id"], "reason": reason},
-            }
-        )
-    progress.done(groups=len(out))
-    return {
-        "groups": out,
-        "scanned": len(rows),
-        # Echo of the snapshot fingerprint: pass it back to /resolve so the
-        # mutate freshness guard covers exactly what this scan displayed.
-        "fingerprint": cache.current_fingerprint,
-    }
+    with _Progress(deps.bus, "duplicates.scan") as progress:
+        total = sum(len(g.content_ids) for g in groups)
+        done = 0
+        out = []
+        for group in groups:
+            members = []
+            for content_id in group.content_ids:
+                member = dict(by_id[content_id])  # copy: cache rows stay verdict-free
+                if member.get("resolved_path"):
+                    verdict = quality.analyze(member["resolved_path"])
+                    member["quality_verdict"] = verdict.verdict
+                    member["quality_reason"] = verdict.reason
+                else:
+                    member["quality_verdict"] = "ok"  # 5.12: neutral by default
+                    member["quality_reason"] = "no_local_path_neutral"
+                members.append(member)
+                done += 1
+                progress.publish(done, total)
+            keeper, reason = dedup.choose_keeper(members)
+            out.append(
+                {
+                    "key": group.key,
+                    "method": group.method,
+                    "confidence": group.confidence,
+                    "warning": group.warning,
+                    "members": members,
+                    "keeper": {"content_id": keeper["content_id"], "reason": reason},
+                }
+            )
+        progress.done(groups=len(out))
+        return {
+            "groups": out,
+            "scanned": len(rows),
+            # Echo of the snapshot fingerprint: pass it back to /resolve so the
+            # mutate freshness guard covers exactly what this scan displayed.
+            "fingerprint": cache.current_fingerprint,
+        }
 
 
 def duplicates_resolve(deps, request, body):

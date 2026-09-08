@@ -83,20 +83,25 @@ and date; those downloads were not rerun for this follow-up.
 
 ## Remaining delivery work
 
-Hosted Release Pin passed for `da21201`. CodeQL's aggregate check still reports
-the same three alerts seen before this follow-up: two ECB alerts on the fixed
-synthetic round-trip in `scripts/run_b1_deezer_acquisition.py::_check`, and a
-logging alert in `sidecar/src/syncbox/__main__.py`'s packaging diagnostic. The
-latter initializes an in-memory database with a fixed synthetic key and prints
-provider/version/status metadata, not stored user credentials. Static inspection
-indicates contextual false positives; no alert was dismissed or suppressed.
-Their repository review disposition remains outstanding.
+CI, Release Pin, and CodeQL passed for `4527e05`. Alerts #3 and #4 cover the
+fixed synthetic ECB round-trip in `scripts/run_b1_deezer_acquisition.py::_check`
+and were dismissed as used in tests. Alert #1 was dismissed as a false positive:
+the flagged packaging diagnostic value is `OAUTH_CALLBACK_PORT = 8765`, not a
+stored credential. This corrects the earlier provisional SQLCipher-key
+explanation. Alert #2 remains open on `master`; the PR checks are green.
 
 1. Complete task 7.1 through the normal component release process, with matching
    published archives and manifests and the required packaging checks.
-2. Complete task 7.3 in installed Tauri against an authorized real Rekordbox
-   library, covering all providers, authenticated Spotify collections, and
-   guarded apply/reapply. Browser fixtures cannot satisfy this requirement.
+2. Finish the installed native acceptance run documented in
+   [native-verification.md](native-verification.md): nine acquisitions, initial
+   Apply/reapply, restart persistence, authenticated Spotify collections, and
+   the Rekordbox-open guard passed. Final playlist navigation in Rekordbox
+   remains visually unverified despite matching database records. SoundCloud
+   collection titles and stale-snapshot error recovery need correction.
+
+   These two defects were subsequently corrected in source and verified by
+   automated regressions and a real frozen SoundCloud metadata run. Current
+   evidence is in the follow-up section of `native-verification.md`.
 
 Keep the PR in draft until these delivery gates are satisfied. No release asset,
 tag, or native distribution was published as part of this follow-up.

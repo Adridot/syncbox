@@ -115,6 +115,7 @@ const backupLabel = computed(() => {
 
 const activity = computed(() =>
   [...jobs.doneLog]
+    .filter((entry) => entry.status !== 'failed')
     .reverse()
     .slice(0, 6)
     .map((entry) => ({

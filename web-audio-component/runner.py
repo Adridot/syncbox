@@ -195,9 +195,28 @@ def operate(request):
                 raise ComponentError("collection_item_limit")
             if kind != "track" and not entries:
                 raise ComponentError("collection_empty_or_inaccessible")
+            normalized = []
+            for position, child in enumerate(entries, 1):
+                item = entry(child, provider, position)
+                if provider == "soundcloud" and item["available"] and not item["title"]:
+                    # Flat sets contain URL references, including numeric API stubs.
+                    # Reuse the same transport budget and never download audio.
+                    child_provider, child_kind, _, child_url = identity(item["url"])
+                    if child_provider != provider or child_kind != "track":
+                        raise ComponentError("source_identity_mismatch")
+                    resolved = ydl.extract_info(child_url, download=False)
+                    if not resolved:
+                        raise ComponentError("metadata_unavailable")
+                    hydrated = entry(resolved, provider, position)
+                    if hydrated["item_id"] != item["item_id"]:
+                        raise ComponentError("source_identity_mismatch")
+                    if hydrated["available"] and not hydrated["title"]:
+                        raise ComponentError("metadata_unavailable")
+                    item = hydrated
+                normalized.append(item)
             return {"provider": provider, "resource_type": kind, "resource_id": str(info.get("id") or requested_id),
                     "url": url, "title": info.get("title"),
-                    "entries": [entry(child, provider, i) for i, child in enumerate(entries, 1)]}
+                    "entries": normalized}
 
         expected_id = str(request.get("item_id") or requested_id or "")
         if not expected_id or str(info.get("id")) != expected_id:

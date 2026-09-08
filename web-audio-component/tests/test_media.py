@@ -72,8 +72,6 @@ def test_supported_extension_cannot_hide_unsupported_codec(monkeypatch, tmp_path
 @pytest.mark.parametrize(('url', 'info', 'provider', 'kind', 'item_id'), [
     ('https://music.youtube.com/browse/MPREb_gTAcphH99wE', {'id': 'OLAK5uy_l1m0thk3g31NmIIz_vMIbWtyv7eZixlH0', 'entries': [{'id': 'XNEnEBrHws8', 'title': 'Flat track', 'uploader': 'Do not invent artist'}]}, 'youtube', 'album', 'XNEnEBrHws8'),
     ('https://soundcloud.com/artist/sets/album', {'id': '123', 'entries': [{'id': '456', 'url': 'https://soundcloud.com/artist/song', 'title': 'Album track'}]}, 'soundcloud', 'playlist', '456'),
-    # Set children beyond the first five are API stubs: no permalink, no title.
-    ('https://soundcloud.com/artist/sets/album', {'id': '123', 'entries': [{'id': '565801467', 'url': 'https://api-v2.soundcloud.com/tracks/565801467'}]}, 'soundcloud', 'playlist', '565801467'),
 ])
 def test_flat_collection_identity_is_preserved_without_fabricated_metadata(monkeypatch, url, info, provider, kind, item_id):
     monkeypatch.setattr(runner.yt_dlp.YoutubeDL, 'extract_info', lambda self, url, download: info)
@@ -90,3 +88,53 @@ def test_non_audio_with_supported_extension_is_rejected(tmp_path):
     path.write_text('This is not audio.')
     with pytest.raises(runner.ComponentError, match='media_processing_failed'):
         runner.probe(path)
+
+
+@pytest.mark.parametrize("resolved_id", ["565801467", "999"])
+def test_soundcloud_flat_titles_are_hydrated_without_changing_identity(monkeypatch, resolved_id):
+    calls = []
+    playlist = "https://soundcloud.com/artist/sets/album"
+    child = "https://api-v2.soundcloud.com/tracks/565801467"
+
+    def extract(self, url, download):
+        assert download is False and self.params["skip_download"] is True
+        calls.append(url)
+        if url == playlist:
+            return {"id": "123", "entries": [
+                {"id": "456", "title": "Known", "url": "https://soundcloud.com/artist/known"},
+                None,
+                {"id": "565801467", "url": child},
+            ]}
+        assert url == child
+        return {"id": resolved_id, "title": "Market Day", "artist": "Kevin MacLeod",
+                "duration": 139, "webpage_url": "https://soundcloud.com/artist/market-day"}
+
+    monkeypatch.setattr(runner.yt_dlp.YoutubeDL, "extract_info", extract)
+    request = {"operation": "metadata", "url": playlist}
+    if resolved_id != "565801467":
+        with pytest.raises(runner.ComponentError, match="source_identity_mismatch"):
+            runner.operate(request)
+    else:
+        result = runner.operate(request)
+        item = result["entries"][2]
+        assert item == {"entry_key": "3:565801467", "position": 3,
+                        "provider": "soundcloud", "item_id": "565801467",
+                        "title": "Market Day", "artist": "Kevin MacLeod",
+                        "duration_seconds": 139, "available": True,
+                        "url": "https://soundcloud.com/artist/market-day"}
+        assert result["entries"][1]["available"] is False
+    assert calls == [playlist, child]
+
+
+def test_soundcloud_hydration_failure_does_not_return_a_partial_preview(monkeypatch):
+    def extract(self, url, download):
+        if "/sets/" in url:
+            return {"id": "123", "entries": [
+                {"id": "456", "title": "Known", "url": "https://soundcloud.com/artist/known"},
+                {"id": "565801467", "url": "https://api-v2.soundcloud.com/tracks/565801467"},
+            ]}
+        raise runner.ComponentError("metadata_unavailable")
+
+    monkeypatch.setattr(runner.yt_dlp.YoutubeDL, "extract_info", extract)
+    with pytest.raises(runner.ComponentError, match="metadata_unavailable"):
+        runner.operate({"operation": "metadata", "url": "https://soundcloud.com/artist/sets/album"})

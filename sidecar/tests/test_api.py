@@ -305,7 +305,7 @@ def test_sync_all_publishes_per_source_progress(tmp_path, monkeypatch):
     a single faked 100%."""
     published = []
 
-    class RecordingProgress:
+    class RecordingProgress(api._Progress):
         def __init__(self, bus, kind):
             self.kind = kind
 
@@ -2919,3 +2919,39 @@ def test_transfer_paths_must_be_absolute_and_live_db_cannot_import_itself(tmp_pa
     assert live.status_code == 400
     assert "live Syncbox database" in live.json()["message"]
     assert env.client.get("/api/settings").json() == before
+
+
+@pytest.mark.parametrize("operation", ["apply", "reapply"])
+def test_event_apply_failure_finishes_progress_and_allows_retry(tmp_path, monkeypatch, operation):
+    env = make_env(tmp_path)
+    event = env.client.post("/api/events", json={"name": "Gig"}).json()
+    received = []
+    real_publish = env.deps.bus.publish
+
+    async def record(kind, payload):
+        received.append((kind, payload))
+        await real_publish(kind, payload)
+
+    attempts = 0
+
+    def apply(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise StaleSnapshotError("Changed since preview")
+        return {"noop": False, "applied": 1}
+
+    monkeypatch.setattr(env.deps.bus, "publish", record)
+    monkeypatch.setattr(api.events_service, "apply_event", apply)
+    path = f"/api/events/{event['id']}/{operation}"
+    failed = env.client.post(path)
+    assert failed.status_code == 409
+    assert failed.json()["error"] == "stale_snapshot"
+    assert [kind for kind, _ in received] == ["job.progress", "job.done"]
+    start, done = [payload for _, payload in received]
+    assert start["job"] == done["job"] and start["kind"] == done["kind"]
+    assert done["status"] == "failed" and "error" not in done
+    assert env.client.post(path).status_code == 200
+    assert received[-1][0] == "job.done"
+    assert received[-1][1]["applied"] == 1
+    assert received[-1][1]["job"] != start["job"]

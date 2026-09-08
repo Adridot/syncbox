@@ -3,6 +3,8 @@
 The current review outcome and regression results are recorded in
 [review-followup.md](review-followup.md) (2026-09-08). The executed checks below
 remain historical evidence for their original builds.
+The installed native run and its remaining acceptance gaps are recorded in
+[native-verification.md](native-verification.md).
 
 ## Outcome
 
@@ -14,8 +16,14 @@ not create audio jobs or bypass the guarded Rekordbox apply/reapply flow.
 
 This change is **not ready for distribution or archival**. Tasks 7.1 and 7.3
 remain open (33/35 complete). The approved Deno runtime choice is retained;
-notice inventories were subsequently completed. Component publication and the
-full packaged native workflow remain outstanding.
+notice inventories were subsequently completed. Component publication, final
+native playlist inspection, and the observed SoundCloud title and stale-error
+recovery defects remain outstanding. Native reapply succeeded. The native
+report supersedes older statements below about which
+real-provider paths have not yet been exercised.
+The two defects now have source corrections and passing regressions; see the
+native report's follow-up section and `native-fixes-verification.json` for the
+rebuilt component proof. Installed native acceptance remains a separate gate.
 
 ## Executed checks
 

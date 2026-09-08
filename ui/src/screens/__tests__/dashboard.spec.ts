@@ -125,3 +125,14 @@ test('unconfigured paths gate the dashboard toward Settings', async () => {
   expect(wrapper.text()).toContain('Presque prêt')
   expect(wrapper.find('.hero').exists()).toBe(false)
 })
+
+test('failed jobs are not presented as successful activity', async () => {
+  stubApi()
+  useSettingsStore().$patch({ values: CONFIGURED, loaded: true })
+  useJobsStore().doneLog.push({
+    job: 'failed-sync', kind: 'sources.sync_all', status: 'failed', at: Date.now(),
+  })
+  const wrapper = mountDashboard()
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('Sources synchronisées')
+})
