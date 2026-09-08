@@ -34,6 +34,9 @@ a = Analysis(
     excludes=["pytest", "setuptools", "yt_dlp.networking._curlcffi"],
     noarchive=False, optimize=0,
 )
+# As in the base bundle, omit optional installer RECORD files: console-script
+# hashes encode the build venv's shebang path, and those scripts are not shipped.
+a.datas = [entry for entry in a.datas if not entry[0].endswith(".dist-info/RECORD")]
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, exclude_binaries=True, name="syncbox-web-audio-component",
           debug=False, strip=False, upx=False, console=True, target_arch="arm64")

@@ -882,6 +882,11 @@ def validate_source_secrets() -> int:
         if any(part in skipped for part in path.relative_to(REPO).parts):
             continue
         relative = path.relative_to(REPO)
+        # Pinned downloads/build outputs, like node_modules, are not source.
+        # Deno's crypto runtime contains a PEM parser marker without a key.
+        # Keep vendored project sources (e.g. sqlcipher3) in the scan.
+        if relative.parts[:2] == ("web-audio-component", "vendor"):
+            continue
         raw = path.read_bytes()
         for pattern in SECRET_PATTERNS:
             assert not pattern.search(raw), f"secret-shaped value in source file {path}"

@@ -111,6 +111,23 @@ def test_source_secret_scan_ignores_generated_python_caches(monkeypatch, tmp_pat
     assert scanner.validate_source_secrets() == 1
 
 
+def test_source_secret_scan_skips_only_generated_web_audio_vendor(monkeypatch, tmp_path):
+    scanner = _load_scanner()
+    monkeypatch.setattr(scanner, "REPO", tmp_path)
+    marker = b"-----BEGIN " + b"ENCRYPTED PRIVATE KEY-----"
+    generated = tmp_path / "web-audio-component/vendor/deno"
+    generated.parent.mkdir(parents=True)
+    generated.write_bytes(marker + b"op_node_private_encrypt")
+    (tmp_path / "source.py").write_text("print('safe')\n")
+    assert scanner.validate_source_secrets() == 1
+
+    vendored_source = tmp_path / "sidecar/vendor/source.py"
+    vendored_source.parent.mkdir(parents=True)
+    vendored_source.write_bytes(marker + b"\nsynthetic test payload\n")
+    with pytest.raises(AssertionError, match="secret-shaped value"):
+        scanner.validate_source_secrets()
+
+
 def test_frozen_distribution_inventory_uses_the_pyinstaller_pyz(
     monkeypatch,
 ):
