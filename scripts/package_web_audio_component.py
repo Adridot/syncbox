@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import tomllib
 import urllib.request
 
@@ -155,9 +156,13 @@ def main():
             shutil.copy2(pyinstaller.locate_file(file), licenses / "pyinstaller-bootloader" / f"{pyinstaller.version}-{file.name}")
     # same determinism knobs as build_macos_release.py: PyInstaller orders
     # base_library.zip from a set, so an unseeded hash randomizes the archive
-    subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "syncbox-web-audio-component.spec"],
-                   cwd=ROOT, check=True,
-                   env={**os.environ, "PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1", "TZ": "UTC", "LC_ALL": "C"})
+    # Ignore bytecode cached by earlier test runs as well as preventing writes.
+    # Cached ctypes code can have identical semantics but different marshal bytes.
+    with tempfile.TemporaryDirectory(prefix="syncbox-web-audio-pycache-") as cache:
+        subprocess.run([sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", "syncbox-web-audio-component.spec"],
+                       cwd=ROOT, check=True,
+                       env={**os.environ, "PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1",
+                            "PYTHONPYCACHEPREFIX": cache, "TZ": "UTC", "LC_ALL": "C"})
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     name = project["name"]
     bundle = ROOT / "dist" / name

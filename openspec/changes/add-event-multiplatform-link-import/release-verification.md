@@ -59,6 +59,15 @@ contents or credentials. The unused scanned-file counter was removed from the
 printed JSON report; the validation call and rejection behavior remain intact.
 No alert suppression or dismissal was added.
 
+A retained archive comparison then isolated the remaining hosted discrepancy:
+all entries matched except the frozen executable. Its only differing PYZ module
+was `ctypes`: the deserialized code objects were equal, but their marshal data
+differed after the release workflow's test run populated Python's bytecode cache.
+Packaging now runs PyInstaller with `--clean` and a fresh temporary
+`PYTHONPYCACHEPREFIX`, while disabling bytecode writes. Python therefore ignores
+existing source-tree caches as documented for
+[`sys.pycache_prefix`](https://docs.python.org/3/library/sys.html#sys.pycache_prefix).
+
 Hosted Release Pin run `34212020132` rebuilt both corrected archives. The Deezer manifest
 was unchanged; the web-audio manifest was replaced wholesale with the hosted
 artifact (77,656,565 bytes, SHA-256
