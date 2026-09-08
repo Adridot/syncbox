@@ -1,6 +1,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags: ["v*"]
 
@@ -28,6 +29,7 @@ jobs:
         run: echo "SRC=$RUNNER_TEMP/${{ matrix.root }}/syncbox" >> "$GITHUB_ENV"
 
       - name: Check tag matches the versioned release metadata
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           UI_VERSION="$(jq -r .version ui/package.json)"
@@ -69,6 +71,7 @@ jobs:
           pnpm install --frozen-lockfile
           (cd sidecar && uv lock --check && uv sync --locked --managed-python)
           (cd optional-component && uv lock --check && uv sync --locked --managed-python)
+          (cd web-audio-component && uv lock --check && uv sync --locked --managed-python)
           # Building the local sqlcipher3 wheel drops setuptools byproducts
           # into the vendor tree; remove them so the license inventory hash
           # sees the pristine sources (same LOCAL_BUILD_PRODUCTS cleanup as
@@ -84,6 +87,14 @@ jobs:
           pnpm --dir ui typecheck
           pnpm --dir ui test
 
+      - name: Build the web-audio component from pinned sources
+        working-directory: ${{ env.SRC }}
+        run: |
+          export SOURCE_DATE_EPOCH="$(jq -r .source_date_epoch release-build.json)"
+          uv run --project web-audio-component --locked --managed-python python scripts/build_web_audio_native.py
+          uv run --project web-audio-component --locked --managed-python python -m pytest web-audio-component/tests -q
+          uv run --project web-audio-component --locked --managed-python python scripts/package_web_audio_component.py
+
       - name: Build release artifacts
         working-directory: ${{ env.SRC }}/shell
         env:
@@ -95,25 +106,28 @@ jobs:
       # committed pin does not describe the archive this release publishes.
       - name: Check the committed component pin matches the rebuilt archive
         run: |
-          diff "$GITHUB_WORKSPACE/sidecar/src/syncbox/optional_component.json" \
-               "$SRC/sidecar/src/syncbox/optional_component.json" || {
-            echo "The tagged optional_component.json does not match the rebuilt archive."
-            echo "Run the Release Pin workflow on the release branch, download and"
-            echo "commit its optional-component-manifest artifact before tagging."
-            echo "Do not move or replace a release tag to refresh this pin."
-            exit 1
-          }
+          for MANIFEST in optional_component.json web_audio_component.json; do
+            diff "$GITHUB_WORKSPACE/sidecar/src/syncbox/$MANIFEST" \
+                 "$SRC/sidecar/src/syncbox/$MANIFEST" || {
+              echo "The tagged $MANIFEST does not match the rebuilt archive."
+              echo "Run the Release Pin workflow on the release branch, download and"
+              echo "commit its component manifest artifacts before tagging."
+              echo "Do not move or replace a release tag to refresh this pin."
+              exit 1
+            }
+          done
 
       - name: Collect artifacts
         working-directory: ${{ env.SRC }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="$(jq -r .version ui/package.json)"
           BUNDLE="shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
           OUT="$RUNNER_TEMP/out"
           mkdir -p "$OUT"
           cp "$BUNDLE/Syncbox-$VERSION-macos-arm64.zip" "$OUT/"
           cp "$BUNDLE/Syncbox-$VERSION-macos-arm64.dmg" "$OUT/"
           cp "optional-component/dist/syncbox-deezer-component-$VERSION-macos-arm64.zip" "$OUT/"
+          cp "web-audio-component/dist/syncbox-web-audio-component-$VERSION-macos-arm64.zip" "$OUT/"
           # The DMG is a convenience installer outside the reproducible
           # contract; only the ZIPs are compared across roots.
           (cd "$OUT" && shasum -a 256 *.zip > "REPRO-${{ matrix.root }}.sha256")
@@ -125,6 +139,7 @@ jobs:
           if-no-files-found: error
 
   release:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:

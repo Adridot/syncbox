@@ -123,3 +123,15 @@ def test_no_hardcoded_version_in_the_ui_spots():
         assert "__APP_VERSION__" in text, f"{spot} no longer renders the injected version"
         hardcoded = re.findall(r"\bv\d+\.\d+", text)
         assert not hardcoded, f"{spot} hardcodes {hardcoded}"
+
+
+def test_web_audio_component_and_manifest_are_pinned_to_canonical():
+    component = tomllib.loads((REPO / "web-audio-component/pyproject.toml").read_text())
+    manifest = json.loads((REPO / "sidecar/src/syncbox/web_audio_component.json").read_text())
+    runtime = (REPO / "sidecar/src/syncbox/web_audio.py").read_text()
+    assert component["project"]["version"] == CANONICAL
+    assert locked_package_version(REPO / "web-audio-component/uv.lock", "syncbox-web-audio-component") == CANONICAL
+    assert f'VERSION = "{CANONICAL}"' in runtime
+    assert manifest["version"] == manifest["component_version"] == CANONICAL
+    assert manifest["archive"] == f"syncbox-web-audio-component-{CANONICAL}-macos-arm64.zip"
+    assert manifest["download_url"] == f"https://github.com/Adridot/syncbox/releases/download/v{CANONICAL}/{manifest['archive']}"

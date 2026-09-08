@@ -48,12 +48,14 @@ jobs:
           pnpm install --frozen-lockfile
           (cd sidecar && uv lock --check && uv sync --locked --managed-python)
           (cd optional-component && uv lock --check && uv sync --locked --managed-python)
+          (cd web-audio-component && uv lock --check && uv sync --locked --managed-python)
           rm -rf sidecar/vendor/sqlcipher3-commoncrypto/build \
                  sidecar/vendor/sqlcipher3-commoncrypto/sqlcipher3_wheels.egg-info
 
       - name: Test
         run: |
           (cd sidecar && uv run --locked --exact --managed-python pytest -q)
+          uv run --project web-audio-component --locked --managed-python python -m pytest web-audio-component/tests -q
           pnpm --dir ui typecheck
           pnpm --dir ui test
           mkdir -p sidecar/dist/syncbox-sidecar

@@ -31,8 +31,9 @@ def test_manifest_pin_fields_are_plausible():
 
 def test_release_workflow_diffs_the_committed_pin():
     workflow = (REPO / ".github" / "workflows" / "release.yml").read_text()
-    assert '"$GITHUB_WORKSPACE/sidecar/src/syncbox/optional_component.json"' in workflow
-    assert '"$SRC/sidecar/src/syncbox/optional_component.json"' in workflow
+    assert "for MANIFEST in optional_component.json web_audio_component.json" in workflow
+    assert '"$GITHUB_WORKSPACE/sidecar/src/syncbox/$MANIFEST"' in workflow
+    assert '"$SRC/sidecar/src/syncbox/$MANIFEST"' in workflow
     assert "Run the Release Pin workflow on the release branch" in workflow
     assert "Do not move or replace a release tag" in workflow
 
@@ -46,5 +47,17 @@ def test_release_pin_workflow_exports_and_checks_the_hosted_manifest():
     assert "pnpm bundle:macos --component-only" in workflow
     assert "name: optional-component-manifest" in workflow
     assert "path: sidecar/src/syncbox/optional_component.json" in workflow
-    assert 'git diff --quiet -- "$MANIFEST"' in workflow
+    assert 'git diff --quiet -- "${MANIFESTS[@]}"' in workflow
+    assert "name: web-audio-component-manifest" in workflow
+    assert "path: sidecar/src/syncbox/web_audio_component.json" in workflow
     assert 'if [ "$GITHUB_EVENT_NAME" = "pull_request" ]' in workflow
+
+
+def test_release_collects_both_components_and_only_tags_publish():
+    workflow = (REPO / ".github/workflows/release.yml").read_text()
+    assert "workflow_dispatch:" in workflow
+    assert "release:\n    if: startsWith(github.ref, 'refs/tags/v')" in workflow
+    assert 'cp "optional-component/dist/syncbox-deezer-component-$VERSION-macos-arm64.zip"' in workflow
+    assert 'cp "web-audio-component/dist/syncbox-web-audio-component-$VERSION-macos-arm64.zip"' in workflow
+    assert "python scripts/build_web_audio_native.py" in workflow
+    assert "python scripts/package_web_audio_component.py" in workflow

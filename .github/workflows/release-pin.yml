@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/release-pin.yml"
       - "optional-component/**"
+      - "web-audio-component/**"
+      - "sidecar/src/syncbox/web_audio_component.json"
       - "pnpm-lock.yaml"
       - "release/**"
       - "release-build.json"
@@ -28,7 +30,7 @@ jobs:
   component-manifest:
     name: component manifest
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -61,8 +63,15 @@ jobs:
           pnpm install --frozen-lockfile
           (cd sidecar && uv lock --check && uv sync --locked --managed-python)
           (cd optional-component && uv lock --check && uv sync --locked --managed-python)
+          (cd web-audio-component && uv lock --check && uv sync --locked --managed-python)
           rm -rf sidecar/vendor/sqlcipher3-commoncrypto/build \
                  sidecar/vendor/sqlcipher3-commoncrypto/sqlcipher3_wheels.egg-info
+
+      - name: Build the hosted-runner web-audio manifest
+        run: |
+          export SOURCE_DATE_EPOCH="$(jq -r .source_date_epoch release-build.json)"
+          uv run --project web-audio-component --locked --managed-python python scripts/build_web_audio_native.py
+          uv run --project web-audio-component --locked --managed-python python scripts/package_web_audio_component.py
 
       - name: Build the hosted-runner component manifest
         working-directory: shell
@@ -77,24 +86,31 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-audio-component-manifest
+          path: sidecar/src/syncbox/web_audio_component.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Check the committed component pin
         run: |
-          MANIFEST="sidecar/src/syncbox/optional_component.json"
-          if git diff --quiet -- "$MANIFEST"; then
-            echo "The committed optional-component manifest matches this hosted runner."
+          MANIFESTS=(sidecar/src/syncbox/optional_component.json sidecar/src/syncbox/web_audio_component.json)
+          if git diff --quiet -- "${MANIFESTS[@]}"; then
+            echo "The committed component manifests match this hosted runner."
             exit 0
           fi
 
-          git diff -- "$MANIFEST"
+          git diff -- "${MANIFESTS[@]}"
           {
-            echo "## Optional-component manifest refresh required"
+            echo "## Component manifest refresh required"
             echo
-            echo "Download the \`optional-component-manifest\` artifact from run \`$GITHUB_RUN_ID\`,"
-            echo "replace \`$MANIFEST\`, commit it, and rerun this check before tagging."
+            echo "Download both component manifest artifacts from run \`$GITHUB_RUN_ID\`,"
+            echo "replace the corresponding manifests, commit them, and rerun this check before tagging."
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo "::error file=$MANIFEST::Commit the hosted-runner manifest artifact before merging this release PR."
+            echo "::error::Commit the hosted-runner manifest artifact before merging this release PR."
             exit 1
           fi
 
