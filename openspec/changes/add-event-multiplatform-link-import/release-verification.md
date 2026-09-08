@@ -67,11 +67,15 @@ Packaging now runs PyInstaller with `--clean` and a fresh temporary
 `PYTHONPYCACHEPREFIX`, while disabling bytecode writes. Python therefore ignores
 existing source-tree caches as documented for
 [`sys.pycache_prefix`](https://docs.python.org/3/library/sys.html#sys.pycache_prefix).
+With this isolation, both local roots produced the same 77,659,112-byte archive,
+SHA-256 `a2aa8f1a6d8ce5ef31ef686b2e7a54f3e08a3a9d1f0496bd4d3459b680583a53`.
+The 1,526 frozen Python module code objects compare equal to the earlier build;
+the change affects serialization and cache reuse, not module behavior.
 
-Hosted Release Pin run `34212020132` rebuilt both corrected archives. The Deezer manifest
+Hosted Release Pin run `34215403784` rebuilt both corrected archives. The Deezer manifest
 was unchanged; the web-audio manifest was replaced wholesale with the hosted
-artifact (77,656,565 bytes, SHA-256
-`bb2f76cf47fc78ba417bfd0a16ff609201c14ed031995cb648e7a20477fd59c6`).
+artifact (77,656,560 bytes, SHA-256
+`40b766dfe2e4c62edc828bab023103e79d6588e8be3dc785843ca665fc267ba0`).
 Task 7.1 remains open until the hosted builds and public release downloads have
 been verified. The release tag must not be created while a manifest or archive
 comparison fails.
