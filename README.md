@@ -87,11 +87,11 @@ An optional Deezer component exists for tracks you cannot buy anywhere. It is
 distributed separately, disabled by default, requires explicit setup, and is
 never needed for anything else in the app.
 
-The event link-import change adds snapshot previews for Spotify/Deezer tracks,
+Event link imports provide snapshot previews for Spotify/Deezer tracks,
 albums and playlists, YouTube/YouTube Music links and SoundCloud tracks/sets.
 Direct-source rows preserve the linked recording; Spotify retains its existing
-Deezer association. The separate web-audio component is still an experimental
-local build pending its complete dependency notices and packaged release checks.
+Deezer association. YouTube and SoundCloud use the separate, opt-in web-audio
+component, distributed alongside the application with pinned dependency notices.
 See [component setup and limits](web-audio-component/README.md).
 
 ![Events screen: an event of 52 titles, 47 ready to apply and 5 still missing, with an Apply button targeting the Event Imports playlist](docs/assets/events.png)

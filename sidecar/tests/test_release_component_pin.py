@@ -57,6 +57,8 @@ def test_release_collects_both_components_and_only_tags_publish():
     workflow = (REPO / ".github/workflows/release.yml").read_text()
     assert "workflow_dispatch:" in workflow
     assert "release:\n    if: startsWith(github.ref, 'refs/tags/v')" in workflow
+    assert "verify:\n    needs: build" in workflow
+    assert "    needs: verify" in workflow
     assert 'cp "optional-component/dist/syncbox-deezer-component-$VERSION-macos-arm64.zip"' in workflow
     assert 'cp "web-audio-component/dist/syncbox-web-audio-component-$VERSION-macos-arm64.zip"' in workflow
     assert "python scripts/build_web_audio_native.py" in workflow

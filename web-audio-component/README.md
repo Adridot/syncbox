@@ -2,10 +2,10 @@
 
 This optional macOS 14+ arm64 component resolves public YouTube/YouTube Music
 and SoundCloud links and acquires an explicitly selected item. It is isolated
-from the base application and the optional Deezer component. The Deno
-dependency/native notice inventory was completed on 2026-09-07, so the packager
-generates the installable manifest; the archive still has to be published as a
-release asset before end users can install it.
+from the base application and the optional Deezer component. The release workflow
+builds and publishes its archive alongside the application, including the complete
+dependency/native notice inventory. Installation verifies the published archive
+against the manifest embedded in the matching application.
 
 ## User workflow
 
@@ -42,7 +42,7 @@ Rust/native dependencies and must not be described as wholly MIT-licensed.
 uv sync --project web-audio-component --locked --managed-python
 uv run --project web-audio-component python scripts/build_web_audio_native.py
 uv run --project web-audio-component python -m pytest web-audio-component/tests -q
-SOURCE_DATE_EPOCH=1788739200 uv run --project web-audio-component python scripts/package_web_audio_component.py --draft
+SOURCE_DATE_EPOCH="$(jq -r .source_date_epoch release-build.json)" uv run --project web-audio-component python scripts/package_web_audio_component.py
 ```
 
 Notice texts are not committed. `licenses/deno-inventory.json` and
@@ -55,7 +55,8 @@ refuses an incomplete inventory; only a complete reviewed inventory permits
 generation of `sidecar/src/syncbox/web_audio_component.json`. Draft archives are never accepted
 as proof that the distribution gate passed. Release URLs and versions follow
 the existing application release flow; do not replace an already published
-asset under an existing checksum. No artifact was published by this change.
+asset under an existing checksum. The hosted Release Pin workflow generates the
+manifest committed before tagging; local archives are for local verification.
 
 The wrapper accepts bounded JSON on stdin: `check`, `metadata`, or `download`.
 Downloads require a canonical single-item URL, its provider item ID and an empty,

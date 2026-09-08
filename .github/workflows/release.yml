@@ -138,12 +138,9 @@ jobs:
           path: ${{ runner.temp }}/out
           if-no-files-found: error
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  verify:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -155,6 +152,18 @@ jobs:
           sed 's/^/alt      /' dist/syncbox-alt/REPRO-alt.sha256
           diff dist/syncbox-primary/REPRO-primary.sha256 \
                dist/syncbox-alt/REPRO-alt.sha256
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: syncbox-primary
+          path: dist/syncbox-primary
 
       - name: Publish GitHub release
         env:

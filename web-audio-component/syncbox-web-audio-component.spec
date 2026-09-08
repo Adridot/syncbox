@@ -1,5 +1,18 @@
 from pathlib import Path
+from PyInstaller.building import build_main
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
+
+# Match the base and Deezer bundles' deterministic standard-library ordering.
+_create_base_library_zip = build_main.create_base_library_zip
+
+
+def _create_sorted_base_library_zip(filename, modules_toc, code_cache=None):
+    return _create_base_library_zip(
+        filename, sorted(modules_toc, key=lambda item: item[0]), code_cache
+    )
+
+
+build_main.create_base_library_zip = _create_sorted_base_library_zip
 
 root = Path(SPECPATH)
 datas = collect_data_files("yt_dlp") + collect_data_files("yt_dlp_ejs")
