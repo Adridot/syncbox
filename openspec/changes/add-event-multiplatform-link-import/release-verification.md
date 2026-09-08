@@ -34,10 +34,29 @@ three ZIPs across two isolated source roots. Manual dispatch runs the complete
 preflight without publication; a new version tag triggers publication.
 
 Local workflow validation and 17 version/publication regression checks passed.
-Hosted Release Pin run `34209757477` rebuilt both archives. The Deezer manifest
+Preflight run `34210349336` exposed two packaging defects before any tag:
+
+- The source scanner traversed generated web-audio dependencies and treated
+  Deno's literal PEM parser marker as a private key. The scan now excludes only
+  `web-audio-component/vendor`, consistent with its existing generated-directory
+  exclusions. A regression keeps vendored project sources covered. A clean
+  export passed the source scan (481 files); 45 release-focused tests passed.
+- Installed `RECORD` entries for yt-dlp and websockets contained hashes of
+  unbundled console scripts whose shebangs vary with the build venv path. The
+  web-audio spec now follows the base bundle's existing omission of optional
+  `RECORD` files, retaining runtime metadata and all notices. This matches the
+  [installed-project metadata specification](https://packaging.python.org/en/latest/specifications/recording-installed-packages/).
+
+Two local roots with independent locked Python environments then produced the
+same 77,659,135-byte web-audio ZIP, SHA-256
+`3425fc48f4614d338447625b6d15e6d6a5ead3efb08de4b2dd39a5f87e92e096`.
+Both frozen protocol checks passed. This is local reproducibility evidence,
+not the hosted release pin.
+
+Hosted Release Pin run `34212020132` rebuilt both corrected archives. The Deezer manifest
 was unchanged; the web-audio manifest was replaced wholesale with the hosted
-artifact (77,708,570 bytes, SHA-256
-`46996c97a428a63c401de8099d21c7b9ab205e32cd606a81f1370639e81b1ac6`).
+artifact (77,656,565 bytes, SHA-256
+`bb2f76cf47fc78ba417bfd0a16ff609201c14ed031995cb648e7a20477fd59c6`).
 Task 7.1 remains open until the hosted builds and public release downloads have
 been verified. The release tag must not be created while a manifest or archive
 comparison fails.
