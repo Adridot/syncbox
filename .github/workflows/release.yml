@@ -95,6 +95,14 @@ jobs:
           uv run --project web-audio-component --locked --managed-python python -m pytest web-audio-component/tests -q
           uv run --project web-audio-component --locked --managed-python python scripts/package_web_audio_component.py
 
+      # Retain the rebuilt component even if a later pin/scanner gate fails.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-audio-component-${{ matrix.root }}
+          path: ${{ env.SRC }}/web-audio-component/dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Build release artifacts
         working-directory: ${{ env.SRC }}/shell
         env:
