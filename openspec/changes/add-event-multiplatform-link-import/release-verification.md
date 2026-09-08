@@ -98,5 +98,14 @@ error only when the leader is already reaped, retaining failure for a live
 leader. All 35 web-audio tests and five consecutive real cancellation tests
 passed locally. The existing `v0.9.0` tag still points to the original merge;
 the corrected component requires a new hosted pin and release validation.
-Task 7.1 remains open pending the owner's tag/version decision, successful
-publication and independent public download verification.
+The owner explicitly authorized recreating the unpublished `v0.9.0` tag on
+2026-09-08, retaining version 0.9.0. The replacement will use an exact remote
+tag lease after the corrected hosted preflight passes. This is an authorized
+exception for the failed, unpublished release; published release tags remain
+immutable. Task 7.1 remains open pending successful publication and independent
+public download verification.
+
+Hosted Release Pin run `34218397887` rebuilt the corrected component. Both
+generated manifests were downloaded and installed whole; the Deezer pin was
+unchanged. The corrected web-audio archive is 77,656,556 bytes, SHA-256
+`61a85eef7ced0ae7788a53acbea8ad0b3d9788926acd1822efff65f0882fe880`.
