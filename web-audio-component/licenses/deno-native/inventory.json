@@ -1,0 +1,299 @@
+{
+  "complete": true,
+  "files": [
+    {
+      "path": "deno-native/third_party/abseil-cpp/LICENSE",
+      "source": "https://chromium.googlesource.com/chromium/src/third_party/abseil-cpp.git/+/d16e32215c3ab90ba57c2e904a5344d85c7353e4/LICENSE?format=TEXT",
+      "sha256": "c79a7fea0e3cac04cd43f20e7b648e5a0ff8fa5344e644b0ee09ca1162b62747"
+    },
+    {
+      "path": "deno-native/third_party/dragonbox/src/LICENSE-Apache2-LLVM",
+      "source": "https://chromium.googlesource.com/external/github.com/jk-jeon/dragonbox.git/+/beeeef91cf6fef89a4d4ba5e95d47ca64ccb3a44/LICENSE-Apache2-LLVM?format=TEXT",
+      "sha256": "9e45e856bedccee9f67254082ca11851d954de2fed7448c4bed19ad9aab99a91"
+    },
+    {
+      "path": "deno-native/third_party/dragonbox/src/LICENSE-Boost",
+      "source": "https://chromium.googlesource.com/external/github.com/jk-jeon/dragonbox.git/+/beeeef91cf6fef89a4d4ba5e95d47ca64ccb3a44/LICENSE-Boost?format=TEXT",
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "path": "deno-native/third_party/fast_float/src/LICENSE-MIT",
+      "source": "https://raw.githubusercontent.com/fastfloat/fast_float/05087a303dad9c98768b33c829d398223a649bc6/LICENSE-MIT",
+      "sha256": "e562f3f974ced7e69dd1db77b820b36bcf8f30377f1aa105723fba449c53c4e6"
+    },
+    {
+      "path": "deno-native/third_party/fp16/src/LICENSE",
+      "source": "https://raw.githubusercontent.com/Maratyszcza/FP16/3d2de1816307bac63c16a297e8c4dc501b4076df/LICENSE",
+      "sha256": "17e4f539024be2749ee729d1e2f01d24cef12ece8c9bf18e91a4349be29c80bf"
+    },
+    {
+      "path": "deno-native/third_party/highway/src/LICENSE",
+      "source": "https://raw.githubusercontent.com/google/highway/2607d3b5b0113992fe84d3848859eae13b3b52c1/LICENSE",
+      "sha256": "e340270d4f64384569a91d546acb5b094d69ce47f0c015db77abb74dc6f815af"
+    },
+    {
+      "path": "deno-native/third_party/icu/LICENSE",
+      "source": "https://chromium.googlesource.com/chromium/deps/icu.git/+/ee5f27adc28bd3f15b2c293f726d14d2e336cbd5/LICENSE?format=TEXT",
+      "sha256": "451167c55c0fa447cc2d5632714f5e3c567fe4f1e1badefab2c1333852198aca"
+    },
+    {
+      "path": "deno-native/third_party/icu/license.html",
+      "source": "https://chromium.googlesource.com/chromium/deps/icu.git/+/ee5f27adc28bd3f15b2c293f726d14d2e336cbd5/license.html?format=TEXT",
+      "sha256": "c62d7697c03979f5056d28b338fafc7a1152820f7b379adf4a9d88cd37160f96"
+    },
+    {
+      "path": "deno-native/third_party/libc++/src/LICENSE.TXT",
+      "source": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxx.git/+/5abc7f839700f0f17338434e1c1c6a8c87c00c11/LICENSE.TXT?format=TEXT",
+      "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"
+    },
+    {
+      "path": "deno-native/third_party/libc++abi/src/LICENSE.TXT",
+      "source": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxxabi.git/+/8f11bb1d4438d0239d0dfc1bd9456a9f31629dda/LICENSE.TXT?format=TEXT",
+      "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c"
+    },
+    {
+      "path": "deno-native/third_party/libunwind/src/LICENSE.TXT",
+      "source": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libunwind.git/+/d6c7a21e978f0adaa43accaad53bc64f0b64f6ec/LICENSE.TXT?format=TEXT",
+      "sha256": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d"
+    },
+    {
+      "path": "deno-native/third_party/llvm-libc/src/LICENSE.TXT",
+      "source": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/9309c117ebae84dd2f9df1ef99de4782162527d5/LICENSE.TXT?format=TEXT",
+      "sha256": "ebcd9bbf783a73d05c53ba4d586b8d5813dcdf3bbec50265860ccc885e606f47"
+    },
+    {
+      "path": "deno-native/third_party/simdutf/LICENSE",
+      "source": "https://chromium.googlesource.com/chromium/src/third_party/simdutf/+/f7356eed293f8208c40b3c1b344a50bd70971983/LICENSE?format=TEXT",
+      "sha256": "fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f"
+    },
+    {
+      "path": "deno-native/v8/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/LICENSE",
+      "sha256": "6ab33af8774a0f396ee3aeeb761e3229057682d6f9fa7f572e390c2cb3a6e509"
+    },
+    {
+      "path": "deno-native/v8/LICENSE.fdlibm",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/LICENSE.fdlibm",
+      "sha256": "e7115e18444dae09d17f361ddc365fb1d342640fe500796209c63f7c80dfae10"
+    },
+    {
+      "path": "deno-native/v8/LICENSE.strongtalk",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/LICENSE.strongtalk",
+      "sha256": "6a585a9f466654abc8fc0829d56b1bc987e3a073d31faa03bba37d33640a23cd"
+    },
+    {
+      "path": "deno-native/v8/LICENSE.v8",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/LICENSE.v8",
+      "sha256": "4af93c12062c58058378de2397dc1c92bbff9ddfb1d583a01c84127557ce97ca"
+    },
+    {
+      "path": "deno-native/v8/third_party/colorama/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/colorama/LICENSE",
+      "sha256": "15137d6c822e3ab097093a33c3a39a9df699f373f6438867ad534ff60762a947"
+    },
+    {
+      "path": "deno-native/v8/third_party/fp16/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/fp16/LICENSE",
+      "sha256": "c91377adafa2f498211a4fe017788e20c38892124673860f068f2919c289193d"
+    },
+    {
+      "path": "deno-native/v8/third_party/glibc/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/glibc/LICENSE",
+      "sha256": "b634ab5640e258563c536e658cad87080553df6f34f62269a21d554844e58bfe"
+    },
+    {
+      "path": "deno-native/v8/third_party/highway/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/highway/LICENSE",
+      "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+    },
+    {
+      "path": "deno-native/v8/third_party/inspector_protocol/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/inspector_protocol/LICENSE",
+      "sha256": "450ebb9e9e50c2809d9ca581931fc8946d8d5aa0c8c35aae9ac471342fe4a88e"
+    },
+    {
+      "path": "deno-native/v8/third_party/jsoncpp/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/jsoncpp/LICENSE",
+      "sha256": "76c45ece83a26117f86f4e349e7df118708e061e87225328fb478ce1e8b3eb86"
+    },
+    {
+      "path": "deno-native/v8/third_party/rapidhash-v8/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/rapidhash-v8/LICENSE",
+      "sha256": "db672df7faf793fbe28b8074fdd10822363e1525816b45c9627754885de842b0"
+    },
+    {
+      "path": "deno-native/v8/third_party/re2/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/re2/LICENSE",
+      "sha256": "6040cda75d90b1738292a631d89934c411ef7ffd543c4d6a1b7edfc8edf29449"
+    },
+    {
+      "path": "deno-native/v8/third_party/siphash/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/siphash/LICENSE",
+      "sha256": "36ffd9dc085d529a7e60e1276d73ae5a030b020313e6c5408593a6ae2af39673"
+    },
+    {
+      "path": "deno-native/v8/third_party/utf8-decoder/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/utf8-decoder/LICENSE",
+      "sha256": "3f712e5fbdfdbd5ee7d9b8c8152580220df55de47f4eba2f26c95c4de19ad096"
+    },
+    {
+      "path": "deno-native/v8/third_party/v8/builtins/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/v8/builtins/LICENSE",
+      "sha256": "b9a6d9320b8f2693e8d41e496ce56caadacaddcca9be2a64a61749278f425cf2"
+    },
+    {
+      "path": "deno-native/v8/third_party/v8/codegen/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/v8/codegen/LICENSE",
+      "sha256": "17e4f539024be2749ee729d1e2f01d24cef12ece8c9bf18e91a4349be29c80bf"
+    },
+    {
+      "path": "deno-native/v8/third_party/valgrind/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/valgrind/LICENSE",
+      "sha256": "ebf25b8ce59c9e8883acd1ca75b6fc121937ca034f666c4077d2be739d2e1622"
+    },
+    {
+      "path": "deno-native/v8/third_party/vtune/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/vtune/LICENSE",
+      "sha256": "02aea3ade0c02470335987f7d93ffaed877bcefc8414a416e2e548665bb0bfd0"
+    },
+    {
+      "path": "deno-native/v8/third_party/wasm-api/LICENSE",
+      "source": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/third_party/wasm-api/LICENSE",
+      "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+    }
+  ],
+  "submodules": [
+    {
+      "name": "build",
+      "commit": "8acb33ac8dceef0503443109c0a92988189563ef",
+      "repository": "https://github.com/denoland/chromium_build.git",
+      "evidence": "build-time GN/Python tooling; no code from it is linked into the deno executable",
+      "distributed": false
+    },
+    {
+      "name": "buildtools",
+      "commit": "17495e454aae81b581e8b3caccbb53054509b280",
+      "repository": "https://chromium.googlesource.com/chromium/src/buildtools.git",
+      "evidence": "build-time tooling (gn, clang-format, libc++ build files); not linked",
+      "distributed": false
+    },
+    {
+      "name": "third_party/abseil-cpp",
+      "commit": "d16e32215c3ab90ba57c2e904a5344d85c7353e4",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/abseil-cpp.git",
+      "distributed": true
+    },
+    {
+      "name": "third_party/dragonbox/src",
+      "commit": "beeeef91cf6fef89a4d4ba5e95d47ca64ccb3a44",
+      "repository": "https://chromium.googlesource.com/external/github.com/jk-jeon/dragonbox.git",
+      "evidence": "header-only dependency of v8_base (BUILD.gn //third_party/dragonbox); notices attached",
+      "distributed": true
+    },
+    {
+      "name": "third_party/fast_float/src",
+      "commit": "05087a303dad9c98768b33c829d398223a649bc6",
+      "repository": "https://chromium.googlesource.com/external/github.com/fastfloat/fast_float.git",
+      "distributed": true
+    },
+    {
+      "name": "third_party/fp16/src",
+      "commit": "3d2de1816307bac63c16a297e8c4dc501b4076df",
+      "repository": "https://github.com/Maratyszcza/FP16.git",
+      "distributed": true
+    },
+    {
+      "name": "third_party/highway/src",
+      "commit": "2607d3b5b0113992fe84d3848859eae13b3b52c1",
+      "repository": "https://chromium.googlesource.com/external/github.com/google/highway.git",
+      "distributed": true
+    },
+    {
+      "name": "third_party/icu",
+      "commit": "ee5f27adc28bd3f15b2c293f726d14d2e336cbd5",
+      "repository": "https://chromium.googlesource.com/chromium/deps/icu.git",
+      "distributed": true
+    },
+    {
+      "name": "third_party/jinja2",
+      "commit": "c3027d884967773057bf74b957e3fea87e5df4d7",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/jinja2.git",
+      "evidence": "build-time Python template engine used by code generators; not linked",
+      "distributed": false
+    },
+    {
+      "name": "third_party/libc++/src",
+      "commit": "5abc7f839700f0f17338434e1c1c6a8c87c00c11",
+      "repository": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxx.git",
+      "evidence": "rusty_v8 builds with use_custom_libcxx; the shipped binary links no system libc++ dylib (otool -L) and carries libc++ strings, so the custom libc++/libc++abi/libunwind are statically linked",
+      "distributed": true
+    },
+    {
+      "name": "third_party/libc++abi/src",
+      "commit": "8f11bb1d4438d0239d0dfc1bd9456a9f31629dda",
+      "repository": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxxabi.git",
+      "distributed": true
+    },
+    {
+      "name": "third_party/libunwind/src",
+      "commit": "d6c7a21e978f0adaa43accaad53bc64f0b64f6ec",
+      "repository": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libunwind.git",
+      "distributed": true
+    },
+    {
+      "name": "third_party/llvm-libc/src",
+      "commit": "9309c117ebae84dd2f9df1ef99de4782162527d5",
+      "repository": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git",
+      "evidence": "no llvm-libc symbols or strings in the shipped deno binary; its LICENSE.TXT is nevertheless attached",
+      "distributed": false
+    },
+    {
+      "name": "third_party/markupsafe",
+      "commit": "4256084ae14175d38a3ff7d739dca83ae49ccec6",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/markupsafe.git",
+      "evidence": "build-time Python dependency of jinja2; not linked",
+      "distributed": false
+    },
+    {
+      "name": "third_party/partition_alloc",
+      "commit": "ff3b8b885b8374cbd3902642d94dc737bda93d5d",
+      "repository": "https://chromium.googlesource.com/chromium/src/base/allocator/partition_allocator.git",
+      "evidence": "standalone V8 default v8_enable_partition_alloc is off outside Chromium; no PartitionAlloc symbols or strings in the shipped deno binary",
+      "distributed": false
+    },
+    {
+      "name": "third_party/rust",
+      "commit": "26e8ff47f18a8d28d6187a04b6a16cb7332356f8",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/rust",
+      "evidence": "Chromium's vendored-crate layout is unused: V8 Temporal support (temporal_capi 0.2.3, temporal_rs 0.2.3, icu4x) is compiled from the Cargo graph and inventoried in deno-inventory.draft.json (binary panic paths reference the cargo registry, not chromium_crates_io/vendor)",
+      "distributed": false
+    },
+    {
+      "name": "third_party/simdutf",
+      "commit": "f7356eed293f8208c40b3c1b344a50bd70971983",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/simdutf",
+      "distributed": true
+    },
+    {
+      "name": "tools/clang",
+      "commit": "45f4b9e25124809497a27a8ae0e63d603b0f9f1b",
+      "repository": "https://chromium.googlesource.com/chromium/src/tools/clang.git",
+      "evidence": "build-time compiler scripts; not linked",
+      "distributed": false
+    },
+    {
+      "name": "tools/win",
+      "commit": "faefd1b6fa9eeb033ad6fe60368ccb9bf908cbd0",
+      "repository": "https://chromium.googlesource.com/chromium/src/tools/win",
+      "evidence": "Windows-only build tooling; not applicable to the macOS arm64 binary",
+      "distributed": false
+    },
+    {
+      "name": "v8",
+      "commit": "ac1e23989121713ca642f6650b34deff7b686896",
+      "repository": "https://github.com/denoland/v8.git",
+      "distributed": true
+    }
+  ],
+  "method": "Submodules pinned from denoland/v8 at ac1e23989121713ca642f6650b34deff7b686896 (rusty_v8 150.4.0). Distribution decided per submodule from V8 BUILD.gn/gni defaults, rusty_v8 build.rs GN args, otool -L and a strings scan of the shipped deno 2.9.5 arm64 binary on 2026-09-07."
+}

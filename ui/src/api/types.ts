@@ -70,6 +70,12 @@ export interface EventTrack {
   id: number
   event_id: number
   spotify_track_id: string | null
+  source_provider?: 'spotify' | 'deezer' | 'youtube' | 'soundcloud' | null
+  source_item_id?: string | null
+  source_url?: string | null
+  source_import_id?: string | null
+  source_position?: number | null
+  acquisition?: { provider: string; available: boolean; reason: string | null }
   title: string | null
   artist: string | null
   duration_ms: number | null
@@ -96,6 +102,30 @@ export interface EventTrack {
       notice falls back to its generic wording. */
   duplicate_title: string | null
   duplicate_artist: string | null
+}
+
+export interface LinkImportEntry {
+  entry_key: string
+  position: number
+  provider: string
+  item_id: string | null
+  url: string | null
+  title: string | null
+  artist: string | null
+  available: boolean
+  existing_status?: string | null
+  repeated?: boolean
+}
+
+export interface EventLinkImport {
+  id: string
+  event_id: number
+  state: 'queued' | 'resolving' | 'ready' | 'failed' | 'committed' | 'dismissed'
+  source_provider: string
+  canonical_url: string
+  error: string | null
+  manifest: { title: string; resource_type: string; entries: LinkImportEntry[] } | null
+  result: { added: number; outcomes: { entry_key: string; outcome: string; event_track_id: number | null }[] } | null
 }
 
 export type FileOwnership = 'app_managed' | 'permanent_library' | 'external'
@@ -238,6 +268,8 @@ export interface MissingEntry {
   title: string | null
   artist: string | null
   spotify_track_id?: string | null
+  source_provider?: 'spotify' | 'deezer' | 'youtube' | 'soundcloud' | null
+  source_url?: string | null
   status?: string
   file_path?: string | null
   resolved_path?: string | null
@@ -249,7 +281,7 @@ export interface MissingEntry {
     duration_s?: number
   }>
   acquisition?: {
-    provider: 'deezer'
+    provider: 'deezer' | 'youtube' | 'soundcloud'
     available: boolean
     reason?: string | null
   }

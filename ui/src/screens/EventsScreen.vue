@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Events (M4.8 — SPEC-DESIGN §2, SPEC-UNIFIED §5.7/§11.2): cards with
 // lifecycle badges + pending-delta, workspace with a REAL-counts segmented
-// bar, add-by-link (Spotify-only §11.1) or manual entry, match/claim, and
+// bar, snapshot link imports or manual entry, match/claim, and
 // the apply / re-apply / delete modals (all RB-guarded). Every click
 // surfaces its backend outcome (B1).
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -13,6 +13,7 @@ import ApplyEventModal from '../components/ApplyEventModal.vue'
 import DeezerSearchPanel from '../components/DeezerSearchPanel.vue'
 import DeleteEventModal from '../components/DeleteEventModal.vue'
 import EmptyState from '../components/EmptyState.vue'
+import EventLinkImport from '../components/EventLinkImport.vue'
 import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import NewEventModal from '../components/NewEventModal.vue'
@@ -30,13 +31,13 @@ import {
 } from '../lib/events'
 import {
   acquisitionLabelKey,
+  acquisitionDetails,
   humanizeAcquisitionError,
   useAcquisitionQueue,
 } from '../lib/acquisition'
 import { useRefreshOnReturn } from '../lib/refresh'
-import { extractTrackId } from '../lib/spotify'
 import { useVirtualRows } from '../lib/virtualRows'
-import { revealInFolder } from '../shell'
+import { openExternal, revealInFolder } from '../shell'
 import { useHealthStore } from '../stores/health'
 import { useJobsStore } from '../stores/jobs'
 import { useStatusStore } from '../stores/status'
@@ -55,9 +56,6 @@ const loadError = ref<string | null>(null)
 const banner = ref<{ tone: 'error' | 'success'; text: string } | null>(null)
 const modal = ref<null | 'new' | 'apply' | 'reapply' | 'delete' | 'remove'>(null)
 
-const link = ref('')
-const adding = ref(false)
-const addError = ref<string | null>(null)
 
 const renaming = ref(false)
 const renameValue = ref('')
@@ -161,7 +159,7 @@ watch([selectedId, filter], () => (selection.value = new Set()))
 // windowed tracklist: the page scrolls in App's .main (nearest scrollable
 // ancestor), resolved by the wrapper; only ~viewport rows are in the DOM
 const rowsEl = ref<HTMLElement | null>(null)
-const { rowItems, totalSize, measure, rowStyle } = useVirtualRows(
+const { rowItems, totalSize, measure, rowStyle, refreshLayout } = useVirtualRows(
   () => visibleTracks.value,
   rowsEl,
 )
@@ -239,33 +237,53 @@ onMounted(() =>
 )
 
 const acqReady = ref(false)
+const webReady = ref(false)
+const strictDeezerReady = ref(false)
 async function refreshAcqReady() {
   try {
     const s = await api.get<{
       enabled: boolean
       has_arl: boolean
-      component: { installed?: boolean }
+      component: { installed?: boolean; capabilities?: string[] }
+      web_audio?: { enabled: boolean; component: { installed?: boolean } }
     }>('/api/acquisition/deezer')
     acqReady.value = s.enabled && s.has_arl && Boolean(s.component?.installed)
+    strictDeezerReady.value = acqReady.value && Boolean(s.component.capabilities?.includes('exact_deezer_item'))
+    webReady.value = Boolean(s.web_audio?.enabled && s.web_audio.component.installed)
   } catch {
     acqReady.value = false
+    webReady.value = false
+    strictDeezerReady.value = false
   }
 }
 
 const MISSING_TRACK_STATUSES = ['missing', 'acquisition_failed']
-// auto path needs the row's ISRC; ISRC-less rows go through manual search
+const exactSource = (track: EventTrack) => ['deezer', 'youtube', 'soundcloud'].includes(track.source_provider ?? '')
+function canAcquire(track: EventTrack) {
+  if (track.source_provider === 'youtube' || track.source_provider === 'soundcloud') return webReady.value
+  if (track.source_provider === 'deezer') return strictDeezerReady.value
+  return acqReady.value && Boolean(track.isrc)
+}
+function openSource(track: EventTrack) {
+  if (!track.source_url) return
+  openExternal(track.source_url).catch((cause) => {
+    banner.value = { tone: 'error', text: describe(cause) }
+  })
+}
 const downloadable = computed(() =>
   selectedTracks.value.filter(
-    (track) => MISSING_TRACK_STATUSES.includes(track.status) && track.isrc,
+    (track) => MISSING_TRACK_STATUSES.includes(track.status) && canAcquire(track),
   ),
 )
 
 function pruneAcqBadges() {
-  // downloaded rows now show status 'ready' — keep only the failures' badges
+  // Keep measured audio properties after publication; the row's own status
+  // replaces the transient download badge once it is ready.
   pruneAcq(
     new Set(
       selectedTracks.value
-        .filter((track) => MISSING_TRACK_STATUSES.includes(track.status))
+        .filter((track) => MISSING_TRACK_STATUSES.includes(track.status) ||
+          (['ready', 'matched', 'applied'].includes(track.status) && acqStates.value[String(track.id)]?.outputProperties))
         .map((track) => String(track.id)),
     ),
   )
@@ -331,27 +349,6 @@ async function runClaim() {
     banner.value = { tone: 'success', text: t('events.claimDone', claimed.length) }
   } catch (cause) {
     banner.value = { tone: 'error', text: describe(cause) }
-  }
-}
-
-async function addTrack() {
-  if (!selected.value) return
-  addError.value = null
-  const id = extractTrackId(link.value)
-  if (!id) {
-    addError.value = t('events.addTrack.invalidLink')
-    return
-  }
-  adding.value = true
-  try {
-    // the sidecar resolves the Spotify metadata AND auto-matches on add
-    await api.post(`/api/events/${selected.value.id}/tracks`, { spotify_track_id: id })
-    link.value = ''
-    await load()
-  } catch (cause) {
-    addError.value = describe(cause)
-  } finally {
-    adding.value = false
   }
 }
 
@@ -686,25 +683,7 @@ async function onRemoved(n: number) {
           <button class="banner-close" @click="banner = null">✕</button>
         </div>
 
-        <div class="add-row">
-          <div class="link-box">
-            <span class="glyph">🔗</span>
-            <input
-              v-model="link"
-              type="text"
-              class="mono"
-              :placeholder="t('events.addTrack.placeholder')"
-              @keydown.enter.prevent="addTrack"
-            />
-          </div>
-          <button class="btn-primary add-btn" :disabled="adding" @click="addTrack">
-            {{ adding ? t('events.addTrack.resolving') : t('events.addTrack.add') }}
-          </button>
-        </div>
-        <div v-if="addError" class="banner" data-tone="error">
-          <span class="banner-text">{{ addError }}</span>
-          <button class="banner-close" @click="addError = null">✕</button>
-        </div>
+        <EventLinkImport :key="selected.id" :event-id="selected.id" @committed="load()" @layout="refreshLayout" />
 
         <div class="toolbar">
           <button
@@ -729,7 +708,7 @@ async function onRemoved(n: number) {
             {{ refreshing ? t('events.refreshing') : t('events.refresh') }}
           </button>
           <button
-            v-if="acqReady && downloadable.length"
+            v-if="downloadable.length"
             class="btn-secondary tool"
             :disabled="jobs.jobRunning || acqRunning"
             @click="downloadMissing"
@@ -796,6 +775,16 @@ async function onRemoved(n: number) {
                   kind="track"
                   :spotify-id="track.spotify_track_id"
                 />
+                <!-- exact-source rows (Deezer/YouTube/SoundCloud) link back
+                     to the item they were imported from -->
+                <button
+                  v-if="exactSource(track) && track.source_url"
+                  class="source-chip"
+                  :title="t('linkImport.open')"
+                  @click.stop="openSource(track)"
+                >
+                  {{ t(`providers.${track.source_provider}`) }} ↗
+                </button>
                 <!-- §5.7 adoption: an adopted row has no Spotify provenance,
                      so its marker takes the exact slot the attribution link
                      would have — the title line's geometry is the same either
@@ -819,10 +808,13 @@ async function onRemoved(n: number) {
               <div v-if="acqStates[String(track.id)]?.error" class="row-error">
                 {{ humanizeAcquisitionError(t, acqStates[String(track.id)]?.error) }}
               </div>
+              <div v-if="acquisitionDetails(t, acqStates[String(track.id)])" class="row-detail">
+                {{ acquisitionDetails(t, acqStates[String(track.id)]) }}
+              </div>
             </div>
             <span class="cell-status">
               <span
-                v-if="acqStates[String(track.id)]"
+                v-if="acqStates[String(track.id)] && MISSING_TRACK_STATUSES.includes(track.status)"
                 class="acq-badge"
                 :data-phase="acqStates[String(track.id)]?.phase"
               >
@@ -837,7 +829,7 @@ async function onRemoved(n: number) {
               <!-- compact icon: the text button overflowed into the conf
                    column (owner feedback 16/07) -->
               <button
-                v-if="acqReady && MISSING_TRACK_STATUSES.includes(track.status)"
+                v-if="acqReady && !exactSource(track) && MISSING_TRACK_STATUSES.includes(track.status)"
                 class="row-search"
                 :disabled="jobs.jobRunning || acqRunning"
                 :data-tip="t('missing.searchDeezer')"
@@ -1296,46 +1288,6 @@ h1 {
   cursor: pointer;
   padding: 0 2px;
 }
-.add-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border-subtle-2);
-  background: #0a0d14;
-}
-.link-box {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--surface-raised);
-  border: 1px solid #2a3140;
-  border-radius: 8px;
-  padding: 8px 12px;
-  min-width: 0;
-}
-.link-box .glyph {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-.link-box input {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text-secondary-bright);
-  font-size: 12.5px;
-}
-.link-box input.mono {
-  font-family: var(--font-mono);
-}
-.add-btn {
-  padding: 8px 15px;
-  font-size: 12.5px;
-  flex: none;
-}
 .toolbar {
   display: flex;
   align-items: center;
@@ -1522,6 +1474,31 @@ h1 {
   font-size: 11.5px;
   color: var(--danger-text);
   margin-top: 2px;
+}
+/* measured source/output audio properties after an exact-source download */
+.row-detail {
+  font-size: 11.5px;
+  color: var(--text-muted-bright);
+  margin-top: 2px;
+  white-space: pre-line;
+}
+/* clickable twin of .adopted-chip: provenance that opens the source item */
+.source-chip {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted-bright);
+  background: var(--surface-raised);
+  border: none;
+  border-radius: 4px;
+  padding: 1px 5px;
+  cursor: pointer;
+}
+.source-chip:hover {
+  color: var(--accent-hover);
+  background: var(--accent-tint);
 }
 /* discreet: the outcome is fine, only the drop was pointless */
 .row-note {

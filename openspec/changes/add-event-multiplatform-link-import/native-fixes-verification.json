@@ -1,0 +1,302 @@
+{
+  "date": "2026-09-08",
+  "base_commit": "4527e057990fb5a632e19f5af754dfaf8998105b",
+  "scope": "Uncommitted native QA follow-up corrections",
+  "tests": {
+    "sidecar": {
+      "passed": 811,
+      "skipped": 11
+    },
+    "ui": {
+      "passed": 145,
+      "files": 33
+    },
+    "web_audio": {
+      "passed": 33
+    },
+    "ui_build": "passed"
+  },
+  "component_manifest": {
+    "component": "syncbox-web-audio-component",
+    "version": "0.9.0",
+    "protocol_version": 1,
+    "platform": "macos-arm64",
+    "archive": "syncbox-web-audio-component-0.9.0-macos-arm64.zip",
+    "size": 77712319,
+    "sha256": "e5c90e063b278838d4514bc3a3e5850354bc9f8bc740f109a3eec349511f4772",
+    "license_inventory_complete": true,
+    "component_version": "0.9.0",
+    "root": "syncbox-web-audio-component",
+    "executable": "syncbox-web-audio-component",
+    "versions": {
+      "yt-dlp": "2026.8.19",
+      "yt-dlp-ejs": "0.8.0"
+    },
+    "ffmpeg": "ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers",
+    "deno": "deno 2.9.5 (stable, release, aarch64-apple-darwin)",
+    "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.9.0/syncbox-web-audio-component-0.9.0-macos-arm64.zip"
+  },
+  "frozen_soundcloud_metadata": {
+    "result": "ok",
+    "provider": "soundcloud",
+    "resource_type": "playlist",
+    "resource_id": "1752070992",
+    "url": "https://soundcloud.com/trackistador/sets/folk-music-creative-commons-no",
+    "title": "Folk Music (Creative Commons / No Copyright)",
+    "entries": [
+      {
+        "entry_key": "1:1706333112",
+        "position": 1,
+        "provider": "soundcloud",
+        "item_id": "1706333112",
+        "url": "https://soundcloud.com/trackistador/kevin-macleod-angevin-b",
+        "title": "Kevin MacLeod - Angevin B (happy Flute Renaissance Music) [CC BY 4.0]",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 129.404,
+        "available": true
+      },
+      {
+        "entry_key": "2:677968497",
+        "position": 2,
+        "provider": "soundcloud",
+        "item_id": "677968497",
+        "url": "https://soundcloud.com/randommynd/rejoicing",
+        "title": "Rejoicing (Free Download, CC0 license)",
+        "artist": "Random Mind",
+        "duration_seconds": 102.968,
+        "available": true
+      },
+      {
+        "entry_key": "3:1706357496",
+        "position": 3,
+        "provider": "soundcloud",
+        "item_id": "1706357496",
+        "url": "https://soundcloud.com/trackistador/kevin-macleod-achaidh-cheide",
+        "title": "Kevin MacLeod - Achaidh Cheide (festive & uplifting Folk Music)  [CC BY 4.0]",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 134.106,
+        "available": true
+      },
+      {
+        "entry_key": "4:306390367",
+        "position": 4,
+        "provider": "soundcloud",
+        "item_id": "306390367",
+        "url": "https://soundcloud.com/kevin-9-1/galway",
+        "title": "Galway",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 220.467,
+        "available": true
+      },
+      {
+        "entry_key": "5:1708402566",
+        "position": 5,
+        "provider": "soundcloud",
+        "item_id": "1708402566",
+        "url": "https://soundcloud.com/trackistador/kevin-macleod-folk-round-relaxed-folk-music-cc-by-40",
+        "title": "Kevin MacLeod - Folk Round (relaxed Folk Music) [CC BY 4.0]",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 183.791,
+        "available": true
+      },
+      {
+        "entry_key": "6:565801467",
+        "position": 6,
+        "provider": "soundcloud",
+        "item_id": "565801467",
+        "url": "https://soundcloud.com/randommynd/market-day",
+        "title": "Market Day (Free Download, CC0 license)",
+        "artist": "RandomMind",
+        "duration_seconds": 139.618,
+        "available": true
+      },
+      {
+        "entry_key": "7:149304068",
+        "position": 7,
+        "provider": "soundcloud",
+        "item_id": "149304068",
+        "url": "https://soundcloud.com/kevin-9-1/lord-of-the-land",
+        "title": "Lord of the Land",
+        "artist": null,
+        "duration_seconds": 186.475,
+        "available": true
+      },
+      {
+        "entry_key": "8:553366425",
+        "position": 8,
+        "provider": "soundcloud",
+        "item_id": "553366425",
+        "url": "https://soundcloud.com/rob-records/rob-ahoj-stronghold-2-2005-remake",
+        "title": "RoB - Ahoj - Stronghold 2 (2005) - Remake 2019 Demo",
+        "artist": null,
+        "duration_seconds": 98.854,
+        "available": true
+      },
+      {
+        "entry_key": "9:547707681",
+        "position": 9,
+        "provider": "soundcloud",
+        "item_id": "547707681",
+        "url": "https://soundcloud.com/randommynd/minstrel-dance",
+        "title": "Minstrel Dance (Free Download, CC0 license)",
+        "artist": "RandomMind",
+        "duration_seconds": 138.652,
+        "available": true
+      },
+      {
+        "entry_key": "10:129708196",
+        "position": 10,
+        "provider": "soundcloud",
+        "item_id": "129708196",
+        "url": "https://soundcloud.com/kevin-9-1/pippin-the-hunchback",
+        "title": "Pippin The Hunchback",
+        "artist": null,
+        "duration_seconds": 193.234,
+        "available": true
+      },
+      {
+        "entry_key": "11:149303380",
+        "position": 11,
+        "provider": "soundcloud",
+        "item_id": "149303380",
+        "url": "https://soundcloud.com/kevin-9-1/suonatore-di-liuto",
+        "title": "Suonatore di Liuto",
+        "artist": null,
+        "duration_seconds": 144.475,
+        "available": true
+      },
+      {
+        "entry_key": "12:293656405",
+        "position": 12,
+        "provider": "soundcloud",
+        "item_id": "293656405",
+        "url": "https://soundcloud.com/creatorchords/1-bonfire",
+        "title": "Bonfire [FREE DOWNLOAD]",
+        "artist": "Alexander Nakarada [Royalty Free Music]",
+        "duration_seconds": 98.718,
+        "available": true
+      },
+      {
+        "entry_key": "13:293656400",
+        "position": 13,
+        "provider": "soundcloud",
+        "item_id": "293656400",
+        "url": "https://soundcloud.com/creatorchords/3-celebration",
+        "title": "Celebration [FREE DOWNLOAD]",
+        "artist": "Alexander Nakarada [Royalty Free Music]",
+        "duration_seconds": 143.061,
+        "available": true
+      },
+      {
+        "entry_key": "14:280840130",
+        "position": 14,
+        "provider": "soundcloud",
+        "item_id": "280840130",
+        "url": "https://soundcloud.com/coco-gaming-bunny/minstrel-guild",
+        "title": "Minstrel Guild",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 185.855,
+        "available": true
+      },
+      {
+        "entry_key": "15:149303589",
+        "position": 15,
+        "provider": "soundcloud",
+        "item_id": "149303589",
+        "url": "https://soundcloud.com/kevin-9-1/teller-of-the-tales",
+        "title": "Teller of the Tales",
+        "artist": null,
+        "duration_seconds": 212.354,
+        "available": true
+      },
+      {
+        "entry_key": "16:1227436180",
+        "position": 16,
+        "provider": "soundcloud",
+        "item_id": "1227436180",
+        "url": "https://soundcloud.com/trackistador/twin-musicom-dial-m-ruhige-folkmusik-cc-by-40",
+        "title": "Twin Musicom - Dial M (ruhige Folkmusik) [CC BY 4.0]",
+        "artist": "Twin Musicom",
+        "duration_seconds": 161.078,
+        "available": true
+      },
+      {
+        "entry_key": "17:303031280",
+        "position": 17,
+        "provider": "soundcloud",
+        "item_id": "303031280",
+        "url": "https://soundcloud.com/kevin-9-1/village-consort",
+        "title": "Village Consort",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 214.851,
+        "available": true
+      },
+      {
+        "entry_key": "18:149303760",
+        "position": 18,
+        "provider": "soundcloud",
+        "item_id": "149303760",
+        "url": "https://soundcloud.com/kevin-9-1/master-of-the-feast",
+        "title": "Master of the Feast",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 228.243,
+        "available": true
+      },
+      {
+        "entry_key": "19:1707241464",
+        "position": 19,
+        "provider": "soundcloud",
+        "item_id": "1707241464",
+        "url": "https://soundcloud.com/trackistador/kevin-macleod-thatched-villagers",
+        "title": "Kevin MacLeod - Thatched Villagers (bouncy Folk Music) [CC BY 4.0]",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 245.206,
+        "available": true
+      },
+      {
+        "entry_key": "20:1706345976",
+        "position": 20,
+        "provider": "soundcloud",
+        "item_id": "1706345976",
+        "url": "https://soundcloud.com/trackistador/kevin-macleod-midnight-tale",
+        "title": "Kevin MacLeod - Midnight Tale (relaxed Guitar & Lute Music) [CC BY 40]",
+        "artist": "Kevin MacLeod",
+        "duration_seconds": 161.613,
+        "available": true
+      },
+      {
+        "entry_key": "21:1454944732",
+        "position": 21,
+        "provider": "soundcloud",
+        "item_id": "1454944732",
+        "url": "https://soundcloud.com/trackistador/gildentaverne",
+        "title": "Gildentaverne (Hurdy Gurdy, Nyckelharpa, Guitar Music...  | Medieval Tavern Style)",
+        "artist": "Trackistador",
+        "duration_seconds": 230.968,
+        "available": true
+      }
+    ]
+  },
+  "frozen_path": "/usr/bin:/bin",
+  "source_sha256": {
+    "web-audio-component/runner.py": "a54fe8eb5b3a38625c19023208bc33948c2d4e067ceffb7f49aecefebd27119b",
+    "sidecar/src/syncbox/api.py": "5763346ddf54cdbc82bfe1ff25adb02e9285aed4b8ba929adef950028d2031f7",
+    "ui/src/screens/DashboardScreen.vue": "7b2cb9089040a6fe1965571102a6db32fcd32a5d47ce3f60adf9e9f070353838"
+  },
+  "installed_native_check": {
+    "qa_bundle": "Syncbox QA 0.9.app",
+    "signature_verification": "passed (ad-hoc, deep and strict)",
+    "deezer_installed": true,
+    "web_audio_installed": true,
+    "preview_status": "ready",
+    "entries": 21,
+    "titled_entries": 21,
+    "existing_sixth_item_disabled": true,
+    "selection_cleared_in_ui": true,
+    "event_applied_tracks": 9,
+    "acquisition_jobs_unchanged": true,
+    "qa_blank_title_repaired_from_verified_provider_metadata": true,
+    "committed_snapshots_unchanged": true,
+    "local_deezer_pin_retained": true
+  }
+}

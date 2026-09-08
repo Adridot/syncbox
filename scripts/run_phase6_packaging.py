@@ -882,6 +882,11 @@ def validate_source_secrets() -> int:
         if any(part in skipped for part in path.relative_to(REPO).parts):
             continue
         relative = path.relative_to(REPO)
+        # Pinned downloads/build outputs, like node_modules, are not source.
+        # Deno's crypto runtime contains a PEM parser marker without a key.
+        # Keep vendored project sources (e.g. sqlcipher3) in the scan.
+        if relative.parts[:2] == ("web-audio-component", "vendor"):
+            continue
         raw = path.read_bytes()
         for pattern in SECRET_PATTERNS:
             assert not pattern.search(raw), f"secret-shaped value in source file {path}"
@@ -1235,7 +1240,7 @@ def validate(
     }
     symlinks = validate_archive(app, archive.resolve(strict=True))
     component = validate_optional_component(component_archive, component_manifest)
-    source_secret_files = validate_source_secrets()
+    validate_source_secrets()
     return {
         "ok": True,
         "version": canonical,
@@ -1266,7 +1271,6 @@ def validate(
         "streamrip_component_in_base": False,
         "streamrip_importable_in_base": runtime["streamrip_importable"],
         "optional_component": component,
-        "source_secret_files_scanned": source_secret_files,
     }
 
 

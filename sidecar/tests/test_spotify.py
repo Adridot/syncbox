@@ -4,7 +4,9 @@
 import base64
 import hashlib
 import json
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -196,6 +198,48 @@ def test_refresh_overwrites_when_rotated():
     assert secrets.get(spotify.REFRESH_TOKEN) == "ref-new"
 
 
+def test_disconnect_wins_over_an_inflight_refresh():
+    started, release, disconnected = threading.Event(), threading.Event(), threading.Event()
+    secrets = FakeSecrets({spotify.ACCESS_TOKEN: "old-access", spotify.REFRESH_TOKEN: "old-refresh"})
+
+    def transport(*args, **kwargs):
+        started.set()
+        assert release.wait(3)
+        return token_response("new-access", "new-refresh")
+
+    auth = SpotifyAuth(lambda: "client-123", secrets, transport=transport)
+    def disconnect():
+        auth.disconnect()
+        disconnected.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        refreshing = pool.submit(auth.refresh)
+        try:
+            assert started.wait(3)
+            disconnecting = pool.submit(disconnect)
+            assert not disconnected.wait(.1)
+        finally:
+            release.set()
+        refreshing.result(timeout=3)
+        disconnecting.result(timeout=3)
+    assert not auth.connected()
+    assert secrets.get(spotify.ACCESS_TOKEN) is None
+    assert secrets.get(spotify.REFRESH_TOKEN) is None
+
+
+def test_refresh_skips_when_another_thread_already_replaced_the_token():
+    secrets = FakeSecrets()
+    secrets.set(spotify.ACCESS_TOKEN, "acc-fresh")
+    secrets.set(spotify.REFRESH_TOKEN, "ref-1")
+    auth, transport, secrets = make_auth(token_response("acc-3", "ref-3"), secrets=secrets)
+    auth.refresh(stale_token="acc-stale")  # a concurrent refresh already rotated the tokens
+    assert transport.calls == []
+    assert secrets.get(spotify.REFRESH_TOKEN) == "ref-1"
+    auth.refresh(stale_token="acc-fresh")
+    assert [c["url"] for c in transport.calls] == [spotify.TOKEN_URL]
+    assert secrets.get(spotify.ACCESS_TOKEN) == "acc-3"
+
+
 def test_refresh_without_stored_token_raises():
     auth, _, _ = make_auth()
     with pytest.raises(NotConnectedError):
@@ -300,6 +344,14 @@ def test_404_carries_actionable_message():
     assert "Connect your Spotify account" in str(info.value)
 
 
+def test_404_track_does_not_talk_about_playlists():
+    client, _, _ = make_client((404, {}, b""))
+    with pytest.raises(SpotifyApiError) as info:
+        client.get("/tracks/4uLU6hMCjMI75M1A2tKUQC")
+    assert info.value.status_code == 404
+    assert "laylist" not in str(info.value)
+
+
 def test_404_editorial_playlist_names_the_real_cause():
     client, _, _ = make_client((404, {}, b""))
     with pytest.raises(SpotifyApiError) as info:
@@ -335,31 +387,21 @@ def test_scrub_obfuscated_nulls_rekordbox_streaming_metadata():
     assert spotify.scrub_obfuscated("Freed From Desire") == "Freed From Desire"
 
 
-def test_resolve_track_meta_batches_api_calls_by_50():
+def test_resolve_track_meta_uses_bounded_individual_requests():
     calls = []
 
     class FakeClient:
         def get(self, path):
             calls.append(path)
-            ids = path.split("=", 1)[1].split(",")
-            return {
-                "tracks": [
-                    {
-                        "id": i,
-                        "name": f"T {i}",
-                        "artists": [{"name": "A"}, {"name": "B"}],
-                        "duration_ms": 111_000,
-                        # D20: barcode must NEVER be used as an ISRC stand-in.
-                        "external_ids": {"barcode": "0000", "isrc": f"ISRC{i}"},
-                    }
-                    for i in ids
-                ]
-            }
+            assert path.startswith("/tracks/") and "?" not in path
+            i = path.rsplit("/", 1)[1]
+            return {"id": i, "name": f"T {i}", "artists": [{"name": "A"}, {"name": "B"}],
+                    "duration_ms": 111_000, "external_ids": {"barcode": "0000", "isrc": f"ISRC{i}"}}
 
     ids = [f"id{n}" for n in range(120)]
     meta = spotify.resolve_track_meta(ids, FakeClient())
-    assert len(calls) == 3  # 50 + 50 + 20
-    assert len(meta) == 120
+    assert len(calls) == 50
+    assert len(meta) == 50  # leftovers are retried by the caller
     assert meta["id0"] == {
         "title": "T id0",
         "artist": "A, B",
@@ -409,7 +451,7 @@ def test_resolve_track_meta_offline_returns_partial_without_raising():
     assert spotify.resolve_track_meta(["a", "b"], None, transport=transport) == {}
 
 
-def test_resolve_track_meta_partial_api_batch_falls_back_to_oembed():
+def test_resolve_track_meta_partial_api_failure_falls_back_to_oembed():
     calls = []
 
     class Flaky:
@@ -417,13 +459,41 @@ def test_resolve_track_meta_partial_api_batch_falls_back_to_oembed():
             calls.append(path)
             if len(calls) > 1:
                 raise SpotifyApiError(500, "boom")
-            ids = path.split("=", 1)[1].split(",")
-            return {"tracks": [{"id": i, "name": i.upper(), "artists": []} for i in ids]}
+            i = path.rsplit("/", 1)[1]
+            return {"id": i, "name": i.upper(), "artists": []}
 
     def transport(url, data=None, headers=None, method="GET"):
         return 200, {}, b'{"title": "via-oembed"}'
 
-    ids = [f"i{n}" for n in range(51)]  # two API chunks; the second fails
+    ids = [f"i{n}" for n in range(50)]  # the second individual request fails
     meta = spotify.resolve_track_meta(ids, Flaky(), transport=transport)
     assert meta["i0"]["title"] == "I0"  # resolved prefix kept
-    assert meta["i50"] == {"title": "via-oembed", "artist": None}
+    assert meta["i49"] == {"title": "via-oembed", "artist": None}
+
+
+def test_resolve_track_meta_skips_a_removed_id_and_keeps_resolving():
+    class Catalogue:
+        def get(self, path):
+            i = path.rsplit("/", 1)[1]
+            if i == "gone":
+                raise SpotifyApiError(404, "Spotify resource not found")
+            return {"id": i, "name": i.upper(), "artists": [{"name": "A"}]}
+
+    fallback = []
+    def transport(url, data=None, headers=None, method="GET"):
+        fallback.append(url)
+        return 404, {}, b""
+
+    meta = spotify.resolve_track_meta(["a", "gone", "b"], Catalogue(), transport=transport)
+    assert set(meta) == {"a", "b"}  # a deleted track no longer strands the ids after it
+    assert fallback == [spotify._OEMBED_URL + "gone"]  # only the unknown id reaches the title-only fallback
+
+
+def test_metadata_rate_limit_never_sleeps_and_retains_retry_guidance():
+    transport = FakeTransport((429, {"Retry-After": "120"}, {}))
+    auth = type("Auth", (), {"access_token": lambda self: "fixture"})()
+    client = SpotifyClient(auth, transport=transport, sleep=lambda _: pytest.fail("metadata blocked on retry sleep"))
+    fallback = lambda *a, **k: (200, {}, b'{"title":"Fallback"}')
+    assert spotify.resolve_track_meta(["a", "b"], client, transport=fallback)["a"]["title"] == "Fallback"
+    assert spotify.resolve_track_meta(["c"], client, transport=fallback)["c"]["title"] == "Fallback"
+    assert len(transport.calls) == 1

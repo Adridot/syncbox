@@ -1,0 +1,462 @@
+{
+  "date": "2026-09-08",
+  "commit": "4527e057990fb5a632e19f5af754dfaf8998105b",
+  "environment": "Installed Tauri 0.9.0 on macOS arm64; real existing Rekordbox library; local optional archives",
+  "release_certified": false,
+  "event": "QA Multiplatform 2026-09-08",
+  "tracks": [
+    {
+      "source_provider": "soundcloud",
+      "source_item_id": "1757017227",
+      "title": "Kevin MacLeod - All This (dramatic & dark Action Music) [CC BY 4.0]",
+      "status": "applied",
+      "source_position": 1,
+      "effective_source_item_id": "1757017227",
+      "acquisition_provider": "soundcloud",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": {
+        "codec": "mp4a.40.2",
+        "bitrate_kbps": 160,
+        "sample_rate": null
+      },
+      "output_properties": {
+        "duration_seconds": 228.958458,
+        "codec": "aac",
+        "container": "m4a",
+        "sample_rate": "44100",
+        "bitrate": "160009",
+        "file_size_bytes": 4619890
+      }
+    },
+    {
+      "source_provider": "youtube",
+      "source_item_id": "f7NwyBnIRTE",
+      "title": "Animated Short Film \"Big Buck Bunny\", 4K, Full Length",
+      "status": "applied",
+      "source_position": 1,
+      "effective_source_item_id": "f7NwyBnIRTE",
+      "acquisition_provider": "youtube",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": {
+        "codec": "opus",
+        "bitrate_kbps": 128.612,
+        "sample_rate": 48000
+      },
+      "output_properties": {
+        "duration_seconds": 634.578146,
+        "codec": "mp3",
+        "container": "mp3",
+        "sample_rate": "48000",
+        "bitrate": "177989",
+        "file_size_bytes": 14119196
+      }
+    },
+    {
+      "source_provider": "deezer",
+      "source_item_id": "3919489571",
+      "title": "Carefree",
+      "status": "applied",
+      "source_position": 1,
+      "effective_source_item_id": "3919489571",
+      "acquisition_provider": "deezer",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": null,
+      "output_properties": null
+    },
+    {
+      "source_provider": "spotify",
+      "source_item_id": "3DaGnKmAAmyZGIbC0KjmxT",
+      "title": "Carefree",
+      "status": "applied",
+      "source_position": 1,
+      "effective_source_item_id": "2762624891",
+      "acquisition_provider": "deezer",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": null,
+      "output_properties": null
+    },
+    {
+      "source_provider": "spotify",
+      "source_item_id": "29wj7CQdb4xF8RdinY9EB9",
+      "title": "Aces High",
+      "status": "applied",
+      "source_position": 1,
+      "effective_source_item_id": "2762624861",
+      "acquisition_provider": "deezer",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": null,
+      "output_properties": null
+    },
+    {
+      "source_provider": "deezer",
+      "source_item_id": "3919489551",
+      "title": "Aurea Carmina",
+      "status": "applied",
+      "source_position": 2,
+      "effective_source_item_id": "3919489551",
+      "acquisition_provider": "deezer",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": null,
+      "output_properties": null
+    },
+    {
+      "source_provider": "soundcloud",
+      "source_item_id": "565801467",
+      "title": null,
+      "status": "applied",
+      "source_position": 6,
+      "effective_source_item_id": "565801467",
+      "acquisition_provider": "soundcloud",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": {
+        "codec": "mp4a.40.2",
+        "bitrate_kbps": 160,
+        "sample_rate": null
+      },
+      "output_properties": {
+        "duration_seconds": 139.618685,
+        "codec": "aac",
+        "container": "m4a",
+        "sample_rate": "44100",
+        "bitrate": "160003",
+        "file_size_bytes": 2817467
+      }
+    },
+    {
+      "source_provider": "youtube",
+      "source_item_id": "YE7VzlLtp-4",
+      "title": "Big Buck Bunny",
+      "status": "applied",
+      "source_position": 16,
+      "effective_source_item_id": "YE7VzlLtp-4",
+      "acquisition_provider": "youtube",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": {
+        "codec": "opus",
+        "bitrate_kbps": 130.501,
+        "sample_rate": 48000
+      },
+      "output_properties": {
+        "duration_seconds": 596.474208,
+        "codec": "mp3",
+        "container": "mp3",
+        "sample_rate": "48000",
+        "bitrate": "174564",
+        "file_size_bytes": 13016396
+      }
+    },
+    {
+      "source_provider": "youtube",
+      "source_item_id": "XNEnEBrHws8",
+      "title": "The Chill Zone",
+      "status": "applied",
+      "source_position": 1,
+      "effective_source_item_id": "XNEnEBrHws8",
+      "acquisition_provider": "youtube",
+      "acquisition_status": "downloaded",
+      "file_exists": true,
+      "published_sha256_matches": true,
+      "source_properties": {
+        "codec": "opus",
+        "bitrate_kbps": 154.673,
+        "sample_rate": 48000
+      },
+      "output_properties": {
+        "duration_seconds": 267.053333,
+        "codec": "mp3",
+        "container": "mp3",
+        "sample_rate": "48000",
+        "bitrate": "204749",
+        "file_size_bytes": 6835988
+      }
+    }
+  ],
+  "imports": [
+    {
+      "provider": "soundcloud",
+      "resource_type": "track",
+      "resource_id": "1757017227",
+      "url": "https://soundcloud.com/trackistador/kevin-macleod-all-this",
+      "entry_count": 1,
+      "missing_title_count": 0,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "1:1757017227"
+        ],
+        "readd": []
+      }
+    },
+    {
+      "provider": "youtube",
+      "resource_type": "track",
+      "resource_id": "f7NwyBnIRTE",
+      "url": "https://www.youtube.com/watch?v=f7NwyBnIRTE",
+      "entry_count": 1,
+      "missing_title_count": 0,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "1:f7NwyBnIRTE"
+        ],
+        "readd": []
+      }
+    },
+    {
+      "provider": "deezer",
+      "resource_type": "track",
+      "resource_id": "3919489571",
+      "url": "https://www.deezer.com/track/3919489571",
+      "entry_count": 1,
+      "missing_title_count": 0,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "1:3919489571"
+        ],
+        "readd": []
+      }
+    },
+    {
+      "provider": "spotify",
+      "resource_type": "track",
+      "resource_id": "3DaGnKmAAmyZGIbC0KjmxT",
+      "url": "https://open.spotify.com/track/3DaGnKmAAmyZGIbC0KjmxT",
+      "entry_count": 1,
+      "missing_title_count": 0,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "1:3DaGnKmAAmyZGIbC0KjmxT"
+        ],
+        "readd": []
+      }
+    },
+    {
+      "provider": "spotify",
+      "resource_type": "album",
+      "resource_id": "1lQLLW9ZsahVK2wiI9uvpE",
+      "url": "https://open.spotify.com/album/1lQLLW9ZsahVK2wiI9uvpE",
+      "entry_count": 25,
+      "missing_title_count": 0,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "1:29wj7CQdb4xF8RdinY9EB9"
+        ],
+        "readd": []
+      }
+    },
+    {
+      "provider": "deezer",
+      "resource_type": "album",
+      "resource_id": "946665271",
+      "url": "https://www.deezer.com/album/946665271",
+      "entry_count": 25,
+      "missing_title_count": 0,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "2:3919489551"
+        ],
+        "readd": []
+      }
+    },
+    {
+      "provider": "soundcloud",
+      "resource_type": "playlist",
+      "resource_id": "1752070992",
+      "url": "https://soundcloud.com/trackistador/sets/folk-music-creative-commons-no",
+      "entry_count": 21,
+      "missing_title_count": 21,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "6:565801467"
+        ],
+        "readd": []
+      }
+    },
+    {
+      "provider": "youtube",
+      "resource_type": "playlist",
+      "resource_id": "PL6B3937A5D230E335",
+      "url": "https://www.youtube.com/playlist?list=PL6B3937A5D230E335",
+      "entry_count": 17,
+      "missing_title_count": 0,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "16:YE7VzlLtp-4"
+        ],
+        "readd": []
+      }
+    },
+    {
+      "provider": "youtube",
+      "resource_type": "album",
+      "resource_id": "OLAK5uy_l1m0thk3g31NmIIz_vMIbWtyv7eZixlH0",
+      "url": "https://music.youtube.com/browse/MPREb_gTAcphH99wE",
+      "entry_count": 50,
+      "missing_title_count": 0,
+      "state": "committed",
+      "selection": {
+        "entries": [
+          "1:XNEnEBrHws8"
+        ],
+        "readd": []
+      }
+    }
+  ],
+  "authenticated_spotify_owned_playlist": {
+    "entry_count": 11,
+    "dismissed": true,
+    "committed": false,
+    "private_metadata_omitted": true
+  },
+  "restart": {
+    "tracks": true,
+    "imports": true,
+    "jobs": true
+  },
+  "first_apply": {
+    "quick_check": "ok",
+    "content_count": 1460,
+    "qa_playlists": [
+      [
+        "93427255",
+        "QA Multiplatform 2026-09-08"
+      ]
+    ],
+    "qa_tags": [
+      [
+        "236801807",
+        "QA Multiplatform 2026-09-08"
+      ]
+    ]
+  },
+  "rekordbox_open_guard": {
+    "observed": true,
+    "apply_disabled": true,
+    "remove_disabled": true
+  },
+  "reapply": {
+    "status": "passed_after_restart",
+    "initial_attempt": "stale_snapshot refusal; no write reported",
+    "recovery": "Clean Syncbox quit and relaunch, then new native preview and explicit confirmation",
+    "ui_result": {
+      "applied": 9,
+      "ready": 0,
+      "pending": 0,
+      "missing": 0
+    },
+    "database_verification": {
+      "quick_check": "ok",
+      "content_count": 1465,
+      "qa_playlists": [
+        [
+          "93427255",
+          "QA Multiplatform 2026-09-08"
+        ]
+      ],
+      "qa_tags": [
+        [
+          "236801807",
+          "QA Multiplatform 2026-09-08"
+        ]
+      ],
+      "qa_tag_link_count": 9,
+      "tagged_ids_match_event": true,
+      "original_four_content_ids_preserved": true,
+      "all_nine_files_exist": true,
+      "qa_content": [
+        {
+          "id": "105607343",
+          "title": "Aurea Carmina",
+          "duration_seconds": 211
+        },
+        {
+          "id": "12050493",
+          "title": "Big Buck Bunny",
+          "duration_seconds": 597
+        },
+        {
+          "id": "1577376",
+          "title": "Kevin MacLeod - All This (dramatic & dark Action Music) [CC BY 4.0]",
+          "duration_seconds": 228
+        },
+        {
+          "id": "162186498",
+          "title": "The Chill Zone",
+          "duration_seconds": 268
+        },
+        {
+          "id": "1786338",
+          "title": "Carefree",
+          "duration_seconds": 205
+        },
+        {
+          "id": "227063355",
+          "title": "Market Day",
+          "duration_seconds": 139
+        },
+        {
+          "id": "31840955",
+          "title": "Aces High",
+          "duration_seconds": 193
+        },
+        {
+          "id": "66533980",
+          "title": "Animated Short Film \"Big Buck Bunny\", 4K, Full Length",
+          "duration_seconds": 635
+        },
+        {
+          "id": "84230336",
+          "title": "Carefree",
+          "duration_seconds": 206
+        }
+      ],
+      "job_count": 9,
+      "job_records_unchanged": true
+    }
+  },
+  "native_rekordbox_playlist_view": {
+    "status": "inconclusive",
+    "collection_count_visually_observed": 1465,
+    "reason": "Playlist browser rows absent from accessibility tree; coordinate clicks repeatedly failed with noWindowsAvailable",
+    "rekordbox_closed_normally_after_check": true
+  },
+  "distribution_blockers": [
+    "Local host differs from the pinned release toolchain",
+    "Source packaging check rejects a local home path in .mcp.json",
+    "Component release assets are not published"
+  ],
+  "qa_archive_sha256": "215265da00e6b6c804aa795001babf7d86e28afae76362667b2dbcbd2699b741",
+  "local_deezer_archive_sha256": "a525325da6c25b72a1d8e09e9199afeb36103f8dc45074feef4d3be667dc5f3d",
+  "web_audio_archive_sha256": "e57ab44608e7dfc7b9dbcadb5b662a83aa772b981062a52b343b8be0e7b298ac",
+  "known_product_issues": [
+    "SoundCloud collection metadata lacks titles in preview and event rows; file tags and the resulting Rekordbox title correctly identify Market Day",
+    "After a stale-snapshot apply refusal, Local jobs remained Running and disabled mutation controls until Syncbox was restarted"
+  ],
+  "after_final_rekordbox_close": {
+    "quick_check": "ok",
+    "content_count": 1465,
+    "qa_tag_link_count": 9
+  }
+}

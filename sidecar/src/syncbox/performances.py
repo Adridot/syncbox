@@ -27,6 +27,7 @@ live "already played" view crash-proof.
 """
 
 import json
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 from syncbox.rb import open_readonly
@@ -141,53 +142,58 @@ def ingest(conn, rb_rows) -> int:
     return conn.execute("SELECT COUNT(*) FROM plays").fetchone()[0] - before
 
 
-def resolve_spotify_titles(conn, client, transport=None) -> int:
+def resolve_spotify_titles(conn, client, transport=None, *, lock=None, current=lambda: True) -> int:
     """Fill title/artist of Spotify-in-Rekordbox plays through the shared
     spotify.resolve_track_meta ladder: an API result carries an artist and
     fills both fields (completing artist-less oEmbed rows later); a
     title-only oEmbed result fills title-less rows and nothing else.
     Best-effort throughout; unresolved rows retry on a later refresh."""
-    titleless = [
-        row[0]
-        for row in conn.execute(
-            "SELECT DISTINCT spotify_track_id FROM plays"
-            " WHERE spotify_track_id IS NOT NULL AND title IS NULL"
-        )
-    ]
-    artistless = [
-        row[0]
-        for row in conn.execute(
-            "SELECT DISTINCT spotify_track_id FROM plays"
-            " WHERE spotify_track_id IS NOT NULL"
-            " AND title IS NOT NULL AND artist IS NULL"
-        )
-    ]
-    # titleless first: only they can benefit from the capped oEmbed fallback
-    pending = titleless + artistless
+    # Least-attempted IDs first, including failures. Title-less rows win ties,
+    # but unavailable titles must not starve later titles or missing artists.
+    with lock or nullcontext():
+        if not current():
+            return 0
+        pending = {
+            row["spotify_track_id"]: row["attempts"]
+            for row in conn.execute(
+                "SELECT spotify_track_id, MAX(spotify_metadata_attempts) AS attempts FROM plays "
+                "WHERE spotify_track_id IS NOT NULL AND (title IS NULL OR artist IS NULL) "
+                "GROUP BY spotify_track_id "
+                "ORDER BY attempts, MIN(title IS NOT NULL), spotify_track_id LIMIT 50"
+            )
+        }
     if not pending:
         return 0
     resolved = 0
-    meta = resolve_track_meta(pending, client, transport=transport)
-    conn.execute("BEGIN")
-    try:
-        for track_id, fields in meta.items():
-            if fields.get("artist") is not None:
-                conn.execute(
-                    "UPDATE plays SET title = ?, artist = ?"
-                    " WHERE spotify_track_id = ?",
-                    (fields.get("title"), fields["artist"], track_id),
-                )
-                resolved += 1
-            elif conn.execute(
-                "UPDATE plays SET title = ?"
-                " WHERE spotify_track_id = ? AND title IS NULL",
-                (fields.get("title"), track_id),
-            ).rowcount:
-                resolved += 1
-        conn.execute("COMMIT")
-    except BaseException:
-        conn.execute("ROLLBACK")
-        raise
+    attempted = set()
+    meta = resolve_track_meta(pending, client, transport=transport, on_attempt=attempted.add)
+    with lock or nullcontext():
+        if not current():
+            return 0
+        conn.execute("BEGIN")
+        try:
+            conn.executemany(
+                "UPDATE plays SET spotify_metadata_attempts = ? WHERE spotify_track_id = ?",
+                [(pending[track_id] + 1, track_id) for track_id in attempted],
+            )
+            for track_id, fields in meta.items():
+                if fields.get("artist") is not None:
+                    conn.execute(
+                        "UPDATE plays SET title = ?, artist = ?"
+                        " WHERE spotify_track_id = ?",
+                        (fields.get("title"), fields["artist"], track_id),
+                    )
+                    resolved += 1
+                elif conn.execute(
+                    "UPDATE plays SET title = ?"
+                    " WHERE spotify_track_id = ? AND title IS NULL",
+                    (fields.get("title"), track_id),
+                ).rowcount:
+                    resolved += 1
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
     return resolved
 
 
@@ -307,7 +313,7 @@ def rebuild(conn) -> None:
         raise
 
 
-def refresh(conn, db_path, spotify_client=None, transport=None) -> dict:
+def refresh(conn, db_path, spotify_client=None, transport=None, *, resolve_metadata=True) -> dict:
     """Ingest+rebuild when master.db changed since the last look (the mutate
     fingerprint gates the expensive SQLCipher open), then always try to
     resolve pending Spotify titles. Reads only - safe while Rekordbox runs."""
@@ -317,7 +323,7 @@ def refresh(conn, db_path, spotify_client=None, transport=None) -> dict:
         ingested = ingest(conn, read_rb_plays(db_path))
         rebuild(conn)
         _ingested[str(db_path)] = current
-    resolved = resolve_spotify_titles(conn, spotify_client, transport)
+    resolved = resolve_spotify_titles(conn, spotify_client, transport) if resolve_metadata else 0
     return {"ingested": ingested, "resolved_titles": resolved}
 
 

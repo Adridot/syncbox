@@ -20,7 +20,7 @@ import { confirmDialog, hasShell, openExternal, pickFile, pickSaveFile } from '.
 import { type MatchWeights, useSettingsStore } from '../stores/settings'
 import { useStatusStore } from '../stores/status'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const settings = useSettingsStore()
 const status = useStatusStore()
 const spotify = useSpotifyConnect()
@@ -38,6 +38,7 @@ interface DeezerStatus {
   enabled: boolean
   has_arl: boolean
   component: { installed: boolean; streamrip_commit?: string }
+  web_audio?: { enabled: boolean; component: { installed: boolean; reason?: string } }
 }
 
 const clientId = ref('')
@@ -48,6 +49,8 @@ const margin = ref(6)
 const weights = reactive<MatchWeights>({ ...DEFAULTS.match_weights })
 const isrcPolicy = ref<string>('guarded')
 const deezerEnabled = ref(false)
+const webEnabled = ref(false)
+const webBusy = ref(false)
 const deezerArl = ref('')
 const deezerStatus = ref<DeezerStatus | null>(null)
 const deezerBusy = ref(false)
@@ -78,6 +81,7 @@ function syncFromStore() {
   Object.assign(weights, values.match_weights)
   isrcPolicy.value = values.isrc_collision_policy
   deezerEnabled.value = values.deezer_acquisition_enabled
+  webEnabled.value = Boolean(values.web_audio_enabled)
 }
 
 // same lifecycle a remount had (re-validate paths, re-sync fields, refresh
@@ -85,12 +89,12 @@ function syncFromStore() {
 useRefreshOnReturn(async () => {
   try {
     await paths.init()
+    syncFromStore()
+    await loadDeezerStatus()
   } catch (cause) {
     banner.value = { tone: 'error', text: describe(cause) }
     return
   }
-  syncFromStore()
-  await loadDeezerStatus()
 })
 
 async function saveSetting(partial: Record<string, unknown>, success?: string) {
@@ -152,6 +156,54 @@ const saveAdvanced = () =>
 
 async function loadDeezerStatus() {
   deezerStatus.value = await api.get<DeezerStatus>('/api/acquisition/deezer')
+}
+
+// the sidecar reports why the component cannot be installed as a code; the
+// card shows it in words and the install button follows
+const webComponent = computed(() => deezerStatus.value?.web_audio?.component)
+const webSaving = ref(false)
+const webInstallable = computed(
+  () =>
+    Boolean(webComponent.value && !webComponent.value.installed &&
+    (!webComponent.value.reason || webComponent.value.reason === 'web_audio_component_missing')),
+)
+const webComponentText = computed(() => {
+  if (!webComponent.value) return t('common.loading')
+  const reason = webComponent.value?.reason
+  if (webComponent.value?.installed) return t('linkImport.webComponentInstalled')
+  if (reason === 'unsupported_platform') return t('linkImport.webComponentUnsupported')
+  if (reason === 'web_audio_release_unavailable' || reason === 'web_audio_manifest_invalid') return t('linkImport.webComponentUnavailable')
+  if (reason && reason !== 'web_audio_component_missing') return te(`linkImport.errors.${reason}`) ? t(`linkImport.errors.${reason}`) : reason
+  return t('linkImport.webComponentMissing')
+})
+
+async function saveWebEnabled() {
+  if (webSaving.value) return
+  webSaving.value = true
+  try {
+    if (await saveSetting({ web_audio_enabled: webEnabled.value })) await loadDeezerStatus()
+    else webEnabled.value = Boolean(settings.values?.web_audio_enabled)
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally { webSaving.value = false }
+}
+
+async function installWebAudio() {
+  banner.value = null
+  webBusy.value = true
+  try {
+    await api.post('/api/acquisition/web-audio/install')
+    await loadDeezerStatus()
+    banner.value = { tone: 'success', text: t('linkImport.webInstalled') }
+  } catch (cause) {
+    const code = cause instanceof ApiError ? cause.message : ''
+    banner.value = {
+      tone: 'error',
+      text: te(`linkImport.errors.${code}`) ? t(`linkImport.errors.${code}`) : describe(cause),
+    }
+  } finally {
+    webBusy.value = false
+  }
 }
 
 async function saveDeezerEnabled() {
@@ -436,6 +488,38 @@ const derivedRows = computed(() => {
         >
           {{ t('settings.deezer.install') }}
         </button>
+      </div>
+    </section>
+
+    <!-- Optional web-audio acquisition (YouTube / SoundCloud): same shape as
+         the Deezer card — explicit enablement, then a separately installed,
+         pinned component. -->
+    <section class="card">
+      <h3>{{ t('linkImport.webTitle') }}</h3>
+      <p class="card-sub">{{ t('linkImport.webSub') }}</p>
+      <label class="toggle-row">
+        <input v-model="webEnabled" type="checkbox" :disabled="webBusy || webSaving" @change="saveWebEnabled" />
+        <span>{{ t('linkImport.webEnable') }}</span>
+      </label>
+      <div class="client-id">
+        <div class="transfer-row">
+          <div class="transfer-text">
+            <div class="transfer-label">{{ t('linkImport.webComponentLabel') }}</div>
+            <div
+              class="transfer-desc"
+              :data-tone="webComponent?.installed || webInstallable ? undefined : 'warning'"
+            >
+              {{ webComponentText }}
+            </div>
+          </div>
+          <button
+            class="btn-secondary small"
+            :disabled="!webEnabled || webBusy || webSaving || !webInstallable"
+            @click="installWebAudio"
+          >
+            {{ webBusy ? t('common.loading') : t('linkImport.webInstall') }}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -949,6 +1033,10 @@ h1 {
   color: var(--text-muted-bright);
   margin-top: 2px;
   line-height: 1.5;
+}
+/* nothing to install: the reason is the whole story, so it reads as a gate */
+.transfer-desc[data-tone='warning'] {
+  color: var(--warning-text);
 }
 .transfer-actions {
   display: flex;

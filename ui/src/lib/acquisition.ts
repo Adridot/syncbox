@@ -8,6 +8,9 @@ export interface AcquisitionState {
   error?: string
   /** streamrip scale: 0 = MP3 128 (fallback), 1 = MP3 320 */
   quality?: number
+  sourceProperties?: string | null
+  outputProperties?: string | null
+  processing?: string | null
 }
 
 /** Translate the component's terse failure reasons for the UI; unknown
@@ -17,6 +20,7 @@ export function humanizeAcquisitionError(
   error: string | undefined,
 ): string | undefined {
   if (!error) return undefined
+  if (['source_identity_mismatch', 'exact_deezer_item_unavailable', 'job_source_intent_changed', 'published_source_identity_mismatch', 'web_audio_component_missing', 'web_audio_component_disabled', 'deezer_component_upgrade_required', 'provider_item_unavailable', 'provider_rate_limited', 'provider_authentication_required', 'operation_timeout', 'incomplete_audio_output'].includes(error)) return t(`linkImport.errors.${error}`)
   if (error.startsWith('streamrip_NonStreamableError')) return t('missing.errors.notStreamable')
   if (error.startsWith('downloaded_file_is_not_full_track')) return t('missing.errors.notFullTrack')
   if (error.startsWith('isrc_not_resolved') || error.startsWith('isrc_lookup_failed'))
@@ -44,6 +48,12 @@ export interface AcquisitionJob {
   status: string
   error?: string | null
   quality?: number | null
+  event_track_id?: number | null
+  library_track_id?: number | null
+  provider?: string
+  processing?: string | null
+  source_properties?: string | null
+  output_properties?: string | null
 }
 
 const TERMINAL_JOB_STATUSES = new Set([
@@ -59,9 +69,25 @@ function stateOf(job: AcquisitionJob): AcquisitionState {
     return { phase: job.status === 'running' ? 'running' : 'queued' }
   }
   if (job.status === 'downloaded' || job.status === 'relinked') {
-    return { phase: 'downloaded', quality: job.quality ?? undefined }
+    return { phase: 'downloaded', quality: job.quality ?? undefined,
+      ...(job.output_properties ? { sourceProperties: job.source_properties, outputProperties: job.output_properties, processing: job.processing } : {}) }
   }
   return { phase: 'failed', error: job.error ?? undefined }
+}
+
+/** Measured source and output values stay separate after conversion. */
+export function acquisitionDetails(t: (key: string, values?: Record<string, string>) => string, state?: AcquisitionState): string {
+  if (!state?.outputProperties) return ''
+  try {
+    const source = JSON.parse(state.sourceProperties ?? '{}')
+    const output = JSON.parse(state.outputProperties)
+    const lines = [
+      t('linkImport.sourceQuality', { codec: source.codec || '—', bitrate: Number(source.bitrate_kbps) > 0 ? `${Math.round(Number(source.bitrate_kbps))} kbps` : '—' }),
+      t('linkImport.outputQuality', { codec: output.codec || '—', rate: Number(output.sample_rate) > 0 ? `${Number(output.sample_rate)} Hz` : '—' }),
+    ]
+    if (state.processing === 'transcode') lines.push(t('linkImport.transcoded'))
+    return lines.join('\n')
+  } catch { return '' }
 }
 
 /** Persist the complete batch first, then observe the sidecar's FIFO worker. */
@@ -124,9 +150,20 @@ export function useAcquisitionQueue() {
       return { ok: 0, failed: items.length }
     }
 
+    const owned = jobs.map(job => {
+        const owner = job.scope === 'event' ? job.event_track_id ?? job.ref : job.scope === 'library' ? job.library_track_id ?? job.ref : job.ref
+        const item = items.find(item => item.body.scope === job.scope && String(item.body.row_id ?? item.body.content_id ?? item.body.id) === String(owner))
+        return { job, item }
+    })
+    if (owned.length !== items.length || owned.some(({ item }) => !item) || new Set(owned.map(({ item }) => item?.key)).size !== items.length) {
+      for (const item of items) states.value[item.key] = { phase: 'failed', error: 'Acquisition response has missing or unknown owners' }
+      batch.value = null
+      return { ok: 0, failed: items.length }
+    }
     await Promise.all(
-      jobs.map(async (job, index) => {
-        const success = await poll(items[index].key, job, describe)
+      owned.map(async ({ job, item }) => {
+        if (!item) return
+        const success = await poll(item.key, job, describe)
         if (success) ok += 1
         else failed += 1
         if (batch.value) batch.value = { done: ok + failed, total: batch.value.total }

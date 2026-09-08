@@ -1,6 +1,6 @@
-# Syncbox Spotify Data and Privacy
+# Syncbox Provider Data and Privacy
 
-Effective for Syncbox 0.2.2.
+Includes the event link-import change under development for Syncbox 0.9.0.
 
 Syncbox is a local, single-user macOS application. It has no Syncbox cloud backend and does not create a Syncbox account.
 
@@ -20,17 +20,38 @@ The local performance history reads the play history already present in the loca
 
 The optional Deezer acquisition component is separately installed, disabled by default, and uses its own one-shot local credential. When the user explicitly requests acquisition for a missing Spotify-derived track, Syncbox sends that track's ISRC to Deezer's public lookup endpoint and passes the resulting Deezer track identifier to the local optional component. Spotify access and refresh tokens are never sent to Deezer or to that component. The owner has chosen to retain this Spotify-to-Deezer matching workflow despite the documented Spotify Developer Policy risk; Syncbox does not claim that workflow is policy-compliant.
 
+## Event link imports
+
+When you submit a supported music link, Syncbox requests the provider's public
+metadata, or uses your connected Spotify account for Spotify collections. It
+stores the canonical provider/item identifiers, source collection and positions,
+selected track metadata, preview status, selection and committed result in the
+local application database. Preview and confirmation do not request audio.
+Provider responses may disclose unavailable entries; inaccessible collections
+are reported as errors rather than empty successful imports.
+
+The separately enabled web-audio component contacts YouTube/YouTube Music or
+SoundCloud and their approved delivery hosts only for requested metadata or
+audio operations. It does not receive Spotify tokens or Deezer credentials,
+read browser cookies or log into those services. Direct Deezer links use their
+own exact item ID with the existing optional Deezer component. Acquisition
+records retain source identity, measured output properties and file hashes for
+recovery and integrity. Explicit local-file selection records a path and hash.
+Disabling a component leaves these local operational records intact. Deleting
+an event removes its preview snapshots; normal event file-ownership rules apply.
+The web-audio release is currently gated on a complete dependency notice bundle.
+
 ## Disconnect and deletion
 
-Use **Settings → Spotify → Disconnect** at any time. Syncbox immediately deletes its stored Spotify access and refresh tokens and cancels any pending PKCE exchange. It also deletes followed Spotify sources, their local track rows and synchronization history, deletes related library/event acquisition job history, and replaces Spotify identifiers on retained local events with local identifiers.
+Use **Settings → Spotify → Disconnect** at any time. Syncbox immediately deletes its stored Spotify access and refresh tokens and cancels any pending PKCE exchange. It also deletes followed Spotify sources, their local track rows and synchronization history, deletes Spotify-related library/event acquisition job history and Spotify preview snapshots, and replaces Spotify identifiers on retained local events with local identifiers.
 
-Local event titles and operational track metadata already incorporated into an event are preserved so the user can safely manage the corresponding local Rekordbox lifecycle. The Spotify Client ID, local Rekordbox database, local audio and analysis files, manual collection records, and collection-only acquisition history are not changed. Disconnect never opens or writes the Rekordbox database.
+Local event titles and operational track metadata already incorporated into an event are preserved so the user can safely manage the corresponding local Rekordbox lifecycle. The Spotify Client ID, local Rekordbox database, local audio and analysis files, manual collection records, collection-only acquisition history, and direct-source event imports/acquisition history are not changed. Disconnect never opens or writes the Rekordbox database.
 
 You can also revoke Syncbox from the Spotify account applications page. Revocation makes the next refresh fail closed and clears the stored local Spotify session; use Syncbox's Disconnect action as well to remove the local playlist relationships described above.
 
 ## Network access
 
-When Spotify is connected, Syncbox communicates directly with Spotify's authorization and Web API HTTPS endpoints. The system browser may open Spotify, purchase-store, project-documentation, or optional-component links only after an explicit user action. Optional Deezer network access occurs only after that feature is separately enabled and invoked.
+When Spotify is connected, Syncbox communicates directly with Spotify's authorization and Web API HTTPS endpoints. The system browser may open Spotify, purchase-store, project-documentation, or optional-component links only after an explicit user action. Optional Deezer or web-audio network access occurs only after its feature is separately enabled and invoked. Deezer catalogue metadata for an explicitly submitted event link does not require acquisition enablement.
 
 ## Contact
 

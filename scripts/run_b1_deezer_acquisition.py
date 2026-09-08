@@ -33,6 +33,7 @@ PILLOW_VERSION = "10.4.0"
 PILLOW_WHEEL = "pillow-10.4.0-cp313-cp313-macosx_11_0_arm64.whl"
 PILLOW_WHEEL_SHA256 = "6209bb41dc692ddfee4942517c19ee81b86c864b626dbfca272ec0f7cff5d9fb"
 ISRC_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$")
+PROTOCOL_VERSION = 2
 
 
 class PocBlocked(RuntimeError):
@@ -286,13 +287,27 @@ def _resolve_track(track_id: int, certifi) -> int:
     return duration
 
 
+def _effective_track_id(downloadable, requested_id: int, exact_item: bool) -> int:
+    """Check the downloadable identity; metadata may still name the requested item."""
+    raw_id = getattr(downloadable, "id", None)
+    if not re.fullmatch(r"[1-9][0-9]*", str(raw_id)):
+        raise PocFailed("streamrip_effective_item_missing")
+    effective_id = int(raw_id)
+    if exact_item and effective_id != requested_id:
+        raise PocFailed("streamrip_exact_item_unavailable")
+    return effective_id
+
+
 async def _download(
     component: dict,
     arl: str,
     isrc: str | None,
     output_dir: Path,
     track_id: int | None = None,
+    exact_item: bool = False,
 ) -> dict:
+    if exact_item and (track_id is None or track_id <= 0):
+        raise PocBlocked("exact_item_requires_track_id")
     Config = component["Config"]
     streamrip_db = component["streamrip_db"]
     DeezerClient = component["DeezerClient"]
@@ -349,11 +364,11 @@ async def _download(
             raise PocFailed(
                 f"streamrip_resolved_wrong_isrc (got={track.meta.isrc!r})"
             )
-        # Deezer FALLBACK substitution (downloadable.id != requested id) is
-        # accepted: Deezer curates it as the same recording on another
-        # release, and it is the only way some tracks are streamable at all
-        # (owner decision 16/07 — Blondie "Maria" case; deemix followed it
-        # transparently). The ISRC gate above still guards resolution.
+        # Legacy/Spotify requests retain the owner-approved catalogue fallback.
+        # Direct links must pass the identity check before any audio is fetched.
+        effective_track_id = _effective_track_id(
+            track.downloadable, track_id, exact_item
+        )
         await track.rip()
     except PocFailed:
         raise
@@ -398,6 +413,9 @@ async def _download(
 
     return {
         "deezer_track_id": track_id,
+        "effective_deezer_track_id": effective_track_id,
+        "exact_item": exact_item,
+        "protocol_version": PROTOCOL_VERSION,
         "api_duration_seconds": api_duration,
         "measured_duration_seconds": round(measured_duration, 2),
         "file_size_bytes": output_path.stat().st_size,
@@ -555,6 +573,8 @@ def _check(component: dict, temp_root: Path) -> dict:
         raise PocFailed("streamrip_database_written")
     return {
         "check": "passed",
+        "protocol_version": PROTOCOL_VERSION,
+        "capabilities": ["exact_deezer_item", "effective_deezer_item"],
         "platform": "macOS-arm64",
         "credential_io": "one_shot_file_removed",
         "global_config_dir": "untouched",
@@ -584,6 +604,10 @@ def main(argv=None) -> int:
         help="exact Deezer track id (manual pick); bypasses ISRC resolution",
     )
     parser.add_argument(
+        "--exact-item", action="store_true",
+        help="reject catalogue substitution; requires --track-id",
+    )
+    parser.add_argument(
         "--credential-file",
         help="required one-shot credential file; consumed and deleted on success",
     )
@@ -593,6 +617,11 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.exact_item and (
+        not args.track_id or not re.fullmatch(r"[1-9][0-9]*", args.track_id)
+    ):
+        _emit(result="BLOCKED", reason="exact_item_requires_track_id")
+        return 2
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         _emit(result="BLOCKED", reason="requires_macos_arm64")
         return 2
@@ -628,6 +657,7 @@ def main(argv=None) -> int:
                                     isrc,
                                     output_dir,
                                     track_id=picked_track_id,
+                                    exact_item=args.exact_item,
                                 )
                             )
                     except BaseException as error:

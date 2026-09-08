@@ -27,6 +27,7 @@ DEFAULTS = {
     "match_weights": {"title": 0.52, "artist": 0.36, "duration": 0.12},
     "isrc_collision_policy": "guarded",
     "deezer_acquisition_enabled": False,
+    "web_audio_enabled": False,
 }
 
 ISRC_COLLISION_POLICIES = ("guarded", "trust_isrc", "strict")

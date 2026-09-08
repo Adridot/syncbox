@@ -8,6 +8,7 @@ so callers run this around the pure diff pipeline.
 """
 
 from pathlib import Path
+from syncbox.source_identity import eligible_file
 
 _TABLES = frozenset({"library_tracks", "event_tracks"})
 
@@ -29,7 +30,10 @@ def reclassify_stale_ready(conn, table: str, rows: list[dict]) -> list[dict]:
     stale = [
         row
         for row in rows
-        if row.get("status") == "ready" and not staged_file_ok(row.get("staging_file_path"))
+        if row.get("status") == "ready" and not (
+            eligible_file(conn, row, row.get("staging_file_path")) if table == "event_tracks"
+            else staged_file_ok(row.get("staging_file_path"))
+        )
     ]
     if not stale:
         return []

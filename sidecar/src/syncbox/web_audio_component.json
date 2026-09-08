@@ -1,0 +1,20 @@
+{
+  "component": "syncbox-web-audio-component",
+  "version": "0.9.0",
+  "protocol_version": 1,
+  "platform": "macos-arm64",
+  "archive": "syncbox-web-audio-component-0.9.0-macos-arm64.zip",
+  "size": 77656560,
+  "sha256": "40b766dfe2e4c62edc828bab023103e79d6588e8be3dc785843ca665fc267ba0",
+  "license_inventory_complete": true,
+  "component_version": "0.9.0",
+  "root": "syncbox-web-audio-component",
+  "executable": "syncbox-web-audio-component",
+  "versions": {
+    "yt-dlp": "2026.8.19",
+    "yt-dlp-ejs": "0.8.0"
+  },
+  "ffmpeg": "ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "deno": "deno 2.9.5 (stable, release, aarch64-apple-darwin)",
+  "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.9.0/syncbox-web-audio-component-0.9.0-macos-arm64.zip"
+}

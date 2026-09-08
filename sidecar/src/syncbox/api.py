@@ -3,10 +3,12 @@
 
 Concurrency model (deliberately simple and correct for a single-user
 loopback app):
-- EVERY handler body is a plain sync function executed via
+- Handler bodies are plain sync functions executed via
   run_in_threadpool under ONE app-wide lock (Deps.lock): the asyncio loop
   is never blocked, so the canonical /events SSE stream keeps flowing
   while a long job (sync, apply, dedup scan) runs;
+- performance metadata handlers own short DB lock sections and release the
+  lock for Spotify network requests;
 - long jobs publish REAL progress on the JobBus from the worker thread via
   anyio.from_thread.run - 'job.progress' with pct derived from actual work
   units (F16: never faked), then 'job.done'.
@@ -49,6 +51,8 @@ from syncbox import (
     event_remove,
     events_service,
     library_service,
+    link_imports,
+    link_resolution,
     matching,
     missing_service,
     performances,
@@ -56,9 +60,12 @@ from syncbox import (
     readouts,
     repos,
     smartfixes_run,
+    source_identity,
     untagged,
+    web_audio,
 )
 from syncbox.library_service import ConflictError
+from syncbox.music_links import LinkError
 from syncbox.missing_service import AnlzConsentRequired
 from syncbox.platform_os import PermanentDeleteConsentRequired, delete_file
 from syncbox.rb import SnapshotCache, open_readonly
@@ -133,6 +140,8 @@ class Deps:
         secrets=None,
         acquisition_installer=None,
         acquisition_runner=None,
+        link_resolver=None,
+        web_audio_runner=None,
     ):
         self.conn = conn
         # File behind ``conn`` - needed by the all-data import (5.10), which
@@ -154,7 +163,12 @@ class Deps:
         )
         self.acquisition_runner = acquisition_runner or acquisition.run_deezer_download
         self.acquisition_worker = None
+        self.link_import_worker = None
+        self.link_resolver = link_resolver or link_resolution.resolve
+        self.web_audio_runner = web_audio_runner or web_audio.run
+        self.db_generation = 0
         self.lock = threading.RLock()
+        self.performance_metadata_lock = threading.Lock()
         self._injected_cache = cache  # tests inject a fake snapshot cache
         self._cache = None
         self._cache_db = None
@@ -203,6 +217,7 @@ class AcquisitionWorker:
         self.instance_id = uuidlib.uuid4().hex
         self._connect = connect or (lambda: appdb.connect(deps.app_db_path))
         self._conn = None
+        self._generation = deps.db_generation
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._run,
@@ -261,13 +276,103 @@ class AcquisitionWorker:
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
-                job_id = self._claim()
+                with self.deps.lock:
+                    if self._generation != self.deps.db_generation:
+                        self._conn.close()
+                        self._conn = self._connect()
+                        self._generation = self.deps.db_generation
+                    job_id = self._claim()
                 if job_id is not None:
-                    _run_acquisition_job(self.deps, job_id, conn=self._conn)
+                    _run_acquisition_job(self.deps, job_id, conn=self._conn, cancelled=self._stop.is_set)
                     continue
             except Exception:
                 log.exception("acquisition worker iteration failed")
             self._stop.wait(0.5)
+
+
+class LinkImportWorker:
+    """One metadata worker, started after exclusive application ownership."""
+
+    def __init__(self, deps, *, connect=None):
+        self.deps = deps
+        self.claimant = uuidlib.uuid4().hex
+        self._connect = connect or (lambda: appdb.connect(deps.app_db_path))
+        self._conn = None
+        self._generation = deps.db_generation
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="syncbox-link-import", daemon=True)
+
+    def start(self):
+        with self.deps.lock:
+            self._conn = self._connect()
+            self._conn.execute("UPDATE event_link_imports SET state = 'queued', claimed_by = NULL WHERE state = 'resolving'")
+        self._thread.start()
+
+    def stop(self, timeout=3):
+        self._stop.set()
+        if self._thread.ident is not None:
+            self._thread.join(timeout)
+        stopped = not self._thread.is_alive()
+        if stopped and self._conn is not None:
+            self._conn.close()
+            self._conn = None
+        return stopped
+
+    def _cancelled(self, row, generation):
+        if self._stop.is_set():
+            return True
+        with self.deps.lock:
+            if generation != self.deps.db_generation:
+                return True
+            current = self._conn.execute(
+                "SELECT 1 FROM event_link_imports i JOIN events e ON e.id = i.event_id "
+                "WHERE i.id = ? AND i.state = 'resolving' AND i.claimed_by = ? AND e.delete_phase IS NULL",
+                (row["id"], self.claimant),
+            ).fetchone()
+            return current is None
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                with self.deps.lock:
+                    if self._generation != self.deps.db_generation:
+                        self._conn.close()
+                        self._conn = self._connect()
+                        self._generation = self.deps.db_generation
+                        self._conn.execute("UPDATE event_link_imports SET state = 'queued', claimed_by = NULL WHERE state = 'resolving'")
+                    row = link_imports.claim(self._conn, self.claimant)
+                    generation = self._generation
+                    client = self.deps.spotify_client
+                    web_enabled = self.deps.settings.get("web_audio_enabled")
+                if row is None:
+                    self._stop.wait(.2)
+                    continue
+                cancelled = lambda: self._cancelled(row, generation)
+                def web_runner(request, **kwargs):
+                    if not web_enabled:
+                        raise LinkError("web_audio_component_disabled")
+                    return self.deps.web_audio_runner(self.deps.data_dir, request, **kwargs)
+                try:
+                    manifest = self.deps.link_resolver(row["request_url"], spotify_client=client, web_runner=web_runner, cancelled=cancelled)
+                    manifest = link_imports.normalized_manifest(manifest)
+                    link_imports._json(manifest)
+                    error = None
+                except Exception as exc:
+                    manifest = None
+                    if isinstance(exc, SpotifyApiError):
+                        error = "provider_rate_limited" if exc.status_code == 429 else "spotify_collection_inaccessible"
+                    elif isinstance(exc, NotConnectedError):
+                        # the UI already translates this into "connect Spotify in Settings"
+                        error = "spotify_authentication_required"
+                    else:
+                        text = str(exc)
+                        error = text if isinstance(exc, ValueError) and re.fullmatch(r"[a-z_]{1,100}", text) else "provider_metadata_unavailable"
+                with self.deps.lock:
+                    if generation == self.deps.db_generation:
+                        link_imports.finish(self._conn, row["id"], self.claimant, manifest=manifest, error=error)
+            except Exception:
+                log.exception("link import worker iteration failed")
+                self._stop.wait(.5)
 
 
 def build_app(deps: Deps):
@@ -286,6 +391,10 @@ def build_app(deps: Deps):
 
 def _error_response(exc) -> JSONResponse | None:
     """Map domain errors to clean JSON responses; None -> a real bug, re-raise."""
+    if isinstance(exc, LinkError):
+        code = str(exc)
+        status = 409 if any(part in code for part in ("conflict", "immutable", "not_ready", "not_retryable", "choice_required")) else 400
+        return JSONResponse({"error": code, "message": code}, status_code=status)
     if isinstance(exc, MutationBlockedError):
         return JSONResponse(
             {
@@ -357,9 +466,9 @@ def _error_response(exc) -> JSONResponse | None:
     return None
 
 
-def _endpoint(deps: Deps, handler):
-    """handler(deps, request, body) runs sync, in the threadpool, under the
-    app-wide lock. It returns a JSON-serializable payload or (status, payload)."""
+def _endpoint(deps: Deps, handler, *, owns_lock=False):
+    """Run the sync handler in the threadpool, acquiring the app-wide lock
+    unless it owns its lock sections. Return JSON payload or (status, payload)."""
 
     async def route(request):
         body = {}
@@ -383,6 +492,8 @@ def _endpoint(deps: Deps, handler):
                     )
 
         def work():
+            if owns_lock:
+                return handler(deps, request, body)
             with deps.lock:
                 return handler(deps, request, body)
 
@@ -412,6 +523,14 @@ class _Progress:
         self._bus = bus
         self.job_id = uuidlib.uuid4().hex
         self.kind = kind
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if exc_type is not None:
+            # HTTP remains the error authority; never broadcast exception text.
+            self.done(status="failed")
 
     def _publish(self, event_type: str, payload: dict) -> None:
         payload = {"job": self.job_id, "kind": self.kind, **payload}
@@ -541,6 +660,7 @@ def _duplicate_names(deps, tracks: list[dict]) -> dict:
 
 def _event_tracks(deps, tracks: list[dict]) -> list[dict]:
     names = _duplicate_names(deps, tracks)
+    _decorate_acquisition(deps, tracks)
     return [_event_track(track, names) for track in tracks]
 
 
@@ -626,52 +746,52 @@ def sources_sync_one(deps, request, body):
     source = _get_source(deps, request.path_params["source_id"])
     _require_rekordbox(deps)
     client = _sync_client(deps)
-    progress = _Progress(deps.bus, "sources.sync")
-    progress.publish(0, 1)
-    result = library_service.sync_one_source(
-        deps.conn,
-        client,
-        deps.cache(),
-        deps.storage_root,
-        source,
-        **_matching_thresholds(deps),
-    )
-    progress.publish(1, 1)
-    progress.done(source_id=source["id"], **result["stats"])
-    return result
+    with _Progress(deps.bus, "sources.sync") as progress:
+        progress.publish(0, 1)
+        result = library_service.sync_one_source(
+            deps.conn,
+            client,
+            deps.cache(),
+            deps.storage_root,
+            source,
+            **_matching_thresholds(deps),
+        )
+        progress.publish(1, 1)
+        progress.done(source_id=source["id"], **result["stats"])
+        return result
 
 
 def sources_sync_all(deps, request, body):
     _require_rekordbox(deps)
     client = _sync_client(deps)
     sources = [s for s in repos.list_sources(deps.conn) if s["enabled"]]
-    progress = _Progress(deps.bus, "sources.sync_all")
-    results = []
-    thresholds = _matching_thresholds(deps)
-    for done, source in enumerate(sources, start=1):
-        try:
-            result = library_service.sync_one_source(
-                deps.conn,
-                client,
-                deps.cache(),
-                deps.storage_root,
-                source,
-                **thresholds,
-            )
-            results.append({"source_id": source["id"], **result})
-        except SpotifyApiError as exc:
-            # One unreachable playlist (404 private, rate-limit exhausted)
-            # must not abort the other sources; report it in the results.
-            results.append(
-                {
-                    "source_id": source["id"],
-                    "error": str(exc),
-                    "status_code": exc.status_code,
-                }
-            )
-        progress.publish(done, len(sources))  # real unit: one source synced
-    progress.done(synced=len(sources))
-    return {"results": results}
+    with _Progress(deps.bus, "sources.sync_all") as progress:
+        results = []
+        thresholds = _matching_thresholds(deps)
+        for done, source in enumerate(sources, start=1):
+            try:
+                result = library_service.sync_one_source(
+                    deps.conn,
+                    client,
+                    deps.cache(),
+                    deps.storage_root,
+                    source,
+                    **thresholds,
+                )
+                results.append({"source_id": source["id"], **result})
+            except SpotifyApiError as exc:
+                # One unreachable playlist (404 private, rate-limit exhausted)
+                # must not abort the other sources; report it in the results.
+                results.append(
+                    {
+                        "source_id": source["id"],
+                        "error": str(exc),
+                        "status_code": exc.status_code,
+                    }
+                )
+            progress.publish(done, len(sources))  # real unit: one source synced
+        progress.done(synced=len(sources))
+        return {"results": results}
 
 
 def source_tracks(deps, request, body):
@@ -711,23 +831,23 @@ def source_apply(deps, request, body):
     source = _get_source(deps, request.path_params["source_id"])
     _require_rekordbox(deps)
     track_ids = [int(t) for t in _require_list(body, "track_ids")]
-    progress = _Progress(deps.bus, "sources.apply")
-    progress.publish(0, 1)
-    # ONE mutate() inside; ConflictError (wrong status / missing MyTag) -> 409.
-    result = library_service.apply_to_rekordbox(
-        deps.conn,
-        deps.db_path,
-        deps.backups_root,
-        deps.cache(),
-        deps.storage_root,
-        source["id"],
-        track_ids,
-        retention=deps.retention,
-        app_db_path=deps.app_db_path,
-    )
-    progress.publish(1, 1)
-    progress.done(source_id=source["id"], **result)
-    return result
+    with _Progress(deps.bus, "sources.apply") as progress:
+        progress.publish(0, 1)
+        # ONE mutate() inside; ConflictError (wrong status / missing MyTag) -> 409.
+        result = library_service.apply_to_rekordbox(
+            deps.conn,
+            deps.db_path,
+            deps.backups_root,
+            deps.cache(),
+            deps.storage_root,
+            source["id"],
+            track_ids,
+            retention=deps.retention,
+            app_db_path=deps.app_db_path,
+        )
+        progress.publish(1, 1)
+        progress.done(source_id=source["id"], **result)
+        return result
 
 
 # --- status (G1) --------------------------------------------------------------------
@@ -1039,6 +1159,51 @@ def events_add_track(deps, request, body):
     return 201, _event_track(track)
 
 
+def events_link_import_start(deps, request, body):
+    row = link_imports.start(deps.conn, request.path_params["event_id"], body.get("url"), body.get("request_token"), choice=body.get("choice"))
+    return 202, row
+
+
+def events_link_import_list(deps, request, body):
+    return {"imports": link_imports.list_imports(deps.conn, request.path_params["event_id"])}
+
+
+def events_link_import_get(deps, request, body):
+    event_id = request.path_params["event_id"]
+    row = link_imports.get(deps.conn, event_id, request.path_params["import_id"])
+    if row["manifest"]:
+        tracks = events_service.list_event_tracks(deps.conn, event_id)
+        identities = {}
+        for track in tracks:
+            key = (track["source_provider"], track["source_item_id"])
+            if key not in identities or identities[key]["status"] in link_imports.INACTIVE:
+                identities[key] = track
+        seen = set()
+        for entry in row["manifest"]["entries"]:
+            key = (entry["provider"], entry["item_id"])
+            track = identities.get(key)
+            entry["existing_status"] = track["status"] if track else None
+            entry["event_track_id"] = track["id"] if track else None
+            entry["repeated"] = key in seen and entry["available"]
+            seen.add(key)
+    return row
+
+
+def events_link_import_commit(deps, request, body):
+    event_id = request.path_params["event_id"]
+    result = link_imports.commit(deps.conn, event_id, request.path_params["import_id"], body.get("selected_keys"), readd_keys=body.get("readd_keys"))
+    _try_match_event(deps, _get_event(deps, event_id))
+    return result
+
+
+def events_link_import_retry(deps, request, body):
+    return link_imports.retry(deps.conn, request.path_params["event_id"], request.path_params["import_id"])
+
+
+def events_link_import_dismiss(deps, request, body):
+    return link_imports.dismiss(deps.conn, request.path_params["event_id"], request.path_params["import_id"])
+
+
 def _get_event_track(deps: Deps, event: dict, track_id: int) -> dict:
     row = next(
         (
@@ -1217,22 +1382,22 @@ def events_claim(deps, request, body):
 def _events_apply(deps, request, *, only_delta: bool):
     event = _get_event(deps, request.path_params["event_id"])
     _require_rekordbox(deps)
-    progress = _Progress(deps.bus, "events.reapply" if only_delta else "events.apply")
-    progress.publish(0, 1)
-    result = events_service.apply_event(
-        deps.conn,
-        deps.db_path,
-        deps.backups_root,
-        deps.cache(),
-        deps.storage_root,
-        event,
-        only_delta=only_delta,
-        retention=deps.retention,
-        app_db_path=deps.app_db_path,
-    )
-    progress.publish(1, 1)
-    progress.done(event_id=event["id"], **{k: result[k] for k in ("noop", "applied")})
-    return result
+    with _Progress(deps.bus, "events.reapply" if only_delta else "events.apply") as progress:
+        progress.publish(0, 1)
+        result = events_service.apply_event(
+            deps.conn,
+            deps.db_path,
+            deps.backups_root,
+            deps.cache(),
+            deps.storage_root,
+            event,
+            only_delta=only_delta,
+            retention=deps.retention,
+            app_db_path=deps.app_db_path,
+        )
+        progress.publish(1, 1)
+        progress.done(event_id=event["id"], **{k: result[k] for k in ("noop", "applied")})
+        return result
 
 
 def events_apply(deps, request, body):
@@ -1313,6 +1478,19 @@ def missing_list(deps, request, body):
 
 
 def missing_status(deps, request, body):
+    if request.path_params["scope"] == "event" and body.get("status") == "relinked":
+        row = deps.conn.execute("SELECT * FROM event_tracks WHERE id = ?", (request.path_params["row_id"],)).fetchone()
+        if row is not None and source_identity.exact_source(dict(row)):
+            track = dict(row)
+            event = _get_event(deps, track["event_id"])
+            if event.get("delete_phase") or track["status"] not in missing_service.MISSING_STATUSES:
+                raise ConflictError("event_track_not_available_for_selection")
+            path = _body_path(body, must_exist=True).resolve()
+            from syncbox.rb_write import audio_metadata
+            if not path.is_file() or path.suffix.lower() not in {".mp3", ".m4a", ".flac", ".wav", ".aiff", ".aif"} or not audio_metadata(path):
+                raise ValueError("invalid_local_audio_file")
+            deps.conn.execute("UPDATE event_tracks SET status = 'ready', selected_local_path = ?, selected_local_sha256 = ?, staging_file_path = ?, confidence = 100, updated_at = datetime('now') WHERE id = ?", (str(path), _file_sha256(path), str(path), track["id"]))
+            return {**track, "status": "ready", "selected_local_path": str(path), "staging_file_path": str(path), "confidence": 100}
     return missing_service.set_missing_status(
         deps.conn,
         request.path_params["scope"],
@@ -1396,17 +1574,27 @@ def _decorate_acquisition(deps, entries: list[dict]) -> None:
     ready = enabled and has_arl and bool(component.get("installed"))
     for entry in entries:
         reason = None
+        provider = entry.get("source_provider") if source_identity.exact_source(entry) else "deezer"
+        if provider in {"youtube", "soundcloud"}:
+            web_enabled = deps.settings.get("web_audio_enabled")
+            web_status = web_audio.component_status(deps.data_dir)
+            installed = web_status["installed"]
+            entry["acquisition"] = {"provider": provider, "available": web_enabled and installed,
+                                    "reason": None if web_enabled and installed else (web_status.get("reason") or "web_audio_component_missing") if web_enabled else "web_audio_component_disabled"}
+            continue
         if not enabled:
             reason = "disabled"
         elif not has_arl:
             reason = "missing_arl"
         elif not component.get("installed"):
             reason = "component_not_installed"
-        elif not entry.get("isrc"):
+        elif source_identity.exact_source(entry) and "exact_deezer_item" not in component.get("capabilities", []):
+            reason = "deezer_component_upgrade_required"
+        elif not source_identity.exact_source(entry) and not entry.get("isrc"):
             reason = "missing_isrc"
         entry["acquisition"] = {
             "provider": "deezer",
-            "available": ready and bool(entry.get("isrc")),
+            "available": ready and reason is None,
             "reason": reason,
         }
 
@@ -1417,6 +1605,7 @@ def acquisition_status(deps, request, body):
         "enabled": bool(deps.settings.get("deezer_acquisition_enabled")),
         "has_arl": _has_deezer_arl(deps),
         "component": acquisition.component_status(deps.data_dir),
+        "web_audio": {"enabled": deps.settings.get("web_audio_enabled"), "component": web_audio.component_status(deps.data_dir)},
     }
 
 
@@ -1455,8 +1644,16 @@ def acquisition_component_install(deps, request, body):
     return {"component": component}
 
 
+def acquisition_web_component_install(deps, request, body):
+    if not deps.settings.get("web_audio_enabled"):
+        raise LinkError("web_audio_component_disabled")
+    if deps.conn.execute("SELECT 1 FROM acquisition_jobs WHERE provider IN ('youtube', 'soundcloud') AND status = 'running'").fetchone() or deps.conn.execute("SELECT 1 FROM event_link_imports WHERE source_provider IN ('youtube', 'soundcloud') AND state = 'resolving'").fetchone():
+        raise ConflictError("Wait for web audio work to finish before updating its component")
+    return web_audio.install_component(deps.data_dir)
+
+
 def _acquisition_entry(
-    deps, scope: str, ref: str, *, require_isrc: bool = True, conn=None
+    deps, scope: str, ref: str, *, require_isrc: bool = True, conn=None, published_output=None
 ) -> dict:
     # require_isrc=False: a manually chosen Deezer track supplies its own
     # ISRC, so the row does not need one
@@ -1480,7 +1677,8 @@ def _acquisition_entry(
             ).fetchone()
         if row is None:
             raise KeyError(f"{scope} track {ref} not found")
-        if row["status"] not in missing_service.MISSING_STATUSES:
+        recovered_owner = published_output and row["status"] in {"ready", "applied", "imported"} and row["staging_file_path"] == published_output
+        if row["status"] not in missing_service.MISSING_STATUSES and not recovered_owner:
             raise ConflictError(f"{scope} track {ref} is not missing")
         if scope == "event" and row["event_delete_phase"]:
             raise ConflictError(
@@ -1494,7 +1692,10 @@ def _acquisition_entry(
             "ref": str(row["id"]),
             "title": row["title"],
             "artist": row["artist"],
-            "isrc": isrc_of(row["isrc"]),
+            "isrc": row["isrc"] if scope == "event" and source_identity.exact_source(dict(row)) else isrc_of(row["isrc"]),
+            "provider": row["source_provider"] if scope == "event" and source_identity.exact_source(dict(row)) else "deezer",
+            "source_item_id": row["source_item_id"] if scope == "event" and source_identity.exact_source(dict(row)) else None,
+            "source_url": row["source_url"] if scope == "event" and source_identity.exact_source(dict(row)) else None,
             "event_id": row["event_id"] if scope == "event" else None,
             "event_track_id": row["id"] if scope == "event" else None,
             "library_track_id": row["id"] if scope == "library" else None,
@@ -1619,7 +1820,7 @@ def _published_output(job: dict) -> str | None:
     return str(candidate)
 
 
-def _run_acquisition_job(deps, job_id: int, progress=None, *, conn=None) -> dict:
+def _run_acquisition_job(deps, job_id: int, progress=None, *, conn=None, cancelled=None) -> dict:
     """Execute one claimed job.
 
     ``conn`` is the executing thread's own app-DB connection (the persistent
@@ -1633,7 +1834,20 @@ def _run_acquisition_job(deps, job_id: int, progress=None, *, conn=None) -> dict
     job = _job_row(conn, job_id)
     scope = job["scope"]
     ref = job["ref"]
-    work_dir = acquisition.acquisition_output_dir(deps.storage_root, job_id)
+    with deps.lock:
+        storage_root = deps.storage_root
+    work_dir = acquisition.acquisition_output_dir(storage_root, job_id)
+    selector = _job_selector(job)
+    generation = deps.db_generation
+    def web_cancelled():
+        if (cancelled and cancelled()) or generation != deps.db_generation:
+            return True
+        with deps.lock:
+            try:
+                current = _acquisition_entry(deps, scope, ref, require_isrc=False, conn=conn)
+                return _source_selector(current, job["deezer_track_id"]) != selector
+            except (KeyError, ConflictError):
+                return True
     try:
         # Resume point: a previous attempt already published this job's
         # output durably (phase + deterministic destination + hash persisted
@@ -1641,42 +1855,42 @@ def _run_acquisition_job(deps, job_id: int, progress=None, *, conn=None) -> dict
         # never download again, never validate 'is missing' against an owner
         # the crashed attempt already flipped to 'ready'.
         resumed_output = _published_output(job)
+        if resumed_output and selector["kind"] == "exact" and job.get("effective_source_item_id") != selector["item_id"]:
+            raise ConflictError("published_source_identity_mismatch")
+        with deps.lock:
+            entry = _acquisition_entry(deps, scope, ref, require_isrc=job["deezer_track_id"] is None, conn=conn, published_output=resumed_output)
+            if _source_selector(entry, job["deezer_track_id"]) != selector:
+                raise ConflictError("job_source_intent_changed")
         if resumed_output is None:
             with deps.lock:
-                entry = _acquisition_entry(
-                    deps,
-                    scope,
-                    ref,
-                    require_isrc=job["deezer_track_id"] is None,
-                    conn=conn,
-                )
-                if deps.secrets is None:
-                    raise ValueError("secrets store is not configured")
-                arl = deps.secrets.get(acquisition.DEEZER_ARL_SECRET)
-                if not arl:
-                    raise ValueError("Deezer ARL is not configured")
-                if not acquisition.component_status(deps.data_dir).get("installed"):
-                    raise ValueError("optional Deezer component is not installed")
+                _require_acquisition_ready(deps, job["provider"], exact=selector["kind"] == "exact")
+                arl = deps.secrets.get(acquisition.DEEZER_ARL_SECRET) if job["provider"] == "deezer" else None
 
-            acquisition.reset_job_workspace(deps.storage_root, job_id)
+            acquisition.reset_job_workspace(storage_root, job_id)
             if progress is not None:
                 progress.publish(1, 3)
-            result = (
-                deps.acquisition_runner(
-                    deps.data_dir,
-                    arl,
-                    None,
-                    work_dir,
-                    track_id=int(job["deezer_track_id"]),
-                )
-                if job["deezer_track_id"] is not None
-                else deps.acquisition_runner(
-                    deps.data_dir, arl, entry["isrc"], work_dir
-                )
-            )
+            if job["provider"] in {"youtube", "soundcloud"}:
+                result = deps.web_audio_runner(deps.data_dir, {"operation": "download", "url": selector["url"], "item_id": selector["item_id"], "output_dir": str(work_dir.resolve())}, cancelled=web_cancelled)
+            else:
+                options = {"track_id": int(job["deezer_track_id"])} if job["deezer_track_id"] is not None else {}
+                if selector["kind"] == "exact":
+                    options["exact_item"] = True
+                result = deps.acquisition_runner(deps.data_dir, arl, entry["isrc"] if not options else None, work_dir, **options)
         with deps.lock:
+            current_job = _job_row(conn, job_id)
+            if current_job["claimed_by"] != job["claimed_by"] or _job_selector(current_job) != selector:
+                raise ConflictError("job_ownership_changed")
+            entry = _acquisition_entry(deps, scope, ref, require_isrc=job["deezer_track_id"] is None, conn=conn, published_output=resumed_output)
+            if _source_selector(entry, job["deezer_track_id"]) != selector:
+                raise ConflictError("job_source_intent_changed")
             if resumed_output is None:
                 downloaded = Path(result["output_path"])
+                if downloaded.is_symlink() or not downloaded.is_file() or not downloaded.resolve().is_relative_to(work_dir.resolve()):
+                    raise ValueError("output_outside_workspace")
+                effective = result.get("effective_item_id") if job["provider"] != "deezer" else result.get("effective_deezer_track_id")
+                if selector["kind"] == "exact" and str(effective) != selector["item_id"]:
+                    raise ValueError("source_identity_mismatch")
+                quality = result.get("quality") if isinstance(result.get("quality"), int) else None
                 destination = None
                 if job["published_path"]:
                     # A slot reserved by an interrupted attempt whose move
@@ -1698,6 +1912,11 @@ def _run_acquisition_job(deps, job_id: int, progress=None, *, conn=None) -> dict
                     phase="publishing",
                     published_path=str(destination),
                     published_sha256=_file_sha256(downloaded),
+                    quality=quality,
+                    effective_source_item_id=str(effective) if effective is not None else None,
+                    source_properties=json.dumps(result["source_properties"]) if result.get("source_properties") else None,
+                    output_properties=json.dumps(result["output_properties"]) if result.get("output_properties") else None,
+                    processing=result.get("processing"),
                 )
                 output_path = str(
                     acquisition.publish_download(
@@ -1771,12 +1990,17 @@ def _run_acquisition_job(deps, job_id: int, progress=None, *, conn=None) -> dict
             progress.done(id=job_id, status=status, output_path=output_path)
         return job
     except Exception as exc:
+        if cancelled and cancelled():
+            return _job_row(conn, job_id)  # A restarted worker resumes the interrupted claim.
         with deps.lock:
-            if scope in ("library", "event"):
+            remaining_job = conn.execute("SELECT * FROM acquisition_jobs WHERE id = ?", (job_id,)).fetchone()
+            if remaining_job is None or remaining_job["claimed_by"] != job["claimed_by"] or _job_selector(dict(remaining_job)) != selector:
+                return {"id": job_id, "status": "cancelled", "event_track_id": job["event_track_id"]}
+            if scope in ("library", "event") and not isinstance(exc, ConflictError):
                 table = {"library": "library_tracks", "event": "event_tracks"}[scope]
                 conn.execute(
                     f"UPDATE {table} SET status = 'acquisition_failed', "
-                    "updated_at = datetime('now') WHERE id = ?",
+                    "updated_at = datetime('now') WHERE id = ? AND status IN ('missing', 'acquisition_failed', 'purchase_link_unavailable', 'manual_relink_needed')",
                     (ref,),
                 )
             error = _acquisition_error_text(exc)
@@ -1785,10 +2009,18 @@ def _run_acquisition_job(deps, job_id: int, progress=None, *, conn=None) -> dict
             progress.done(id=job_id, status="failed", error=error)
         return job
     finally:
-        acquisition.cleanup_job_workspace(deps.storage_root, job_id)
+        acquisition.cleanup_job_workspace(storage_root, job_id)
 
 
-def _require_acquisition_ready(deps) -> None:
+def _require_acquisition_ready(deps, provider="deezer", *, exact=False) -> None:
+    if provider in {"youtube", "soundcloud"}:
+        if not deps.settings.get("web_audio_enabled"):
+            raise ValueError("web_audio_component_disabled")
+        web_status = web_audio.component_status(deps.data_dir)
+        if not web_status["installed"]:
+            raise ValueError(web_status.get("reason") or "web_audio_component_missing")
+        _require_storage(deps)
+        return
     if not deps.settings.get("deezer_acquisition_enabled"):
         raise ValueError("Deezer acquisition is disabled")
     if deps.secrets is None:
@@ -1797,7 +2029,22 @@ def _require_acquisition_ready(deps) -> None:
         raise ValueError("Deezer ARL is not configured")
     if not acquisition.component_status(deps.data_dir).get("installed"):
         raise ValueError("optional Deezer component is not installed")
+    if exact and "exact_deezer_item" not in acquisition.component_status(deps.data_dir).get("capabilities", []):
+        raise ValueError("deezer_component_upgrade_required")
     _require_storage(deps)
+
+
+def _source_selector(entry, deezer_track_id=None):
+    if entry.get("source_item_id"):
+        if deezer_track_id is not None and (entry["provider"] != "deezer" or str(deezer_track_id) != entry["source_item_id"]):
+            raise ConflictError("exact_source_selector_conflict")
+        return {"kind": "exact", "provider": entry["provider"], "item_id": entry["source_item_id"], "url": entry["source_url"]}
+    return {"kind": "deezer_association", "track_id": int(deezer_track_id) if deezer_track_id is not None else None,
+            "isrc": entry.get("isrc") if deezer_track_id is None else None}
+
+
+def _job_selector(job):
+    return json.loads(job["source_selector"]) if job.get("source_selector") else _source_selector(job, job.get("deezer_track_id"))
 
 
 def _queue_acquisition_job(deps, body: dict) -> dict:
@@ -1814,6 +2061,13 @@ def _queue_acquisition_job(deps, body: dict) -> dict:
     # the picked re-release is streamable — Martin Solveig "Hello" case)
     deezer_track_id = body.get("deezer_track_id")
     entry = _acquisition_entry(deps, scope, ref, require_isrc=deezer_track_id is None)
+    selector = _source_selector(entry, deezer_track_id)
+    provider = entry.get("provider", "deezer")
+    if body.get("provider", provider) != provider or any(key in body for key in ("source_selector", "source_url", "source_item_id", "url")):
+        raise ConflictError("server_owned_source_selector")
+    _require_acquisition_ready(deps, provider, exact=selector["kind"] == "exact")
+    if selector["kind"] == "exact" and provider == "deezer":
+        deezer_track_id = int(selector["item_id"])
     # relink consent is unconditional (missing_service) — gate it BEFORE the
     # download so the client's 428 consent loop re-calls without having
     # wasted a full download on the refused first attempt
@@ -1829,6 +2083,8 @@ def _queue_acquisition_job(deps, body: dict) -> dict:
         (entry["scope"], entry["ref"]),
     ).fetchone()
     if active is not None:
+        if _job_selector(dict(active)) != selector:
+            raise ConflictError("active_job_source_conflict")
         return dict(active)
     # Retry with an intact published output (terminal relink_blocked /
     # relink_failed, or a failure after publication): requeue THAT job so it
@@ -1839,7 +2095,7 @@ def _queue_acquisition_job(deps, body: dict) -> dict:
         "ORDER BY id DESC LIMIT 1",
         (entry["scope"], entry["ref"]),
     ).fetchone()
-    if previous is not None and _published_output(dict(previous)) is not None:
+    if previous is not None and _job_selector(dict(previous)) == selector and _published_output(dict(previous)) is not None:
         deps.conn.execute(
             "UPDATE acquisition_jobs SET status = 'queued', error = NULL, "
             "claimed_by = NULL, claimed_at = NULL, anlz_consent = ?, "
@@ -1850,8 +2106,8 @@ def _queue_acquisition_job(deps, body: dict) -> dict:
     cursor = deps.conn.execute(
         "INSERT INTO acquisition_jobs "
         "(scope, ref, title, artist, isrc, status, event_id, event_track_id, "
-        "library_track_id, deezer_track_id, relink, anlz_consent) "
-        "VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)",
+        "library_track_id, deezer_track_id, relink, anlz_consent, provider, source_selector) "
+        "VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             entry["scope"],
             entry["ref"],
@@ -1864,13 +2120,14 @@ def _queue_acquisition_job(deps, body: dict) -> dict:
             int(deezer_track_id) if deezer_track_id is not None else None,
             int(bool(body.get("relink"))),
             int(bool(body.get("anlz_consent"))),
+            provider,
+            json.dumps(selector, sort_keys=True),
         ),
     )
     return _job_row(deps.conn, cursor.lastrowid)
 
 
 def acquisition_job_start(deps, request, body):
-    _require_acquisition_ready(deps)
     job = _queue_acquisition_job(deps, body)
     if body.get("enqueue"):
         return 202, job
@@ -1890,8 +2147,9 @@ def acquisition_jobs_batch(deps, request, body):
     unpersisted — closing the UI mid-batch then silently truncated the
     intended queue.
     """
-    _require_acquisition_ready(deps)
     items = _require_list(body, "items")
+    if len(items) > 1000:
+        raise ValueError("acquisition_batch_limit")
     if not all(isinstance(item, dict) for item in items):
         raise ValueError("field 'items' must contain JSON objects")
     deps.conn.execute("BEGIN IMMEDIATE")
@@ -1961,43 +2219,43 @@ def duplicates_scan(deps, request, body):
     rows = [r for r in cache.get(deps.storage_root) if not r.get("spotify_track_id")]
     groups = dedup.find_duplicate_groups(rows, repos.list_dismissed_groups(deps.conn))
     by_id = {row["content_id"]: row for row in rows}
-    progress = _Progress(deps.bus, "duplicates.scan")
-    total = sum(len(g.content_ids) for g in groups)
-    done = 0
-    out = []
-    for group in groups:
-        members = []
-        for content_id in group.content_ids:
-            member = dict(by_id[content_id])  # copy: cache rows stay verdict-free
-            if member.get("resolved_path"):
-                verdict = quality.analyze(member["resolved_path"])
-                member["quality_verdict"] = verdict.verdict
-                member["quality_reason"] = verdict.reason
-            else:
-                member["quality_verdict"] = "ok"  # 5.12: neutral by default
-                member["quality_reason"] = "no_local_path_neutral"
-            members.append(member)
-            done += 1
-            progress.publish(done, total)
-        keeper, reason = dedup.choose_keeper(members)
-        out.append(
-            {
-                "key": group.key,
-                "method": group.method,
-                "confidence": group.confidence,
-                "warning": group.warning,
-                "members": members,
-                "keeper": {"content_id": keeper["content_id"], "reason": reason},
-            }
-        )
-    progress.done(groups=len(out))
-    return {
-        "groups": out,
-        "scanned": len(rows),
-        # Echo of the snapshot fingerprint: pass it back to /resolve so the
-        # mutate freshness guard covers exactly what this scan displayed.
-        "fingerprint": cache.current_fingerprint,
-    }
+    with _Progress(deps.bus, "duplicates.scan") as progress:
+        total = sum(len(g.content_ids) for g in groups)
+        done = 0
+        out = []
+        for group in groups:
+            members = []
+            for content_id in group.content_ids:
+                member = dict(by_id[content_id])  # copy: cache rows stay verdict-free
+                if member.get("resolved_path"):
+                    verdict = quality.analyze(member["resolved_path"])
+                    member["quality_verdict"] = verdict.verdict
+                    member["quality_reason"] = verdict.reason
+                else:
+                    member["quality_verdict"] = "ok"  # 5.12: neutral by default
+                    member["quality_reason"] = "no_local_path_neutral"
+                members.append(member)
+                done += 1
+                progress.publish(done, total)
+            keeper, reason = dedup.choose_keeper(members)
+            out.append(
+                {
+                    "key": group.key,
+                    "method": group.method,
+                    "confidence": group.confidence,
+                    "warning": group.warning,
+                    "members": members,
+                    "keeper": {"content_id": keeper["content_id"], "reason": reason},
+                }
+            )
+        progress.done(groups=len(out))
+        return {
+            "groups": out,
+            "scanned": len(rows),
+            # Echo of the snapshot fingerprint: pass it back to /resolve so the
+            # mutate freshness guard covers exactly what this scan displayed.
+            "fingerprint": cache.current_fingerprint,
+        }
 
 
 def duplicates_resolve(deps, request, body):
@@ -2308,6 +2566,10 @@ def data_import(deps, request, body):
     if deps.app_db_path is None:
         raise ValueError("all-data import needs a file-backed app DB")
     source = _body_path(body, must_exist=True)
+    if deps.conn.execute("SELECT 1 FROM acquisition_jobs WHERE status = 'running' LIMIT 1").fetchone():
+        raise ConflictError("Wait for the active acquisition before replacing application data")
+    # Invalidate metadata work before swapping DB files; workers reopen their own connection.
+    deps.db_generation += 1
     deps.conn.close()
     try:
         backup = appdb.import_data(deps.app_db_path, source)
@@ -2345,23 +2607,38 @@ def readouts_get(deps, request, body):
 def _performances_refresh(deps) -> dict:
     """Read-only ingest from master.db - deliberately NOT process-guarded:
     running while Rekordbox plays is the point (crash-proof live view)."""
-    if not deps.db_path:
-        raise ValueError("configure rekordbox_db_path in Settings first")
-    return performances.refresh(deps.conn, deps.db_path, deps.spotify_client)
+    with deps.lock:
+        if not deps.db_path:
+            raise ValueError("configure rekordbox_db_path in Settings first")
+        info = performances.refresh(deps.conn, deps.db_path, resolve_metadata=False)
+        conn, generation, client = deps.conn, deps.db_generation, deps.spotify_client
+    # Concurrent live/list refreshes may ingest, but do not repeat the same
+    # network batch. Reset/import can replace the DB while resolution runs.
+    if deps.performance_metadata_lock.acquire(blocking=False):
+        try:
+            info['resolved_titles'] = performances.resolve_spotify_titles(
+                conn, client, lock=deps.lock,
+                current=lambda: deps.conn is conn and deps.db_generation == generation,
+            )
+        finally:
+            deps.performance_metadata_lock.release()
+    return info
 
 
 def performances_list(deps, request, body):
     refresh_info = _performances_refresh(deps)
     include_hidden = request.query_params.get("hidden") == "1"
-    return {
-        "performances": performances.list_performances(deps.conn, include_hidden),
-        **refresh_info,
-    }
+    with deps.lock:
+        return {
+            "performances": performances.list_performances(deps.conn, include_hidden),
+            **refresh_info,
+        }
 
 
 def performances_live(deps, request, body):
     _performances_refresh(deps)
-    return performances.live_status(deps.conn)
+    with deps.lock:
+        return performances.live_status(deps.conn)
 
 
 def performances_get(deps, request, body):
@@ -2673,7 +2950,7 @@ def spotify_disconnect(deps, request, body):
             "SELECT COUNT(*) FROM event_tracks WHERE spotify_track_id IS NOT NULL"
         ).fetchone()[0],
         "acquisition_jobs_deleted": deps.conn.execute(
-            "SELECT COUNT(*) FROM acquisition_jobs WHERE scope IN ('library', 'event')"
+            "SELECT COUNT(*) FROM acquisition_jobs WHERE scope = 'library' OR (scope = 'event' AND (source_selector IS NULL OR json_extract(source_selector, '$.kind') != 'exact'))"
         ).fetchone()[0],
     }
     deps.conn.execute("BEGIN")
@@ -2689,8 +2966,10 @@ def spotify_disconnect(deps, request, body):
             "WHERE spotify_track_id IS NOT NULL"
         )
         deps.conn.execute(
-            "DELETE FROM acquisition_jobs WHERE scope IN ('library', 'event')"
+            "DELETE FROM acquisition_jobs WHERE scope = 'library' OR (scope = 'event' AND (source_selector IS NULL OR json_extract(source_selector, '$.kind') != 'exact'))"
         )
+        deps.conn.execute("UPDATE event_tracks SET source_provider = NULL, source_item_id = NULL, source_url = NULL, source_import_id = NULL, source_position = NULL WHERE source_provider = 'spotify'")
+        deps.conn.execute("DELETE FROM event_link_imports WHERE source_provider = 'spotify'")
         deps.conn.execute("COMMIT")
     except BaseException:
         deps.conn.execute("ROLLBACK")
@@ -2721,11 +3000,12 @@ def spotify_playlist_preview(deps, request, body):
 
 
 def routes(deps: Deps) -> list[Route]:
-    def r(path: str, handler, methods: list[str]) -> Route:
-        return Route(path, _endpoint(deps, handler), methods=methods)
+    def r(path: str, handler, methods: list[str], *, owns_lock=False) -> Route:
+        return Route(path, _endpoint(deps, handler, owns_lock=owns_lock), methods=methods)
 
     return [
         r("/api/status", status_get, ["GET"]),
+        r("/api/acquisition/web-audio/install", acquisition_web_component_install, ["POST"]),
         r("/api/sources", sources_list, ["GET"]),
         r("/api/sources", sources_add, ["POST"]),
         r("/api/sources/sync", sources_sync_all, ["POST"]),
@@ -2746,6 +3026,12 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/events/{event_id:int}", events_get, ["GET"]),
         r("/api/events/{event_id:int}", events_rename, ["PATCH"]),
         r("/api/events/{event_id:int}/tracks", events_add_track, ["POST"]),
+        r("/api/events/{event_id:int}/link-imports", events_link_import_start, ["POST"]),
+        r("/api/events/{event_id:int}/link-imports", events_link_import_list, ["GET"]),
+        r("/api/events/{event_id:int}/link-imports/{import_id:str}", events_link_import_get, ["GET"]),
+        r("/api/events/{event_id:int}/link-imports/{import_id:str}", events_link_import_dismiss, ["DELETE"]),
+        r("/api/events/{event_id:int}/link-imports/{import_id:str}/commit", events_link_import_commit, ["POST"]),
+        r("/api/events/{event_id:int}/link-imports/{import_id:str}/retry", events_link_import_retry, ["POST"]),
         r(
             "/api/events/{event_id:int}/tracks/{track_id:int}",
             events_track_remove,
@@ -2772,8 +3058,8 @@ def routes(deps: Deps) -> list[Route]:
             ["POST"],
         ),
         r("/api/events/{event_id:int}/delete", events_delete, ["POST"]),
-        r("/api/performances", performances_list, ["GET"]),
-        r("/api/performances/live", performances_live, ["GET"]),
+        r("/api/performances", performances_list, ["GET"], owns_lock=True),
+        r("/api/performances/live", performances_live, ["GET"], owns_lock=True),
         r("/api/performances/{performance_id:int}", performances_get, ["GET"]),
         r("/api/performances/{performance_id:int}", performances_update, ["PATCH"]),
         r(

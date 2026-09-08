@@ -1,0 +1,117 @@
+[
+  {
+    "item_id": "1706333112",
+    "filename": "1706333112.m4a",
+    "sha256": "303eb21a9670405ec5f92cb0a374f634c56bd846a04858c8d343765d992029d8",
+    "fully_decoded": true,
+    "measured_output": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "aac",
+          "sample_rate": "44100",
+          "duration": "129.404807",
+          "bit_rate": "160000"
+        }
+      ],
+      "format": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration": "129.404807",
+        "size": "2611406"
+      }
+    }
+  },
+  {
+    "item_id": "1757017227",
+    "filename": "1757017227.mp3",
+    "sha256": "2c1b251fa6e348f9a3259af9716f067a70846448594779c99145615d876f9ffe",
+    "fully_decoded": true,
+    "measured_output": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "44100",
+          "duration": "228.958458",
+          "bit_rate": "129601"
+        }
+      ],
+      "format": {
+        "format_name": "mp3",
+        "duration": "228.958458",
+        "size": "3709893"
+      }
+    }
+  },
+  {
+    "item_id": "XNEnEBrHws8",
+    "filename": "XNEnEBrHws8.mp3",
+    "sha256": "ccf29aabcc63468a8c4faf9316341338b64749a2195d5ae2f45e463427d3a3e1",
+    "fully_decoded": true,
+    "measured_output": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "48000",
+          "duration": "267.053333",
+          "bit_rate": "143776"
+        }
+      ],
+      "format": {
+        "format_name": "mp3",
+        "duration": "267.053333",
+        "size": "4800308"
+      }
+    }
+  },
+  {
+    "item_id": "YE7VzlLtp-4",
+    "filename": "YE7VzlLtp-4.mp3",
+    "sha256": "64b87aa149183c6c509b9dec600f91337b60303248686b769c467172eb6eacf8",
+    "fully_decoded": true,
+    "measured_output": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "48000",
+          "duration": "596.474208",
+          "bit_rate": "109718"
+        }
+      ],
+      "format": {
+        "format_name": "mp3",
+        "duration": "596.474208",
+        "size": "8181140"
+      }
+    }
+  },
+  {
+    "item_id": "f7NwyBnIRTE",
+    "filename": "f7NwyBnIRTE.mp3",
+    "sha256": "363a75606f00feed2818a30d8e5b571d321df327c88b3a6342c96fad8258e57b",
+    "fully_decoded": true,
+    "measured_output": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "48000",
+          "duration": "634.578146",
+          "bit_rate": "117403"
+        }
+      ],
+      "format": {
+        "format_name": "mp3",
+        "duration": "634.578146",
+        "size": "9313148"
+      }
+    }
+  }
+]

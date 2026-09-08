@@ -23,12 +23,14 @@ import hashlib
 import json
 import secrets as pysecrets
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 import certifi
+from syncbox import provider_http
 
 AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -79,13 +81,11 @@ class NotConnectedError(RuntimeError):
 
 def _default_transport(url, data=None, headers=None, method="GET"):
     """(status_code, headers dict, body bytes) - never raises on HTTP >= 400."""
-    request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
-    context = ssl.create_default_context(cafile=certifi.where())
-    try:
-        with urllib.request.urlopen(request, context=context, timeout=30) as response:
-            return response.status, dict(response.headers), response.read()
-    except urllib.error.HTTPError as exc:
-        return exc.code, dict(exc.headers), exc.read()
+    status, response_headers, body, _ = provider_http.request(
+        url, data=data, headers=headers, method=method,
+        hosts={"api.spotify.com", "accounts.spotify.com", "open.spotify.com"},
+    )
+    return status, response_headers, body
 
 
 class SpotifyAuth:
@@ -96,6 +96,10 @@ class SpotifyAuth:
     ):
         self._client_id = client_id_getter
         self._secrets = secrets
+        # The link-import worker uses the client outside the API lock; PKCE
+        # rotates refresh tokens, so two concurrent refreshes would revoke
+        # the session (invalid_grant on the second one).
+        self._refresh_lock = threading.Lock()
         self._transport = transport
         self._clock = clock
         self._verifier = None
@@ -186,27 +190,34 @@ class SpotifyAuth:
 
     def disconnect(self) -> None:
         """Forget the local Spotify session and any pending PKCE exchange."""
-        self._state = None
-        self._verifier = None
-        self._deadline = None
-        self._authorization_result = None
-        self._secrets.delete(ACCESS_TOKEN)
-        self._secrets.delete(REFRESH_TOKEN)
-
-    def refresh(self) -> None:
-        refresh_token = self._secrets.get(REFRESH_TOKEN)
-        if not refresh_token:
-            raise NotConnectedError("no refresh token stored")
-        try:
-            self._token_request(grant_type="refresh_token", refresh_token=refresh_token)
-        except SpotifyApiError as exc:
-            if exc.error_code != "invalid_grant":
-                raise
+        # A refresh must finish publishing its tokens before we erase them.
+        with self._refresh_lock:
+            self._state = None
+            self._verifier = None
+            self._deadline = None
+            self._authorization_result = None
             self._secrets.delete(ACCESS_TOKEN)
             self._secrets.delete(REFRESH_TOKEN)
-            raise NotConnectedError(
-                "Spotify authorization expired or was revoked; reconnect the account"
-            ) from None
+
+    def refresh(self, stale_token: str | None = None) -> None:
+        """``stale_token``: the access token that just got a 401; when another
+        thread already replaced it, this refresh is redundant and skipped."""
+        with self._refresh_lock:
+            if stale_token is not None and self._secrets.get(ACCESS_TOKEN) not in (None, stale_token):
+                return
+            refresh_token = self._secrets.get(REFRESH_TOKEN)
+            if not refresh_token:
+                raise NotConnectedError("no refresh token stored")
+            try:
+                self._token_request(grant_type="refresh_token", refresh_token=refresh_token)
+            except SpotifyApiError as exc:
+                if exc.error_code != "invalid_grant":
+                    raise
+                self._secrets.delete(ACCESS_TOKEN)
+                self._secrets.delete(REFRESH_TOKEN)
+                raise NotConnectedError(
+                    "Spotify authorization expired or was revoked; reconnect the account"
+                ) from None
 
     def access_token(self) -> str:
         token = self._secrets.get(ACCESS_TOKEN)
@@ -246,28 +257,37 @@ class SpotifyClient:
         self._transport = transport
         self._sleep = sleep
 
-    def get(self, path: str) -> dict:
+    def get(self, path: str, *, retry=True) -> dict:
         url = path if path.startswith("http") else f"{API_BASE}{path}"
+        parsed = provider_http.validate_url(url, {"api.spotify.com"})
+        if not parsed.path.startswith("/v1/"):
+            raise ValueError("unsupported_spotify_api_path")
+        if not retry and time.monotonic() < getattr(self, "_retry_until", 0):
+            raise SpotifyApiError(429, "provider_rate_limited")
         for attempt in range(MAX_ATTEMPTS):
+            token = self._auth.access_token()
             status, headers, body = self._transport(
                 url,
-                headers={"Authorization": f"Bearer {self._auth.access_token()}"},
+                headers={"Authorization": f"Bearer {token}"},
             )
             if status == 401:
                 # Force ONE refresh, only on the first attempt; a 401 later in
                 # the ladder means refresh did not help - never loop refreshes.
                 if attempt == 0:
-                    self._auth.refresh()
+                    self._auth.refresh(stale_token=token)
                     continue
                 raise SpotifyApiError(401, "unauthorized after refresh")
             if status == 429:
-                retry_after = int(headers.get("Retry-After", 1))
+                retry_after = max(1, int(headers.get("Retry-After", 1)))
+                self._retry_until = time.monotonic() + retry_after
+                if not retry:
+                    raise SpotifyApiError(429, "provider_rate_limited")
                 self._sleep(retry_after + attempt)
                 continue
             if status == 204:
                 return {}
             if status == 404:
-                # ponytail: prefix sniff — Spotify's Web API 404s all
+                # Spotify's Web API 404s all
                 # editorial/algorithmic playlists (37i9dQZF*) since Nov 2024;
                 # connecting an account does not help, say so.
                 if "/playlists/37i9dQZF" in url:
@@ -276,54 +296,64 @@ class SpotifyClient:
                         "This is a Spotify-owned editorial playlist; the "
                         "Spotify API no longer exposes these (since Nov 2024).",
                     )
-                raise SpotifyApiError(
-                    404,
-                    "Playlist not found or private. Connect your Spotify "
-                    "account to access your private playlists.",
-                )
+                if "/playlists/" in url:
+                    raise SpotifyApiError(
+                        404,
+                        "Playlist not found or private. Connect your Spotify "
+                        "account to access your private playlists.",
+                    )
+                raise SpotifyApiError(404, "Spotify resource not found")
             if status >= 400:
                 raise SpotifyApiError(status, f"Spotify API error {status}")
             return json.loads(body)
         raise SpotifyApiError(429, "rate limited after retries")
 
 
-def resolve_track_meta(ids, client, transport=None) -> dict:
+def resolve_track_meta(ids, client, transport=None, *, on_attempt=None) -> dict:
     """Spotify track ids -> {id: {"title", "artist", ...}}, the one shared
     resolution ladder (Prestations history, event track additions):
-    - a session -> batched GET /tracks (API cap: 50 ids/call), title AND
+    - a session -> bounded individual GET /tracks/{id}, title AND
       artist, plus duration_ms/isrc for consumers that keep them;
     - no session, or the API ladder failing -> the anonymous oEmbed
       endpoint, title only, at most _OEMBED_BATCH ids; a network error
       stops that loop silently.
     Best-effort: never raises, unresolved ids are absent from the result
-    (partial API batches keep their resolved prefix), callers retry later."""
-    ids = [track_id for track_id in ids if track_id]
+    (completed requests keep their metadata), callers retry later.
+    ``on_attempt`` reports only attempted IDs so callers can rotate retries
+    without skipping IDs excluded by the request or elapsed-time limit."""
+    ids = list(dict.fromkeys(track_id for track_id in ids if track_id))[:50]
     out = {}
+    deadline = time.monotonic() + 20
     if client is not None:
-        try:
-            for start in range(0, len(ids), 50):
-                chunk = ids[start : start + 50]
-                payload = client.get("/tracks?ids=" + ",".join(chunk))
-                for track in payload.get("tracks") or []:
-                    if not track:
-                        continue
-                    out[track.get("id")] = {
+        for track_id in ids:
+            if time.monotonic() >= deadline:
+                break
+            if on_attempt is not None:
+                on_attempt(track_id)
+            try:
+                path = "/tracks/" + urllib.parse.quote(str(track_id), safe="")
+                track = client.get(path, retry=False) if isinstance(client, SpotifyClient) else client.get(path)
+                if track and track.get("name"):
+                    out[track_id] = {
                         "title": track.get("name"),
-                        "artist": ", ".join(
-                            a.get("name", "") for a in track.get("artists", [])
-                        )
-                        or None,
+                        "artist": ", ".join(a.get("name", "") for a in track.get("artists", [])) or None,
                         "duration_ms": track.get("duration_ms"),
-                        # D20: external_ids.isrc ONLY - never the barcode tag.
                         "isrc": (track.get("external_ids") or {}).get("isrc"),
                     }
-            return out
-        except (NotConnectedError, SpotifyApiError):
-            pass  # fall through to the anonymous title-only ladder
+            except SpotifyApiError as exc:
+                if exc.status_code in {400, 404}:
+                    continue  # this id only (removed or malformed); the batch endpoint returned null for it
+                break
+            except Exception:
+                break
     transport = transport or _default_transport
     for track_id in [i for i in ids if i not in out][:_OEMBED_BATCH]:
+        if time.monotonic() >= deadline:
+            break
+        if on_attempt is not None:
+            on_attempt(track_id)
         try:
-            status, _headers, body = transport(_OEMBED_URL + track_id)
+            status, _headers, body = transport(_OEMBED_URL + urllib.parse.quote(str(track_id), safe=""))
             if status != 200:
                 continue
             title = json.loads(body).get("title")

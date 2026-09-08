@@ -151,3 +151,41 @@ test('G4: the weights sum is validated client-side before any PUT', async () => 
     .find((button) => button.text() === 'Enregistrer')
   expect(save!.attributes('disabled')).toBeDefined()
 })
+
+test('web-audio cannot install while readiness is unknown or the manifest is invalid', async () => {
+  stubApi()
+  const base = vi.mocked(fetch).getMockImplementation()!
+  let complete!: (value: Response) => void
+  vi.mocked(fetch).mockImplementation((...args) => String(args[0]).endsWith('/api/acquisition/deezer')
+    ? new Promise<Response>(resolve => { complete = resolve })
+    : base(...args))
+  const wrapper = mountSettings()
+  await flushPromises()
+  const card = wrapper.findAll('section').find(section => section.text().includes('YouTube / SoundCloud'))!
+  expect(card.get('button').attributes('disabled')).toBeDefined()
+  complete({ ok: true, status: 200, json: async () => ({ enabled: false, has_arl: false, component: { installed: false }, web_audio: { enabled: true, component: { installed: false, reason: 'web_audio_manifest_invalid' } } }) } as Response)
+  await flushPromises()
+  expect(card.get('button').attributes('disabled')).toBeDefined()
+  expect(card.text()).not.toContain('web_audio_manifest_invalid')
+  wrapper.unmount()
+})
+
+test('a failed web-audio enablement restores the stored switch state', async () => {
+  stubApi()
+  const base = vi.mocked(fetch).getMockImplementation()!
+  vi.mocked(fetch).mockImplementation((...args) => {
+    const init = args[1] as RequestInit | undefined
+    if (init?.method === 'PUT' && String(init.body).includes('web_audio_enabled')) {
+      return Promise.resolve({ok:false,status:400,json:async()=>({error:'invalid_request',message:'Fixture save failed'})}) as ReturnType<typeof fetch>
+    }
+    return base(...args)
+  })
+  const wrapper = mountSettings()
+  await flushPromises()
+  const card = wrapper.findAll('section').find(section => section.text().includes('YouTube / SoundCloud'))!
+  await card.get('input[type="checkbox"]').setValue(true)
+  await flushPromises()
+  expect((card.get('input').element as HTMLInputElement).checked).toBe(false)
+  expect(wrapper.text()).toContain('Fixture save failed')
+  wrapper.unmount()
+})

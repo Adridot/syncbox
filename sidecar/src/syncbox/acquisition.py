@@ -223,8 +223,8 @@ def component_status(data_dir) -> dict:
     return {**payload, "installed": installed}
 
 
-def _copy_component_archive(manifest: dict, destination) -> None:
-    override = os.environ.get(COMPONENT_ARCHIVE_ENV)
+def _copy_component_archive(manifest: dict, destination, *, archive_env=COMPONENT_ARCHIVE_ENV) -> None:
+    override = os.environ.get(archive_env)
     if override:
         source = Path(override).expanduser().open("rb")
     else:
@@ -344,6 +344,8 @@ def _checked_component_payload(completed, manifest: dict) -> dict:
     return {
         "component_version": manifest["component_version"],
         "sha256": manifest["sha256"],
+        "protocol_version": payload.get("protocol_version", 1),
+        "capabilities": payload.get("capabilities", []),
         "streamrip_version": STREAMRIP_VERSION,
         "streamrip_commit": STREAMRIP_COMMIT,
         "certifi_version": CERTIFI_VERSION,
@@ -559,11 +561,14 @@ def run_deezer_download(
     output_dir,
     *,
     track_id: int | None = None,
+    exact_item: bool = False,
     runner=subprocess.run,
 ) -> dict:
     status = component_status(data_dir)
     if not status.get("installed"):
         raise ValueError("optional Deezer component is not installed")
+    if exact_item and (track_id is None or "exact_deezer_item" not in status.get("capabilities", [])):
+        raise ValueError("deezer_component_upgrade_required")
     # manual pick: download the exact chosen track id (bypasses ISRC
     # resolution, which can land on an unstreamable canonical entry)
     if track_id is not None:
@@ -591,6 +596,7 @@ def run_deezer_download(
                 [
                     str(component_executable(data_dir)),
                     *selector,
+                    *(["--exact-item"] if exact_item else []),
                     "--credential-file",
                     str(credential),
                     "--output-dir",
@@ -630,6 +636,8 @@ def run_deezer_download(
         )
         raise RuntimeError(str(reason))
     filename = payload.get("output_filename")
+    if exact_item and str(payload.get("effective_deezer_track_id")) != str(track_id):
+        raise RuntimeError("source_identity_mismatch")
     if (
         not isinstance(filename, str)
         or not filename

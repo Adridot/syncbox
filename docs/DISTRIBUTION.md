@@ -1,21 +1,23 @@
 # Distribution
 
 This is the release contract for Syncbox. The supported v1 target is macOS 14
-or later on Apple Silicon. Each published release consists of two
-independent artifacts:
+or later on Apple Silicon. Each published release contains three independent
+ZIP artifacts, a convenience DMG installer, and `SHA256SUMS.txt`:
 
 - `Syncbox-X.Y.Z-macos-arm64.zip`, containing the Tauri application and its
   base PyInstaller onedir sidecar;
 - `syncbox-deezer-component-X.Y.Z-macos-arm64.zip`, a separately distributed
-  optional PyInstaller onedir component.
+  optional PyInstaller onedir component;
+- `syncbox-web-audio-component-X.Y.Z-macos-arm64.zip`, the separate optional
+  YouTube/YouTube Music and SoundCloud component.
 
-The base application is complete without the optional component. It neither
-imports nor bundles streamrip. The optional component is disabled by default,
-downloaded only after explicit enablement, and verified against the manifest
+The base application is complete without either optional component. It neither
+imports nor bundles streamrip or yt-dlp. Each component is disabled by default,
+downloaded only after explicit enablement, and verified against its manifest
 embedded in the base sidecar.
 
-Both local artifacts are ad-hoc signed where macOS tooling requires a
-signature. They have no Developer ID signature, notarization, installer,
+The artifacts are ad-hoc signed where macOS tooling requires a
+signature. They have no Developer ID signature, notarization,
 auto-update mechanism, Keychain dependency, or Windows build. Do not describe
 them as trusted by Gatekeeper.
 
@@ -25,7 +27,7 @@ them as trusted by Gatekeeper.
 - Xcode Command Line Tools and Rust;
 - Node.js, pnpm, and uv;
 - committed `pnpm-lock.yaml`, `shell/src-tauri/Cargo.lock`,
-  `sidecar/uv.lock`, and `optional-component/uv.lock` files.
+  `sidecar/uv.lock`, `optional-component/uv.lock`, and `web-audio-component/uv.lock` files.
 
 The build follows the current official guidance for
 [Tauri macOS bundles](https://v2.tauri.app/distribute/macos-application-bundle/),
@@ -50,7 +52,17 @@ cd ../optional-component
 uv lock --check
 uv sync --locked --managed-python
 
-cd ../shell
+cd ../web-audio-component
+uv lock --check
+uv sync --locked --managed-python
+
+cd ..
+export SOURCE_DATE_EPOCH="$(jq -r .source_date_epoch release-build.json)"
+uv run --project web-audio-component python scripts/build_web_audio_native.py
+uv run --project web-audio-component python -m pytest web-audio-component/tests -q
+uv run --project web-audio-component python scripts/package_web_audio_component.py
+
+cd shell
 pnpm bundle:macos
 ```
 
@@ -63,15 +75,19 @@ pnpm bundle:macos
 4. builds the locally inventoried `sqlcipher3-wheels` fork with SQLCipher
    4.12.0 and Apple's CommonCrypto provider; its extension must link only
    Security, CoreFoundation, and libSystem, never a separate OpenSSL library;
-5. freezes the base sidecar, including only that small manifest;
+5. freezes the base sidecar, including both small component manifests;
 6. invokes Tauri with Cargo `--locked` and the explicit
    `aarch64-apple-darwin` target;
 7. places `/usr/bin` and `/bin` first so Tauri uses Apple's `xattr`;
 8. remaps the builder home prefix in Rust debug paths;
 9. applies an ad-hoc signature through Tauri's `signingIdentity: "-"`;
 10. creates the deterministic base ZIP and runs the complete artifact scanner
-   against the app, both ZIPs, locks, frozen package versions, license
+   against the app, base/Deezer ZIPs, locks, frozen package versions, license
    inventories, native payloads, and source tree.
+
+The preceding web-audio packaging step verifies its native payloads, complete
+notice inventory, deterministic archive and manifest before the base app embeds
+that manifest. The release workflow repeats this whole recipe in two roots.
 
 The optional component cannot reuse `sys.executable` from a frozen base app:
 PyInstaller defines it as the bootloader executable, not as a general Python
@@ -83,13 +99,15 @@ Build outputs:
 ```text
 optional-component/dist/syncbox-deezer-component/
 optional-component/dist/syncbox-deezer-component-X.Y.Z-macos-arm64.zip
+web-audio-component/dist/syncbox-web-audio-component-X.Y.Z-macos-arm64.zip
 shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox.app
 shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-X.Y.Z-macos-arm64.zip
+shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Syncbox-X.Y.Z-macos-arm64.dmg
 ```
 
 `scripts/package_base_app.py` creates the base ZIP as the final step of
-`bundle:macos`. Both release ZIPs use `scripts/reproducible_archive.py`; do not
-recreate either archive with the system `zip` command because that would
+`bundle:macos`. All release ZIPs use `scripts/reproducible_archive.py`; do not
+recreate an archive with the system `zip` command because that would
 discard the controlled entry order, modes, and `SOURCE_DATE_EPOCH` timestamps.
 
 Build artifacts are ignored and must not be committed.
@@ -97,9 +115,9 @@ Build artifacts are ignored and must not be committed.
 ## Automated release (GitHub Actions)
 
 `.github/workflows/release-pin.yml` is the authoritative preparation step for
-the optional-component manifest. It runs on the same `macos-15` class as the
-release, exports `optional-component-manifest`, and blocks a release PR when
-the committed manifest differs. A manual preparation run reports drift but
+both optional-component manifests. It runs on the same `macos-15` class as the
+release, exports `optional-component-manifest` and `web-audio-component-manifest`,
+and blocks a release PR when either committed manifest differs. A manual preparation run reports drift but
 stays successful so its artifact can be downloaded and committed.
 
 Do not use a local component build as the release pin. The archive contains
@@ -117,12 +135,17 @@ provenance while every project-controlled pin remains fail-closed.
 2. Update the canonical version in `ui/package.json`, then align
    `sidecar/pyproject.toml`, `sidecar/uv.lock`,
    `optional-component/pyproject.toml`, `optional-component/uv.lock`,
+   `web-audio-component/pyproject.toml`, `web-audio-component/uv.lock`,
+   `web-audio-component/web_audio.py` (`VERSION`),
    `shell/package.json`, `shell/src-tauri/Cargo.toml`,
    `shell/src-tauri/Cargo.lock`, `release-build.json`, the README release
    links, and versioned reproducibility expectations. Regenerate the release
-   license inventories. Do not edit any field in
-   `sidecar/src/syncbox/optional_component.json`; the hosted workflow replaces
-   the whole file in step 4.
+   license inventories (`release/licenses/*/texts/` is generated material,
+   not committed: `generate_release_licenses.py --check` verifies the committed
+   inventory and writes the texts the PyInstaller specs bundle). Do not edit any field in
+   `sidecar/src/syncbox/optional_component.json` or `web_audio_component.json`;
+   the hosted workflow replaces both whole files in step 4. Dependency versions
+   remain independently pinned; they do not inherit the application version.
 3. Run the dependency lock checks, release-license check, Cargo metadata
    check, and `git diff --check`. Commit and push this initial release
    preparation. The full sidecar suite is expected to fail its version guard
@@ -136,28 +159,34 @@ provenance while every project-controlled pin remains fail-closed.
    gh run watch RUN_ID --exit-status
    release_pin_dir="$(mktemp -d)"
    gh run download RUN_ID -n optional-component-manifest -D "$release_pin_dir"
+   gh run download RUN_ID -n web-audio-component-manifest -D "$release_pin_dir"
    cp "$release_pin_dir/optional_component.json" \
       sidecar/src/syncbox/optional_component.json
+   cp "$release_pin_dir/web_audio_component.json" \
+      sidecar/src/syncbox/web_audio_component.json
    ```
 
-5. Review the manifest diff and commit it with the release branch. Run the
+5. Review the manifest diffs and commit them with the release branch. Run the
    complete locked sidecar suite, UI typecheck/tests, release-license check,
    Cargo metadata check, and `git diff --check`, then push. Open or update the
    PR. Do not merge until CI, CodeQL, and
    `Release Pin / component manifest` are green. If the hosted runner image
    changed, repeat step 4 on the same branch; never solve pin drift by creating
-   a tag first.
+   a tag first. Run `gh workflow run release.yml --ref "$release_branch"` for
+   a complete build-only preflight: both roots and their ZIP comparison must
+   pass. Manual dispatch never publishes a release.
 6. Review and merge the PR. Fetch `master`, recheck every version from the
    merged commit, then create and push one annotated `vX.Y.Z` tag on that exact
    commit. Never move or replace a published release tag.
 7. Watch `.github/workflows/release.yml` through completion. It rebuilds two
    isolated absolute source roots, checks both manifests against the tagged
    source, requires byte-identical ZIPs, and publishes the GitHub Release with
-   the application ZIP, convenience DMG, optional component, and
+   the application ZIP, convenience DMG, both optional components, and
    `SHA256SUMS.txt`.
 8. Verify that the Release is public, non-draft, non-prerelease, points to the
    merged commit, and exposes uploaded assets whose size and SHA-256 match the
-   committed manifest and `SHA256SUMS.txt`.
+   committed manifests and `SHA256SUMS.txt`. Download the public assets and
+   independently verify their hashes; do not rely only on the upload response.
 
 ## Verification
 
@@ -208,9 +237,9 @@ listeners on either port.
 
 ## Release publication
 
-The manifest embedded in each base application pins the matching optional
-asset name, URL, byte size, and SHA-256. The release workflow publishes that
-exact byte stream and a `SHA256SUMS.txt` generated from all final assets. A
+The manifests embedded in each base application pin the matching optional
+asset names, URLs, byte sizes, and SHA-256 values. The release workflow publishes
+those exact byte streams and a `SHA256SUMS.txt` generated from all final assets. A
 differently rebuilt asset requires a new version, manifest, base application,
 tag, and GitHub Release; never replace an asset behind an existing manifest or
 move an existing release tag.
@@ -220,29 +249,29 @@ the immutable GitHub Release and its workflow run, not this long-lived
 document. Keeping the contract version-neutral prevents stale release values
 from being copied into the next preparation branch.
 
-## Trust boundary and completed release gates
+## Trust boundary and release gates
 
 `spctl` is not an acceptance test for this artifact because there is no
 Developer ID or notarization ticket. `codesign --verify --deep --strict`
-passes. After the first blocked launch of an artifact they trust, local users
+must pass. After the first blocked launch of an artifact they trust, local users
 may use **System Settings → Privacy & Security → Open Anyway**, then confirm
 **Open**, as described in Apple's
 [unknown-developer guidance](https://support.apple.com/guide/mac-help/mh40616/mac).
 
-The published release closed these gates:
+Each release must preserve these gates:
 
-- upload and revalidate the exact optional component Release asset;
+- upload and revalidate both exact optional component Release assets;
 - preserve the scanner-verified `io.github.adridot.syncbox` bundle identifier
   and close any older Syncbox process before replacing it; the sidecar
   continues to use `~/Library/Application Support/Syncbox`, so the identifier
   change does not relocate the existing database or secret store;
-- preserve the proven byte-identical base and optional artifacts from two
+- require byte-identical base and both optional artifacts from two
   clean absolute source roots and the independent scanner pass in each root;
 - keep the completed packaged Spotify PKCE, refresh, forged-state, revocation,
   encrypted-storage, listener-shutdown, and port-release evidence green;
 - preserve the completed real artwork evidence through the exact source,
   frozen, installed, and packaged optional-component lanes;
-- upload both exact validated byte streams and revalidate their public HTTPS
+- upload all exact validated byte streams and revalidate their public HTTPS
   downloads without silently replacing a published asset;
 - add Developer ID signing/notarization only if a frictionless public install
   becomes a requirement.

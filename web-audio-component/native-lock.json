@@ -1,0 +1,21 @@
+{
+  "ffmpeg": {
+    "version": "9.0.1",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz",
+    "sha256": "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635",
+    "license": "LGPL-2.1-or-later"
+  },
+  "lame": {
+    "version": "3.100",
+    "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+    "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+    "license": "LGPL-2.0-or-later"
+  },
+  "deno": {
+    "version": "2.9.5",
+    "url": "https://github.com/denoland/deno/releases/download/v2.9.5/deno-aarch64-apple-darwin.zip",
+    "sha256": "b796aadd131f6930560c1ee040cf0d6f53933fbb987464e9ff46bd7ea4830615",
+    "project_license": "MIT",
+    "binary_license_inventory_required": true
+  }
+}

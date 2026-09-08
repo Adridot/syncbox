@@ -12,6 +12,7 @@ local attacker using the same account.
 
 import os
 import stat
+import threading
 from pathlib import Path
 
 import sqlcipher3
@@ -24,6 +25,7 @@ class SecretsStore:
         self._key_path = data_dir / "secrets.key"
         self._db_path = data_dir / "secrets.db"
         self._conn = None
+        self._lock = threading.Lock()
 
     def _key(self) -> str:
         try:
@@ -67,12 +69,8 @@ class SecretsStore:
 
     def _connect(self):
         if self._conn is None:
-            # check_same_thread=False for the same reason as appdb.connect:
-            # every HTTP handler runs in a threadpool worker, all serialized
-            # behind ONE lock (api.Deps.lock), so the connection is handed
-            # between threads but never used concurrently. Without it the
-            # SECOND request from a different worker thread dies with
-            # ProgrammingError -> 500 (found live through GET /api/status).
+            # HTTP handlers and metadata workers share this connection.
+            # Store operations own their lock, independently of api.Deps.lock.
             conn = sqlcipher3.connect(str(self._db_path), check_same_thread=False)
             # Raw-key form: PRAGMA key = "x'<64 hex>'" (no KDF passphrase).
             conn.execute(f"PRAGMA key = \"x'{self._key()}'\"")
@@ -84,26 +82,30 @@ class SecretsStore:
         return self._conn
 
     def get(self, name: str) -> str | None:
-        row = self._connect().execute(
-            "SELECT value FROM secret WHERE name = ?", (name,)
-        ).fetchone()
-        return row[0] if row else None
+        with self._lock:
+            row = self._connect().execute(
+                "SELECT value FROM secret WHERE name = ?", (name,)
+            ).fetchone()
+            return row[0] if row else None
 
     def set(self, name: str, value: str) -> None:
-        conn = self._connect()
-        conn.execute(
-            "INSERT INTO secret (name, value) VALUES (?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET value = excluded.value",
-            (name, value),
-        )
-        conn.commit()
+        with self._lock:
+            conn = self._connect()
+            conn.execute(
+                "INSERT INTO secret (name, value) VALUES (?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+                (name, value),
+            )
+            conn.commit()
 
     def delete(self, name: str) -> None:
-        conn = self._connect()
-        conn.execute("DELETE FROM secret WHERE name = ?", (name,))
-        conn.commit()
+        with self._lock:
+            conn = self._connect()
+            conn.execute("DELETE FROM secret WHERE name = ?", (name,))
+            conn.commit()
 
     def close(self) -> None:
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None

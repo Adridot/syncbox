@@ -1,0 +1,162 @@
+{
+  "date": "2026-09-07",
+  "environment": {
+    "PATH": "/usr/bin:/bin"
+  },
+  "archive": {
+    "component": "syncbox-web-audio-component",
+    "version": "0.8.0",
+    "protocol_version": 1,
+    "platform": "macos-arm64",
+    "archive": "syncbox-web-audio-component-0.8.0-macos-arm64.zip",
+    "size": 77520063,
+    "sha256": "065cc3dbd491c6b77923d19fd821bf86237a0bf2d8bdce990683896b3d7886b4",
+    "license_inventory_complete": false
+  },
+  "metadata_archive_sha256": "c4307e9b35f184854c7b706a5f03d731417e5941628383396d85c175000dafb8",
+  "harness_setup_failures": [
+    {
+      "case": "youtube_audio",
+      "operation": "download",
+      "elapsed_seconds": 2.3,
+      "exit_code": 0,
+      "result": "error",
+      "error": "workspace_symlink_refused",
+      "entries": null,
+      "first_item_id": null,
+      "audio_files": 0,
+      "effective_item_id": null,
+      "output_filename": null,
+      "processing": null,
+      "source_properties": null,
+      "output_properties": null
+    },
+    {
+      "case": "soundcloud_audio",
+      "operation": "download",
+      "elapsed_seconds": 4.2,
+      "exit_code": 0,
+      "result": "error",
+      "error": "workspace_symlink_refused",
+      "entries": null,
+      "first_item_id": null,
+      "audio_files": 0,
+      "effective_item_id": null,
+      "output_filename": null,
+      "processing": null,
+      "source_properties": null,
+      "output_properties": null
+    }
+  ],
+  "cases": [
+    {
+      "case": "youtube_track",
+      "operation": "metadata",
+      "elapsed_seconds": 9.6,
+      "exit_code": 0,
+      "result": "ok",
+      "error": null,
+      "entries": 1,
+      "first_item_id": "f7NwyBnIRTE",
+      "audio_files": 0
+    },
+    {
+      "case": "youtube_playlist",
+      "operation": "metadata",
+      "elapsed_seconds": 5.6,
+      "exit_code": 0,
+      "result": "ok",
+      "error": null,
+      "entries": 17,
+      "first_item_id": "l5OZu-IrXpw",
+      "audio_files": 0
+    },
+    {
+      "case": "youtube_music_album",
+      "operation": "metadata",
+      "elapsed_seconds": 2.3,
+      "exit_code": 0,
+      "result": "ok",
+      "error": null,
+      "entries": 50,
+      "first_item_id": "XNEnEBrHws8",
+      "audio_files": 0
+    },
+    {
+      "case": "soundcloud_track",
+      "operation": "metadata",
+      "elapsed_seconds": 4.1,
+      "exit_code": 0,
+      "result": "ok",
+      "error": null,
+      "entries": 1,
+      "first_item_id": "1757017227",
+      "audio_files": 0
+    },
+    {
+      "case": "soundcloud_set",
+      "operation": "metadata",
+      "elapsed_seconds": 2.4,
+      "exit_code": 0,
+      "result": "ok",
+      "error": null,
+      "entries": 21,
+      "first_item_id": "1706333112",
+      "audio_files": 0
+    },
+    {
+      "case": "youtube_audio",
+      "operation": "download",
+      "elapsed_seconds": 42.6,
+      "exit_code": 0,
+      "result": "ok",
+      "error": null,
+      "entries": null,
+      "first_item_id": null,
+      "audio_files": 1,
+      "effective_item_id": "YE7VzlLtp-4",
+      "output_filename": "processed.mp3",
+      "processing": "transcode",
+      "source_properties": {
+        "codec": "opus",
+        "bitrate_kbps": 130.501,
+        "sample_rate": 48000
+      },
+      "output_properties": {
+        "duration_seconds": 596.474208,
+        "codec": "mp3",
+        "container": "mp3",
+        "sample_rate": "48000",
+        "bitrate": "174564",
+        "file_size_bytes": 13016396
+      }
+    },
+    {
+      "case": "soundcloud_audio",
+      "operation": "download",
+      "elapsed_seconds": 20.6,
+      "exit_code": 0,
+      "result": "ok",
+      "error": null,
+      "entries": null,
+      "first_item_id": null,
+      "audio_files": 1,
+      "effective_item_id": "1706333112",
+      "output_filename": "audio.m4a",
+      "processing": "native",
+      "source_properties": {
+        "codec": "mp4a.40.2",
+        "bitrate_kbps": 160,
+        "sample_rate": null
+      },
+      "output_properties": {
+        "duration_seconds": 129.404807,
+        "codec": "aac",
+        "container": "m4a",
+        "sample_rate": "44100",
+        "bitrate": "160000",
+        "file_size_bytes": 2611406
+      }
+    }
+  ]
+}

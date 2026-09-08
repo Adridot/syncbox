@@ -1342,19 +1342,35 @@ def generate(root: Path) -> None:
         )
 
 
+def _is_text(path: Path, root: Path) -> bool:
+    return "texts" in path.relative_to(root).parts
+
+
 def compare(expected: Path, actual: Path) -> None:
+    """Committed material is the inventory, notices and LICENSE; every text is
+    pinned by sha256 inside the inventory, so texts themselves are not compared."""
     expected_files = {
         path.relative_to(expected): sha256(path)
         for path in expected.rglob("*")
-        if path.is_file()
+        if path.is_file() and not _is_text(path, expected)
     }
     actual_files = {
         path.relative_to(actual): sha256(path)
         for path in actual.rglob("*")
-        if path.is_file()
+        if path.is_file() and not _is_text(path, actual)
     }
     if expected_files != actual_files:
         raise SystemExit("release license material is stale")
+
+
+def materialize_texts(generated: Path, output: Path) -> None:
+    """Texts are not committed: write the freshly generated ones next to the
+    committed inventory so the PyInstaller specs can bundle them."""
+    for lane in ("base", "optional"):
+        target = output / lane / "texts"
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(generated / lane / "texts", target)
 
 
 def main() -> int:
@@ -1366,6 +1382,7 @@ def main() -> int:
         generate(generated)
         if args.check:
             compare(OUTPUT, generated)
+            materialize_texts(generated, OUTPUT)
         else:
             OUTPUT.parent.mkdir(parents=True, exist_ok=True)
             if OUTPUT.exists():
