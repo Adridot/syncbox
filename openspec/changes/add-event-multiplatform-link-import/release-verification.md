@@ -76,6 +76,36 @@ Hosted Release Pin run `34215403784` rebuilt both corrected archives. The Deezer
 was unchanged; the web-audio manifest was replaced wholesale with the hosted
 artifact (77,656,560 bytes, SHA-256
 `40b766dfe2e4c62edc828bab023103e79d6588e8be3dc785843ca665fc267ba0`).
-Task 7.1 remains open until the hosted builds and public release downloads have
-been verified. The release tag must not be created while a manifest or archive
-comparison fails.
+Final preflight [34216084549](https://github.com/Adridot/syncbox/actions/runs/34216084549)
+passed on `3d19a95`. Both applications passed the complete packaging scanner;
+the three ZIPs were byte-identical across the isolated roots. The application
+ZIP SHA-256 was `6b5f1ca3c21acd69ae30340aefe177e4010764d214379a92e8a39697a5edb01c`;
+both component hashes matched the committed manifests. The hosted run passed
+814 backend tests (11 skipped), 145 UI tests and all 33 web-audio tests.
+CI, all CodeQL language checks and Release Pin were green before merging PR #59.
+
+The squash merge `8177383e7de08e966c9754c3179066f9201a161b` has the same tree as
+the validated branch. Version checks passed again on `master`. A new annotated
+`v0.9.0` tag was pushed on that exact commit, triggering
+[release run 34217432908](https://github.com/Adridot/syncbox/actions/runs/34217432908).
+That attempt failed in the real cancellation test before publication. The
+cancellation signal handler stopped the process group, then the `finally`
+block stopped it again. macOS returned `EPERM` during the second cleanup.
+The release run was cancelled; no GitHub Release or asset was published.
+
+The follow-up removes the duplicate cleanup and tolerates a group permission
+error only when the leader is already reaped, retaining failure for a live
+leader. All 35 web-audio tests and five consecutive real cancellation tests
+passed locally. The existing `v0.9.0` tag still points to the original merge;
+the corrected component requires a new hosted pin and release validation.
+The owner explicitly authorized recreating the unpublished `v0.9.0` tag on
+2026-09-08, retaining version 0.9.0. The replacement will use an exact remote
+tag lease after the corrected hosted preflight passes. This is an authorized
+exception for the failed, unpublished release; published release tags remain
+immutable. Task 7.1 remains open pending successful publication and independent
+public download verification.
+
+Hosted Release Pin run `34218397887` rebuilt the corrected component. Both
+generated manifests were downloaded and installed whole; the Deezer pin was
+unchanged. The corrected web-audio archive is 77,656,556 bytes, SHA-256
+`61a85eef7ced0ae7788a53acbea8ad0b3d9788926acd1822efff65f0882fe880`.
