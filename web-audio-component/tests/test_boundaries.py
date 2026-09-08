@@ -8,6 +8,7 @@ import threading
 import time
 from io import BytesIO
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 from urllib.request import build_opener, ProxyHandler, Request
 
 import pytest
@@ -99,6 +100,19 @@ def test_supervisor_timeout_stops_worker(monkeypatch):
     with pytest.raises(runner.ComponentError, match="operation_timeout"):
         runner.supervise({"operation": "metadata"})
     assert processes[0].poll() is not None
+
+
+@pytest.mark.parametrize("returncode", [0, None])
+def test_group_permission_error_is_tolerated_only_after_exit(monkeypatch, returncode):
+    process = SimpleNamespace(pid=123, poll=lambda: returncode, wait=lambda timeout: returncode)
+    def refused_signal(*args):
+        raise PermissionError("synthetic group cleanup race")
+    monkeypatch.setattr(runner.os, "killpg", refused_signal)
+    if returncode is None:
+        with pytest.raises(PermissionError):
+            runner.stop_group(process)
+    else:
+        runner.stop_group(process)
 
 
 def test_supervisor_signal_cancels_worker_and_grandchild(tmp_path):

@@ -271,6 +271,10 @@ def stop_group(process):
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         return
+    except PermissionError:
+        # macOS may report EPERM for a group that has already finished.
+        if process.poll() is None:
+            raise
     try:
         process.wait(timeout=1)
     except subprocess.TimeoutExpired:
@@ -295,7 +299,6 @@ def supervise(request):
     process = subprocess.Popen([*command, "--worker"], stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
     def cancel(signum, frame):
-        stop_group(process)
         raise ComponentError("operation_cancelled")
     previous_handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
     for sig in previous_handlers:
