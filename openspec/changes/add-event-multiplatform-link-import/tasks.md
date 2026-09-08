@@ -48,7 +48,7 @@
 
 ## 7. Package and verify the integrated change
 
-- [ ] 7.1 Integrate the pinned optional web-audio archive and upgraded Deezer protocol into the existing manifest/install/update flow; verify checksums, runtime paths, supported target detection, license inventory, and applicable signing/notarization checks without adding downloader dependencies to the base bundle.
+- [x] 7.1 Integrate the pinned optional web-audio archive and upgraded Deezer protocol into the existing manifest/install/update flow; verify checksums, runtime paths, supported target detection, license inventory, and applicable signing/notarization checks without adding downloader dependencies to the base bundle.
 - [x] 7.2 Run backend regression checks for events, Spotify, acquisition API/worker/ownership, staging/adoption, refresh, removal, and guarded apply/reapply; verify a mixed-source collection with duplicate/unavailable entries through restart and event deletion.
 - [x] 7.3 Run `pnpm --dir ui test` and `pnpm --dir ui build`, then verify the packaged event workflow for single tracks and albums/playlists on all four providers using authorized samples; record actual outcomes rather than treating upstream support as a successful packaged test.
 - [x] 7.4 Update `docs/SPEC-UNIFIED.md` and relevant user/component documentation for the approved scope, exact-source versus Spotify policy, snapshot imports, access limits, and operational rollback; verify no current documentation still claims the new event flow is Spotify-only or excludes the shipped web-audio component.

@@ -1,0 +1,22 @@
+{
+  "version": "0.9.0",
+  "verified_assets": {
+    "Syncbox-0.9.0-macos-arm64.zip": {
+      "size": 29694455,
+      "sha256": "d2e537ee9fe997b9d626a847f3350ac7ccd4da8e341eeb3cb4417cba34ffb36b"
+    },
+    "syncbox-deezer-component-0.9.0-macos-arm64.zip": {
+      "size": 17467373,
+      "sha256": "acd8be0c6ff870372befbe00511a8e79625f82d48835d97d8c80e00ee569d072"
+    },
+    "syncbox-web-audio-component-0.9.0-macos-arm64.zip": {
+      "size": 77656556,
+      "sha256": "61a85eef7ced0ae7788a53acbea8ad0b3d9788926acd1822efff65f0882fe880"
+    },
+    "Syncbox-0.9.0-macos-arm64.dmg": {
+      "size": 31991433,
+      "sha256": "7007566ecedcb6d066b10e75b3a8de8c02fd1c7b784df9206713431047da2635"
+    }
+  },
+  "embedded_manifests_match": true
+}

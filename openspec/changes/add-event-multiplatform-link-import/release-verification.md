@@ -96,16 +96,59 @@ The release run was cancelled; no GitHub Release or asset was published.
 The follow-up removes the duplicate cleanup and tolerates a group permission
 error only when the leader is already reaped, retaining failure for a live
 leader. All 35 web-audio tests and five consecutive real cancellation tests
-passed locally. The existing `v0.9.0` tag still points to the original merge;
+passed locally. At that point, `v0.9.0` still pointed to the original merge;
 the corrected component requires a new hosted pin and release validation.
 The owner explicitly authorized recreating the unpublished `v0.9.0` tag on
-2026-09-08, retaining version 0.9.0. The replacement will use an exact remote
-tag lease after the corrected hosted preflight passes. This is an authorized
+2026-09-08, retaining version 0.9.0. The replacement was conditioned on an exact remote
+tag lease and a successful corrected hosted preflight. This is an authorized
 exception for the failed, unpublished release; published release tags remain
-immutable. Task 7.1 remains open pending successful publication and independent
-public download verification.
+immutable. At that checkpoint, task 7.1 remained open pending successful publication and
+independent public download verification.
 
 Hosted Release Pin run `34218397887` rebuilt the corrected component. Both
 generated manifests were downloaded and installed whole; the Deezer pin was
 unchanged. The corrected web-audio archive is 77,656,556 bytes, SHA-256
 `61a85eef7ced0ae7788a53acbea8ad0b3d9788926acd1822efff65f0882fe880`.
+
+Corrected preflight [34219264655](https://github.com/Adridot/syncbox/actions/runs/34219264655)
+passed on `211d1898f2f423ae4e014b3d9631e175bbda1e36`. Both builds and the
+three-ZIP reproducibility comparison passed. Hosted validation passed 814
+backend tests (11 skipped), 145 UI tests and all 35 web-audio tests. CI, all
+CodeQL language checks and Release Pin were green before merging PR #60.
+The corrected application ZIP SHA-256 is
+`d2e537ee9fe997b9d626a847f3350ac7ccd4da8e341eeb3cb4417cba34ffb36b`.
+
+PR #60 was squash-merged as `cd260c1904acf4d2817e9a54e1108e4a58305560`;
+its tree exactly matches the validated branch. With the owner's explicit
+approval and no existing GitHub Release or assets, `v0.9.0` was recreated on
+that commit using an exact lease against the previous remote tag object
+`6b5507d8e911a46ae26230677119899ee54fdaf6`. The new annotated tag object is
+`e2866176be4c31f0ef4686a63100503926aeca0c`. The push triggered automatic
+[release run 34220437037](https://github.com/Adridot/syncbox/actions/runs/34220437037).
+
+## Published release verification
+
+Automatic release run `34220437037` completed successfully on 2026-09-08.
+Both builds, the three-ZIP reproducibility comparison and publication passed.
+[Syncbox 0.9.0](https://github.com/Adridot/syncbox/releases/tag/v0.9.0) was
+published at 11:36:22 UTC and is the latest stable release (not a draft or
+prerelease). The release run passed 814 backend tests (11 skipped), 145 UI
+tests and all 35 web-audio tests.
+
+The application ZIP, DMG, Deezer ZIP, web-audio ZIP and `SHA256SUMS.txt` were
+downloaded independently over their public HTTPS URLs without authentication.
+Every size and SHA-256 matched. The application reports 0.9.0 in both bundle
+version fields, and its two embedded component manifests exactly match the
+repository manifests and published component bytes. Exact archive sizes and
+hashes are recorded in [release-download-verification.json](release-download-verification.json).
+
+After extraction with executable permissions preserved, the public web-audio
+component passed its JSON `check` operation (protocol 1, FFmpeg 9.0.1, Deno
+2.9.5). The public Deezer component passed `--check` (protocol 2, exact/effective
+item capabilities, image and cryptography checks, credential-file cleanup,
+TLS verification and no global configuration changes). The application passed
+`codesign --verify --deep --strict`. This verifies the existing ad-hoc signing
+contract; it does not claim Developer ID signing or notarization.
+
+Task 7.1 is complete. All 35 implementation tasks are checked off. The native
+UI observation limits recorded earlier remain unchanged.
