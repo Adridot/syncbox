@@ -1240,7 +1240,7 @@ def validate(
     }
     symlinks = validate_archive(app, archive.resolve(strict=True))
     component = validate_optional_component(component_archive, component_manifest)
-    source_secret_files = validate_source_secrets()
+    validate_source_secrets()
     return {
         "ok": True,
         "version": canonical,
@@ -1271,7 +1271,6 @@ def validate(
         "streamrip_component_in_base": False,
         "streamrip_importable_in_base": runtime["streamrip_importable"],
         "optional_component": component,
-        "source_secret_files_scanned": source_secret_files,
     }
 
 

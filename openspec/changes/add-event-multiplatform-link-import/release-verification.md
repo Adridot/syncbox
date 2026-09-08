@@ -53,6 +53,12 @@ same 77,659,135-byte web-audio ZIP, SHA-256
 Both frozen protocol checks passed. This is local reproducibility evidence,
 not the hosted release pin.
 
+CodeQL alert #2 was reattached to the changed packaging scanner. Its SARIF flow
+starts at the integer return value of `validate_source_secrets`, not file
+contents or credentials. The unused scanned-file counter was removed from the
+printed JSON report; the validation call and rejection behavior remain intact.
+No alert suppression or dismissal was added.
+
 Hosted Release Pin run `34212020132` rebuilt both corrected archives. The Deezer manifest
 was unchanged; the web-audio manifest was replaced wholesale with the hosted
 artifact (77,656,565 bytes, SHA-256
