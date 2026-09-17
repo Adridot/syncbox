@@ -12,9 +12,9 @@
   <img alt="Platform" src="https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-000000?logo=apple&logoColor=white">
 </p>
 
-[![Watch Syncbox: Find music in Spotify. Play it in Rekordbox.](docs/assets/syncbox-launch.jpg)](docs/assets/syncbox-launch.mp4)
+https://github.com/user-attachments/assets/4b2f23a7-0b5d-4ef5-9db7-7492ef37c65e
 
-[Watch the 22-second video](docs/assets/syncbox-launch.mp4) · 1080p · Music, no narration.
+[Download the 22-second video](docs/assets/syncbox-launch.mp4?raw=true) · 1080p · Music, no narration.
 Source-based interface recreation with illustrative data. [Video credits](docs/assets/launch-video-credits.md).
 
 ## What is Syncbox?
