@@ -12,7 +12,10 @@
   <img alt="Platform" src="https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-000000?logo=apple&logoColor=white">
 </p>
 
-![Syncbox Overview screen: a green banner confirms Rekordbox is closed and mutations are allowed, above collection counters, file health and genre distribution](docs/assets/dashboard.png)
+[![Watch Syncbox: Find music in Spotify. Play it in Rekordbox.](docs/assets/syncbox-launch.jpg)](docs/assets/syncbox-launch.mp4)
+
+[Watch the 22-second video](docs/assets/syncbox-launch.mp4) · 1080p · Music, no narration.
+Source-based interface recreation with illustrative data. [Video credits](docs/assets/launch-video-credits.md).
 
 ## What is Syncbox?
 
@@ -28,6 +31,8 @@ messy titles.
 
 It runs entirely on your Mac. There is no account to create and no server to
 sign in to.
+
+![Syncbox Overview screen: a green banner confirms Rekordbox is closed and mutations are allowed, above collection counters, file health and genre distribution](docs/assets/dashboard.png)
 
 ## Who it's for
 
