@@ -49,6 +49,7 @@ from syncbox import (
     appdb,
     dedup,
     event_remove,
+    event_source_reconcile,
     events_service,
     library_service,
     link_imports,
@@ -2206,6 +2207,28 @@ def acquisition_storage_migration(deps, request, body):
     )
 
 
+def events_source_reconciliation(deps, request, body):
+    _require_rekordbox(deps)
+    _require_storage(deps)
+    policy = deps.settings.get("isrc_collision_policy")
+    if request.method == "GET" or bool(body.get("dry_run", True)):
+        return event_source_reconcile.build_plan(
+            deps.conn, deps.storage_root, deps.db_path, isrc_collision_policy=policy
+        )
+    return event_source_reconcile.execute(
+        deps.conn,
+        deps.db_path,
+        deps.backups_root,
+        deps.cache(),
+        deps.storage_root,
+        body.get("plan"),
+        app_db_path=deps.app_db_path,
+        retention=deps.retention,
+        consent_to_permanent_delete=bool(body.get("consent_to_permanent_delete")),
+        isrc_collision_policy=policy,
+    )
+
+
 # --- duplicates (5.4, A3 per 5.12) ---------------------------------------------------
 
 
@@ -3021,6 +3044,11 @@ def routes(deps: Deps) -> list[Route]:
         r("/api/library/tracks/{track_id:int}/missing", track_mark_missing, ["POST"]),
         r("/api/library/tracks/{track_id:int}/ignore", track_ignore, ["POST"]),
         r("/api/library/tracks/{track_id:int}/restore", track_restore, ["POST"]),
+        r(
+            "/api/events/source-reconciliation",
+            events_source_reconciliation,
+            ["GET", "POST"],
+        ),
         r("/api/events", events_list, ["GET"]),
         r("/api/events", events_create, ["POST"]),
         r("/api/events/{event_id:int}", events_get, ["GET"]),

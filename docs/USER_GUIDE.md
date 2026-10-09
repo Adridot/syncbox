@@ -103,7 +103,9 @@ The Health hub contains five tabs:
 - **Missing**: repair missing Rekordbox file references;
 - **Untagged**: review structurally untagged or suspicious entries;
 - **Smart Fixes**: preview conservative metadata corrections before applying;
-- **Backups**: inspect, rotate, and restore guarded Rekordbox backups.
+- **Backups**: inspect, rotate, and restore guarded Rekordbox backups, and
+  reconcile event downloads whose recording (same ISRC) was already in the
+  collection.
 
 Audio-quality diagnostics are local and read-only. An uncertain spectral
 cutoff is keeper-neutral; it is not presented as proof of a lossy transcode.

@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from syncbox import event_delete, library_service, relink, source_identity
-from syncbox.matching import match
+from syncbox.matching import _isrc, match
 from syncbox.rb_write import (
     add_content,
     audio_metadata,
@@ -62,10 +62,6 @@ _SLUG_JUNK = re.compile(r"[^a-z0-9]+")
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _isrc(value) -> str:
-    return (value or "").strip().upper()
 
 
 def slugify(name: str) -> str:
@@ -355,9 +351,18 @@ def match_event_tracks(conn, event, cache, storage_root, **thresholds) -> list[d
             path = source_identity.known_file(conn, track)
             candidate = next((r for r in candidates if path and r.get("file_path") and
                               resolve_stored_path(r["file_path"], storage_root) == Path(path)), None)
+            if path is None and _isrc(track["isrc"]):
+                # Second identity proof after provenance: an equal ISRC under
+                # the matcher's duration guard. Fuzzy stays forbidden here, so
+                # a remix (its own ISRC) never lands on its original.
+                same = [r for r in candidates if _isrc(r.get("isrc")) == _isrc(track["isrc"])]
+                result = match({"title": track["title"], "duration_ms": track["duration_ms"],
+                                "isrc": track["isrc"]}, same, **thresholds)
+                if result.method == "isrc":
+                    candidate = {"content_id": result.content_id}
             status = "matched" if candidate else "ready" if path else "missing"
             content_id = candidate["content_id"] if candidate else None
-            confidence = 100 if path else None
+            confidence = 100 if candidate or path else None
             conn.execute(
                 "UPDATE event_tracks SET status = ?, content_id = ?, confidence = ?, staging_file_path = ?, updated_at = ? WHERE id = ?",
                 (status, content_id, confidence, path, now, track["id"]),
@@ -589,10 +594,13 @@ def apply_event(
     tracks = list_event_tracks(conn, event["id"])
     applicable = [t for t in tracks if t["status"] in ("matched", "ready")]
     direct_matches = [track for track in applicable if track["status"] == "matched" and source_identity.exact_source(track)]
-    current_paths = {str(row["content_id"]): row.get("file_path") for row in cache.get(storage_root)} if direct_matches else {}
+    current = {str(row["content_id"]): row for row in cache.get(storage_root)} if direct_matches else {}
     invalid_matches = []
     for track in direct_matches:
-        stored_path = current_paths.get(str(track["content_id"]))
+        content = current.get(str(track["content_id"]), {})
+        if _isrc(track["isrc"]) and _isrc(content.get("isrc")) == _isrc(track["isrc"]):
+            continue  # the ISRC identity proof still holds on the active content
+        stored_path = content.get("file_path")
         path = resolve_stored_path(stored_path, storage_root) if stored_path else None
         if not source_identity.eligible_file(conn, track, path):
             conn.execute("UPDATE event_tracks SET status = 'missing', content_id = NULL, confidence = NULL WHERE id = ?", (track["id"],))

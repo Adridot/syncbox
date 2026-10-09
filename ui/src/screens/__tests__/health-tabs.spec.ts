@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { setConsentBroker } from '../../api/client'
 import { i18n } from '../../i18n'
 import { router } from '../../router'
 import { useHealthStore } from '../../stores/health'
@@ -186,6 +187,101 @@ test('a cleanup-only storage plan is visible and executable', async () => {
   expect(wrapper.get('.banner[data-tone="success"]').text()).toContain(
     '1 dossier de job nettoyé',
   )
+})
+
+test('source reconciliation previews, executes the exact plan and retries after consent', async () => {
+  const path = '/storage/_syncbox/events/gig/audio/take-on-me.flac'
+  const plan = {
+    dry_run: true,
+    plan_version: 1,
+    fingerprint: [['1', '2']],
+    items: [
+      {
+        track_id: 4,
+        event_id: 1,
+        event_name: 'Thibault & Alix',
+        title: 'Take on Me',
+        artist: 'a-ha',
+        isrc: 'NOA000000001',
+        status: 'ready',
+        action: 'rematch',
+        content_id: '77',
+        duplicate_content_id: null,
+        tag_id: null,
+        file: { path },
+      },
+    ],
+    skipped: [
+      {
+        track_id: 5,
+        event_id: 1,
+        event_name: 'Thibault & Alix',
+        title: 'Brand New',
+        artist: 'X',
+        isrc: 'FR0000000005',
+        status: 'ready',
+        reason: 'no_candidate',
+      },
+    ],
+    isrc_coverage: {
+      rows_with_isrc: 2,
+      rows_without_isrc: 0,
+      rows_with_candidate: 1,
+      downloads_without_isrc: [],
+      non_alphanumeric_isrcs: 0,
+    },
+  }
+  const posts: Array<Record<string, unknown>> = []
+  const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    const route = new URL(url).pathname
+    if (route === '/api/events/source-reconciliation' && init?.method === 'POST') {
+      const body = JSON.parse(init.body as string)
+      posts.push(body)
+      if (!body.consent_to_permanent_delete) {
+        const refusal = { error: 'consent_required', consent: 'permanent_delete', message: 'no trash', path }
+        return Promise.resolve({ ok: false, status: 428, json: () => Promise.resolve(refusal) })
+      }
+      const done = { ...plan, dry_run: false, trashed_files: [path], cleanup_pending: [], consent_required: false }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(done) })
+    }
+    const payload =
+      route === '/api/events/source-reconciliation'
+        ? plan
+        : route === '/api/acquisition/storage-migration'
+          ? { items: [], cleanup_directories: [], ignored: [] }
+          : route === '/api/doctor/backups'
+            ? { backups: [] }
+            : { configured: false, lines: [] }
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(payload) })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const broker = vi.fn().mockResolvedValue(true)
+  setConsentBroker(broker)
+
+  try {
+    const wrapper = mountBackups()
+    await flushPromises()
+
+    const block = wrapper.get('.card.reconcile')
+    expect(block.text()).toContain('1 téléchargement pas encore importé')
+    expect(block.text()).toContain('ISRC : 2 titres avec, 0 sans, 1 trouvés dans la collection')
+    expect(block.text()).toContain('Take on Me')
+    expect(block.text()).toContain('Aucun titre de la collection ne porte cet ISRC.')
+
+    await block.get('.restore').trigger('click')
+    await flushPromises()
+
+    expect(broker).toHaveBeenCalledOnce()
+    expect(posts).toEqual([
+      { dry_run: false, plan },
+      { dry_run: false, plan, consent_to_permanent_delete: true },
+    ])
+    expect(wrapper.get('.banner[data-tone="success"]').text()).toContain(
+      '1 téléchargement mis à la corbeille',
+    )
+  } finally {
+    setConsentBroker(null)
+  }
 })
 
 test('B1: a failed scan click surfaces the backend message — never a silent no-op', async () => {

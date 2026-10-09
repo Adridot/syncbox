@@ -915,6 +915,34 @@ def test_event_delete_preview_default_and_consent_428(tmp_path, monkeypatch):
     assert seen[-1] == {"dry_run": False, "plan": preview_plan, "consent": True}
 
 
+def test_source_reconciliation_previews_then_executes_with_consent(tmp_path, monkeypatch):
+    env = make_env(tmp_path)
+    env.deps.settings.update({"isrc_collision_policy": "strict"})
+    preview_plan = {"dry_run": True, "plan_version": 1, "items": [{"track_id": 1}]}
+    seen = []
+    monkeypatch.setattr(api.event_source_reconcile, "build_plan",
+                        lambda conn, storage, db, *, isrc_collision_policy: (
+                            seen.append(("plan", isrc_collision_policy)) or preview_plan))
+
+    def fake_execute(conn, db, backups, cache, storage, plan, *, consent_to_permanent_delete, **kwargs):
+        seen.append(("execute", plan, consent_to_permanent_delete, kwargs["isrc_collision_policy"]))
+        if not consent_to_permanent_delete:
+            raise PermanentDeleteConsentRequired(Path("/vol/x.mp3"), OSError("no trash"))
+        return {**plan, "dry_run": False, "trashed_files": ["/vol/x.mp3"]}
+
+    monkeypatch.setattr(api.event_source_reconcile, "execute", fake_execute)
+    url = "/api/events/source-reconciliation"
+    assert env.client.get(url).json() == preview_plan
+    assert env.client.post(url, json={}).json() == preview_plan  # dry run is the default
+    blocked = env.client.post(url, json={"dry_run": False, "plan": preview_plan})
+    assert blocked.status_code == 428 and blocked.json()["consent"] == "permanent_delete"
+    ok = env.client.post(url, json={"dry_run": False, "plan": preview_plan,
+                                    "consent_to_permanent_delete": True})
+    assert ok.status_code == 200 and ok.json()["dry_run"] is False
+    assert seen == [("plan", "strict"), ("plan", "strict"),
+                    ("execute", preview_plan, False, "strict"), ("execute", preview_plan, True, "strict")]
+
+
 def _staged_event_track(env, event, title, *, status, content_id=None, filename=None):
     """One event track row, with its staged file on disk when named."""
     path = None
