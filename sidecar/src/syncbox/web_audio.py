@@ -12,7 +12,7 @@ import time
 from syncbox import acquisition
 
 NAME = "syncbox-web-audio-component"
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 
 def component_root(data_dir):
