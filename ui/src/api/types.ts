@@ -353,6 +353,45 @@ export interface PerformanceLive {
   tracks: PerformanceTrack[]
 }
 
+/** GET/POST /api/events/source-reconciliation: exact-source downloads that
+    duplicate an ISRC-equal collection content. Execute echoes the plan. */
+export interface SourceReconciliationRow {
+  track_id: number
+  event_id: number
+  event_name: string
+  title: string | null
+  artist: string | null
+  isrc: string | null
+  status: string
+}
+export interface SourceReconciliationPlan {
+  dry_run: boolean
+  plan_version: number
+  fingerprint: unknown
+  items: Array<
+    SourceReconciliationRow & {
+      action: 'rematch' | 'replace' | 'cleanup'
+      content_id: string
+      duplicate_content_id: string | null
+      tag_id: string | null
+      file: { path: string }
+    }
+  >
+  skipped: Array<SourceReconciliationRow & { reason: string }>
+  isrc_coverage: {
+    rows_with_isrc: number
+    rows_without_isrc: number
+    rows_with_candidate: number
+    downloads_without_isrc: Array<{ content_id: string; title: string | null; path: string }>
+    non_alphanumeric_isrcs: number
+  }
+}
+export interface SourceReconciliationResult extends SourceReconciliationPlan {
+  trashed_files: string[]
+  cleanup_pending: Array<{ track_id: number; path: string; reason: string }>
+  consent_required: boolean
+}
+
 export interface BackupInfo {
   name: string
   files: string[]

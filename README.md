@@ -94,8 +94,10 @@ never needed for anything else in the app.
 
 Event link imports provide snapshot previews for Spotify/Deezer tracks,
 albums and playlists, YouTube/YouTube Music links and SoundCloud tracks/sets.
-Direct-source rows preserve the linked recording; Spotify retains its existing
-Deezer association. YouTube and SoundCloud use the separate, opt-in web-audio
+Direct-source rows preserve the linked recording: an existing collection track
+is reused only when it carries the same ISRC, never because its title or artist
+looks alike, so a remix is not taken for its original. Spotify retains its
+existing Deezer association. YouTube and SoundCloud use the separate, opt-in web-audio
 component, distributed alongside the application with pinned dependency notices.
 See [component setup and limits](web-audio-component/README.md).
 

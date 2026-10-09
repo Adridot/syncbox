@@ -256,6 +256,51 @@ def test_match_event_tracks_retries_acquisition_failure(conn, tmp_path):
     assert list_event_tracks(conn, event["id"])[0]["status"] == "matched"
 
 
+def _deezer(conn, event, item_id, title, isrc):
+    return add_track(conn, event, resolved_source={
+        "provider": "deezer", "item_id": item_id, "url": f"https://www.deezer.com/track/{item_id}",
+        "title": title, "artist": "Artist", "duration_ms": 200_000, "isrc": isrc,
+    })
+
+
+def test_exact_source_matches_by_isrc_never_by_fuzzy(conn, tmp_path):
+    storage = tmp_path / "storage"
+    event = create_event(conn, storage, "Deezer Night")
+    isrc_hit = _deezer(conn, event, "1", "Song", "fraaa0000001 ")
+    fuzzy_only = _deezer(conn, event, "2", "Song", None)
+    remix = _deezer(conn, event, "3", "Song (Remix)", "FRBBB0000002")
+    proven = _deezer(conn, event, "4", "Song", "FRAAA0000001")
+    staged = Path(event["staging_dir"]) / "audio" / "proven.mp3"
+    staged.write_bytes(b"provenance bytes")
+    conn.execute(
+        "INSERT INTO acquisition_jobs (provider, scope, ref, status, phase, effective_source_item_id,"
+        " published_path, published_sha256) VALUES ('deezer', 'event', ?, 'downloaded', 'published', '4', ?, ?)",
+        (str(proven["id"]), str(staged), _sha256(staged)),
+    )
+    cache = FakeCache([{"content_id": "orig", "title": "Song", "artist": "Artist",
+                        "duration_ms": 200_000, "isrc": "FRAAA0000001", "file_path": "/music/song.mp3"}])
+
+    match_event_tracks(conn, event, cache, storage)
+    rows = {t["id"]: t for t in list_event_tracks(conn, event["id"])}
+
+    assert (rows[isrc_hit["id"]]["status"], rows[isrc_hit["id"]]["content_id"],
+            rows[isrc_hit["id"]]["confidence"]) == ("matched", "orig", 100)
+    assert rows[fuzzy_only["id"]]["status"] == "missing"
+    assert rows[remix["id"]]["status"] == "missing"
+    assert (rows[proven["id"]]["status"], rows[proven["id"]]["staging_file_path"],
+            rows[proven["id"]]["content_id"]) == ("ready", str(staged.resolve()), None)
+
+
+def test_exact_source_isrc_match_respects_the_duration_guard(conn, tmp_path):
+    storage = tmp_path / "storage"
+    event = create_event(conn, storage, "Guarded")
+    _deezer(conn, event, "1", "Song", "FRAAA0000001")
+    cache = FakeCache([{"content_id": "other", "title": "Totally Different", "artist": "X",
+                        "duration_ms": 400_000, "isrc": "FRAAA0000001", "file_path": "/m.mp3"}])
+    match_event_tracks(conn, event, cache, storage)
+    assert list_event_tracks(conn, event["id"])[0]["status"] == "missing"
+
+
 # --- staging claims (5.7 claim rule) -----------------------------------------------
 
 
@@ -1000,6 +1045,36 @@ def test_apply_reclassifies_ready_track_with_vanished_staged_file(
     # actionable again in the Missing center
     missing_ids = {e["id"] for e in missing_service.list_missing(conn, "event")}
     assert stale["id"] in missing_ids
+
+
+def test_apply_reverifies_isrc_for_exact_source_matches(conn, tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    event = create_event(conn, storage, "Apply ISRC")
+    kept = _deezer(conn, event, "1", "Kept", "FRAAA0000001")
+    lost = _deezer(conn, event, "2", "Lost", "FRAAA0000002")
+    for track, content_id in ((kept, "C1"), (lost, "C2")):
+        conn.execute("UPDATE event_tracks SET status = 'matched', content_id = ?, confidence = 100"
+                     " WHERE id = ?", (content_id, track["id"]))
+
+    @contextmanager
+    def fake_mutate(db_path, backups_root, **kwargs):
+        yield "db"
+
+    _fake_apply_helpers(monkeypatch, fake_mutate)
+    tagged = []
+    monkeypatch.setattr(events_service, "tag_content", lambda db, c, t: tagged.append(c))
+    cache = FakeCache([
+        {"content_id": "C1", "isrc": "fraaa0000001", "file_path": "/music/kept.mp3"},
+        {"content_id": "C2", "isrc": "", "file_path": "/music/lost.mp3"},  # retagged in Rekordbox
+    ])
+
+    result = apply_event(conn, tmp_path / "master.db", tmp_path / "b", cache, storage, event)
+
+    assert tagged == ["C1"]
+    assert result["applied"] == 1 and result["reclassified_missing"] == [lost["id"]]
+    rows = {t["id"]: t for t in list_event_tracks(conn, event["id"])}
+    assert rows[kept["id"]]["status"] == "applied"
+    assert (rows[lost["id"]]["status"], rows[lost["id"]]["content_id"]) == ("missing", None)
 
 
 def test_delete_event_forwards_exact_plan_and_consent(conn, tmp_path, monkeypatch):

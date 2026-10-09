@@ -6,7 +6,11 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, api } from '../../api/client'
-import type { BackupInfo } from '../../api/types'
+import type {
+  BackupInfo,
+  SourceReconciliationPlan,
+  SourceReconciliationResult,
+} from '../../api/types'
 import LoadingState from '../../components/LoadingState.vue'
 import { useRefreshOnReturn } from '../../lib/refresh'
 import { revealInFolder } from '../../shell'
@@ -49,6 +53,8 @@ interface StorageMigrationPlan {
 }
 const migration = ref<StorageMigrationPlan | null>(null)
 const migrationBusy = ref(false)
+const reconciliation = ref<SourceReconciliationPlan | null>(null)
+const reconcileBusy = ref(false)
 const logs = ref<{
   configured: boolean
   path?: string
@@ -73,6 +79,13 @@ async function load() {
     migration.value = await api.get<StorageMigrationPlan>('/api/acquisition/storage-migration')
   } catch {
     migration.value = null
+  }
+  try {
+    reconciliation.value = await api.get<SourceReconciliationPlan>(
+      '/api/events/source-reconciliation',
+    )
+  } catch {
+    reconciliation.value = null
   }
   try {
     logs.value = await api.get<{
@@ -156,6 +169,37 @@ async function migrateStorage() {
   }
 }
 
+// A 428 (trash unavailable) goes through the client's consent loop and is
+// re-sent with the same plan; a refusal after the Rekordbox commit comes back
+// as cleanup_pending and the reloaded preview offers it as a cleanup item.
+async function reconcile() {
+  if (!reconciliation.value?.items.length) return
+  reconcileBusy.value = true
+  banner.value = null
+  try {
+    const result = await api.post<SourceReconciliationResult>(
+      '/api/events/source-reconciliation',
+      { dry_run: false, plan: reconciliation.value },
+    )
+    const kept = result.cleanup_pending.length
+    banner.value = {
+      tone: 'success',
+      text:
+        t('backups.reconcile.done', result.trashed_files.length) +
+        (kept ? ` · ${t('backups.reconcile.kept', kept)}` : ''),
+    }
+    await load()
+  } catch (cause) {
+    banner.value = { tone: 'error', text: describe(cause) }
+  } finally {
+    reconcileBusy.value = false
+  }
+}
+
+function reconcileCount(action: 'rematch' | 'replace' | 'cleanup'): number {
+  return reconciliation.value?.items.filter((item) => item.action === action).length ?? 0
+}
+
 function sizeLabel(bytes: number): string {
   if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`
   if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`
@@ -182,6 +226,7 @@ function reasonLabel(reason?: string | null): string {
     'untagged_remove',
     'smart_fixes',
     'acquisition_storage_migration',
+    'event_source_reconciliation',
     'legacy_metadata_backfill',
     'pre_restore',
   ])
@@ -280,6 +325,105 @@ function reasonLabel(reason?: string | null): string {
             <b>{{ item.title || t('missing.untitled') }}</b> —
             {{ t(`backups.migration.reason.${item.reason}`) }}
             <div class="mono path">{{ item.source_path }}</div>
+          </div>
+        </details>
+      </div>
+      <div
+        v-if="
+          reconciliation?.items &&
+          (reconciliation.items.length ||
+            reconciliation.isrc_coverage.downloads_without_isrc.length)
+        "
+        class="card full reconcile"
+      >
+        <div class="card-head">
+          <div>
+            <h3>{{ t('backups.reconcile.title') }}</h3>
+            <p class="migration-lead">{{ t('backups.reconcile.lead') }}</p>
+          </div>
+          <button
+            class="restore"
+            :disabled="
+              (status.rbOpen && reconcileCount('replace') > 0) ||
+              jobs.jobRunning ||
+              reconcileBusy ||
+              !reconciliation.items.length
+            "
+            @click="reconcile"
+          >
+            {{ t('backups.reconcile.confirm', reconciliation.items.length) }}
+          </button>
+        </div>
+        <div class="migration-counts">
+          <span>{{ t('backups.reconcile.rematch', reconcileCount('rematch')) }}</span>
+          <span>{{ t('backups.reconcile.replace', reconcileCount('replace')) }}</span>
+          <span v-if="reconcileCount('cleanup')">
+            {{ t('backups.reconcile.cleanup', reconcileCount('cleanup')) }}
+          </span>
+          <span v-if="reconciliation.skipped.length" class="warning">
+            {{ t('backups.migration.ignored', reconciliation.skipped.length) }}
+          </span>
+        </div>
+        <div class="migration-counts coverage">
+          <span>{{
+            t('backups.reconcile.coverage', {
+              with: reconciliation.isrc_coverage.rows_with_isrc,
+              without: reconciliation.isrc_coverage.rows_without_isrc,
+              found: reconciliation.isrc_coverage.rows_with_candidate,
+            })
+          }}</span>
+          <span
+            v-if="reconciliation.isrc_coverage.downloads_without_isrc.length"
+            class="warning"
+          >
+            {{
+              t(
+                'backups.reconcile.downloadsWithoutIsrc',
+                reconciliation.isrc_coverage.downloads_without_isrc.length,
+              )
+            }}
+          </span>
+          <span v-if="reconciliation.isrc_coverage.non_alphanumeric_isrcs" class="warning">
+            {{
+              t(
+                'backups.reconcile.oddIsrcs',
+                reconciliation.isrc_coverage.non_alphanumeric_isrcs,
+              )
+            }}
+          </span>
+        </div>
+        <details v-if="reconciliation.items.length">
+          <summary>{{ t('backups.reconcile.readyDetails') }}</summary>
+          <div
+            v-for="item in reconciliation.items"
+            :key="item.track_id"
+            class="migration-item"
+          >
+            <b>{{ item.title || t('missing.untitled') }}</b> — {{ item.artist || '—' }} ·
+            {{ item.event_name }} · {{ t(`backups.reconcile.action.${item.action}`) }}
+            <div class="mono path">{{ item.file.path }}</div>
+          </div>
+        </details>
+        <details v-if="reconciliation.isrc_coverage.downloads_without_isrc.length" open>
+          <summary>{{ t('backups.reconcile.downloadsWithoutIsrcDetails') }}</summary>
+          <div
+            v-for="item in reconciliation.isrc_coverage.downloads_without_isrc"
+            :key="item.content_id"
+            class="migration-item warning"
+          >
+            <b>{{ item.title || t('missing.untitled') }}</b>
+            <div class="mono path">{{ item.path }}</div>
+          </div>
+        </details>
+        <details v-if="reconciliation.skipped.length">
+          <summary>{{ t('backups.migration.ignoredDetails') }}</summary>
+          <div
+            v-for="item in reconciliation.skipped"
+            :key="`skipped-${item.track_id}`"
+            class="migration-item"
+          >
+            <b>{{ item.title || t('missing.untitled') }}</b> — {{ item.event_name }} ·
+            {{ t(`backups.reconcile.reason.${item.reason}`) }}
           </div>
         </details>
       </div>

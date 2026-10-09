@@ -128,7 +128,8 @@ def test_direct_source_never_claims_similar_audio_without_identity(conn, tmp_pat
     audio = tmp_path / "Similar original.mp3"
     audio.write_bytes(b"fixture original")
     track = events_service.add_track(conn, event, resolved_source={"provider": "deezer", "item_id": "101", "url": "https://www.deezer.com/track/101", "title": "Similar original", "isrc": "GBXXX1234567"})
-    cache = SimpleNamespace(get=lambda _: [{"content_id": "999", "file_path": str(audio), "title": track["title"], "isrc": track["isrc"]}])
+    # Same title, no ISRC on the collection side: only provenance may associate it.
+    cache = SimpleNamespace(get=lambda _: [{"content_id": "999", "file_path": str(audio), "title": track["title"], "isrc": None}])
     assert events_service.match_event_tracks(conn, event, cache, tmp_path)[0]["status"] == "missing"
     assert events_service.claim_staged_files(conn, event) == []
     conn.execute("UPDATE event_tracks SET status = 'ready', staging_file_path = ? WHERE id = ?", (str(audio), track["id"]))
