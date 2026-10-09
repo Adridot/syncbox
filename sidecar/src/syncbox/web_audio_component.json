@@ -1,13 +1,13 @@
 {
   "component": "syncbox-web-audio-component",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "protocol_version": 1,
   "platform": "macos-arm64",
-  "archive": "syncbox-web-audio-component-0.9.0-macos-arm64.zip",
+  "archive": "syncbox-web-audio-component-0.10.0-macos-arm64.zip",
   "size": 77656556,
-  "sha256": "61a85eef7ced0ae7788a53acbea8ad0b3d9788926acd1822efff65f0882fe880",
+  "sha256": "b24f738ba7700510b229b269b5ea92400b7d056e4f7df2052162cf749763ec77",
   "license_inventory_complete": true,
-  "component_version": "0.9.0",
+  "component_version": "0.10.0",
   "root": "syncbox-web-audio-component",
   "executable": "syncbox-web-audio-component",
   "versions": {
@@ -16,5 +16,5 @@
   },
   "ffmpeg": "ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers",
   "deno": "deno 2.9.5 (stable, release, aarch64-apple-darwin)",
-  "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.9.0/syncbox-web-audio-component-0.9.0-macos-arm64.zip"
+  "download_url": "https://github.com/Adridot/syncbox/releases/download/v0.10.0/syncbox-web-audio-component-0.10.0-macos-arm64.zip"
 }
