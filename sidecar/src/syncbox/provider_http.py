@@ -47,10 +47,31 @@ def validate_url(url, hosts):
         raise ValueError("unsupported_network_destination") from None
 
 
+# Per-address connect budget. A network with broken IPv6 resolves AAAA first;
+# without a cap the first dead address eats the whole deadline and the working
+# IPv4 address is never tried (browsers survive this via Happy Eyeballs).
+CONNECT_ATTEMPT_TIMEOUT = 3
+
+
+def _interleave_families(addresses):
+    """RFC 8305 section 4 ordering: alternate address families, keep resolver order."""
+    by_family = {}
+    for entry in addresses:
+        by_family.setdefault(entry[0], []).append(entry)
+    queues = list(by_family.values())
+    ordered = []
+    while any(queues):
+        for family_queue in queues:
+            if family_queue:
+                ordered.append(family_queue.pop(0))
+    return ordered
+
+
 def public_connection(address, timeout=15, source_address=None):
     last_error = None
     deadline = time.monotonic() + timeout
-    for family, kind, proto, _, sockaddr in _addresses(address, timeout):
+    candidates = _interleave_families(_addresses(address, timeout))
+    for index, (family, kind, proto, _, sockaddr) in enumerate(candidates):
         ip = ipaddress.ip_address(sockaddr[0])
         if not ip.is_global or (ip.version == 6 and ip.ipv4_mapped and not ip.ipv4_mapped.is_global):
             raise ValueError("private_network_destination")
@@ -59,7 +80,8 @@ def public_connection(address, timeout=15, source_address=None):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("provider_timeout")
-            sock.settimeout(remaining)
+            last_candidate = index == len(candidates) - 1
+            sock.settimeout(remaining if last_candidate else min(remaining, CONNECT_ATTEMPT_TIMEOUT))
             sock.connect(sockaddr)
             sock.settimeout(max(.001, deadline - time.monotonic()))
             return sock

@@ -21,6 +21,7 @@ tests; the only outbound network calls in the whole sidecar are here.
 import base64
 import hashlib
 import json
+import logging
 import secrets as pysecrets
 import ssl
 import threading
@@ -31,6 +32,8 @@ import urllib.request
 
 import certifi
 from syncbox import provider_http
+
+log = logging.getLogger(__name__)
 
 AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -165,6 +168,14 @@ class SpotifyAuth:
         except SpotifyApiError as exc:
             self._authorization_result = "error"
             return {"ok": False, "error": f"token_exchange_failed_{exc.status_code}"}
+        except Exception as exc:
+            # Network/transport failure: the state is already consumed, so the
+            # attempt must end as a visible error, not a silent null result
+            # (the UI would report a timeout and a browser retry would hit
+            # state_mismatch).
+            log.warning("spotify token exchange failed: %r", exc)
+            self._authorization_result = "error"
+            return {"ok": False, "error": "token_exchange_unreachable"}
         self._authorization_result = "ok"
         return {"ok": True}
 
