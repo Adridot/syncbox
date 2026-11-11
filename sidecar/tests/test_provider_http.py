@@ -24,7 +24,36 @@ def test_all_address_attempts_share_one_connection_deadline(monkeypatch):
     monkeypatch.setattr(provider_http.socket, 'socket', lambda *a: Socket())
     with pytest.raises(TimeoutError):
         provider_http.public_connection(('example.com', 443), timeout=15)
-    assert len(attempts) == 1 and clock[0] == 15
+    # Each address is capped so one dead address cannot starve the rest, but
+    # all attempts together still never exceed the single deadline.
+    assert len(attempts) == 15 // provider_http.CONNECT_ATTEMPT_TIMEOUT
+    assert clock[0] == 15
+
+
+def test_dead_ipv6_falls_back_to_ipv4_within_the_deadline(monkeypatch):
+    clock = [0]
+    attempts = []
+    monkeypatch.setattr(provider_http.time, 'monotonic', lambda: clock[0])
+    v6 = [(socket.AF_INET6, socket.SOCK_STREAM, 0, '', (f'2a04:4e42:{i}::810', 443, 0, 0)) for i in range(4)]
+    v4 = [(socket.AF_INET, socket.SOCK_STREAM, 0, '', (f'151.101.{i}.42', 443)) for i in range(4)]
+    monkeypatch.setattr(provider_http, '_addresses', lambda *a: v6 + v4)
+    class Socket:
+        def __init__(self, family):
+            self.family = family
+        def settimeout(self, timeout):
+            self.timeout = timeout
+        def connect(self, address):
+            attempts.append(address[0])
+            if self.family == socket.AF_INET6:
+                clock[0] += self.timeout
+                raise TimeoutError('fixture: no IPv6 route')
+        def close(self):
+            pass
+    monkeypatch.setattr(provider_http.socket, 'socket', lambda family, *a: Socket(family))
+    sock = provider_http.public_connection(('accounts.spotify.com', 443), timeout=15)
+    assert sock.family == socket.AF_INET
+    assert attempts == ['2a04:4e42:0::810', '151.101.0.42']
+    assert clock[0] == provider_http.CONNECT_ATTEMPT_TIMEOUT
 
 
 def test_dns_wait_is_bounded_and_private_addresses_never_connect(monkeypatch):

@@ -130,6 +130,22 @@ def test_callback_rejects_state_mismatch_error_and_missing_code():
     assert auth.authorization_status() == {"pending": False, "result": "error"}
 
 
+def test_callback_transport_failure_ends_attempt_as_error():
+    auth, _, _ = make_auth()
+
+    def unreachable(*args, **kwargs):
+        raise TimeoutError("provider_timeout")
+
+    auth._transport = unreachable
+    auth.begin_authorization()
+    state = auth._state
+    assert auth.handle_callback({"code": "c", "state": state}) == {
+        "ok": False,
+        "error": "token_exchange_unreachable",
+    }
+    assert auth.authorization_status() == {"pending": False, "result": "error"}
+
+
 def test_authorization_state_expires_with_the_ui_poll_window():
     now = [100.0]
     auth, _, _ = make_auth(clock=lambda: now[0])
